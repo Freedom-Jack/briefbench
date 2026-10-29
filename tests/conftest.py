@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from briefbench import cli
+from briefbench import cli, openai_compat
 from briefbench.log import data_dir, read_entries
 from briefbench.provider import Completion, ProviderInfo, Usage
 
@@ -64,6 +64,7 @@ def pytest_sessionfinish(session, exitstatus):
 def hermetic(request, monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("BRIEFBENCH_HOME", str(tmp_path / "bbhome"))
+    monkeypatch.setattr(openai_compat, "_OPENERS", {})     # openers read the proxy settings once, when built
     if request.node.get_closest_marker("live") is None:
         for name in KEY_ENVS:
             monkeypatch.delenv(name, raising=False)
@@ -122,12 +123,18 @@ class FakeProvider:
 
 
 def go(argv, *, stdin=None, fake=None, tty_err=False, environ=None):
-    """Run `briefbench rewrite ARGV` with the fake provider. Returns (code, stdout, stderr, fake)."""
+    """Run `briefbench rewrite ARGV` with the fake provider. Returns (code, stdout, stderr, fake);
+    fake.selection is the Selection the CLI built."""
     fake = fake if fake is not None else FakeProvider()
     out, err = io.StringIO(), Err(tty_err)
     env = dict(os.environ) if environ is None else environ
+
+    def make_provider(selection, on_retry=None):
+        fake.selection = selection
+        return fake
+
     code = cli.run(["rewrite", *argv], stdin=stdin if stdin is not None else io.StringIO(""), stdout=out,
-                   stderr=err, environ=env, make_provider=lambda sel, on_retry=None: fake)
+                   stderr=err, environ=env, make_provider=make_provider)
     return code, out.getvalue(), err.getvalue(), fake
 
 
@@ -152,10 +159,15 @@ def _serve():
         def log_message(self, *args):
             pass
 
+        def do_CONNECT(self):                        # as an HTTPS proxy: record the tunnel asked for, and refuse it
+            state.requests.append({"method": "CONNECT", "path": self.path, "headers": dict(self.headers), "json": None})
+            self.send_error(502)
+
         def do_POST(self):
             raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-            state.requests.append({"path": self.path, "headers": dict(self.headers), "json": json.loads(raw)})
-            status, body, headers, delay, drop = state.replies.pop(0)
+            state.requests.append({"method": "POST", "path": self.path, "headers": dict(self.headers),
+                                   "json": json.loads(raw)})
+            status, body, headers, delay, drop, short = state.replies.pop(0)
             if drop:
                 self.connection.shutdown(socket.SHUT_RDWR)
                 return
@@ -167,7 +179,7 @@ def _serve():
                     self.send_header(k, v)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
-                self.wfile.write(data)
+                self.wfile.write(data[:len(data) // 2] if short else data)    # short: then close cleanly
             except OSError:
                 pass
 
@@ -175,8 +187,8 @@ def _serve():
     server.handle_error = lambda *a: None
     threading.Thread(target=server.serve_forever, daemon=True).start()
     state.url = f"http://127.0.0.1:{server.server_port}/v1"
-    state.reply = lambda status=200, body=None, headers=None, delay=0.0, drop=False: state.replies.append(
-        (status, chat(GOOD_REPLY) if body is None else body, headers or {}, delay, drop))
+    state.reply = lambda status=200, body=None, headers=None, delay=0.0, drop=False, short=False: state.replies.append(
+        (status, chat(GOOD_REPLY) if body is None else body, headers or {}, delay, drop, short))
     try:
         yield state
     finally:
@@ -187,9 +199,11 @@ def _serve():
 @pytest.fixture
 def stub():
     """ThreadingHTTPServer on 127.0.0.1:0 in a daemon thread. stub.reply(status=200, body=None,
-    headers=None, delay=0.0, drop=False) queues one reply (body None = chat(GOOD_REPLY); bytes,
-    dict or list accepted; drop=True shuts the socket without replying). stub.requests records
-    {path, headers, json} per request. stub.url = "http://127.0.0.1:<port>/v1"."""
+    headers=None, delay=0.0, drop=False, short=False) queues one reply (body None = chat(GOOD_REPLY);
+    bytes, dict or list accepted; drop=True shuts the socket without replying; short=True sends half
+    the body that Content-Length promises, then closes). stub.requests records {method, path, headers, json}
+    per request (path is absolute when the stub is used as a proxy; as an HTTPS proxy it records the CONNECT,
+    with json None, and refuses it). stub.url = "http://127.0.0.1:<port>/v1"."""
     with _serve() as state:
         yield state
 

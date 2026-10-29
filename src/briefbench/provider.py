@@ -21,13 +21,13 @@ class Usage:
 
 @dataclass(frozen=True)
 class Completion:
-    text: str                       # visible answer only; reasoning is never included
+    text: str                       # visible answer; reasoning fields and a leading <think> block are left out
     finish_reason: str | None       # lower-cased, as reported
     model_reported: str | None      # the response's "model" field: what actually answered
     response_id: str | None
     system_fingerprint: str | None
     refusal: str | None             # message.refusal, if the API set one
-    reasoning_only: bool            # no visible text, but a reasoning field or an unclosed <think> had content
+    reasoning_only: bool            # no visible text, but a reasoning field or <think> reasoning had content
     usage: Usage
     latency_ms: int                 # all attempts, including waits between them
     attempts: int

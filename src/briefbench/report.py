@@ -32,16 +32,20 @@ def render_report(prompt: str, result: RewriteResult, answers: Mapping[str, Answ
     for s in sections:
         t = s.technique
         note = ""
+        answered = [q for q in t.uses_answers if answers[q].text]
+        unanswered = [q for q in t.uses_answers if not answers[q].text]
         if s.result == "skipped":
-            unanswered = [q for q in t.uses_answers if not answers[q].text]
             note = (f"  (nothing to add; unanswered: {', '.join(unanswered)})" if unanswered
+                    else f"  (skipped, although you answered: {', '.join(answered)})" if answered
                     else "  (the rewriter found nothing to add)")
         elif s.result == "missing":
-            note = "  (no section in the reply)"
+            note = (f"  (no section in the reply, although you answered: {', '.join(answered)})" if answered
+                    else "  (no section in the reply)")
         lines.append(f"  {s.result:<8} {t.name:<{width}}  {record(t)}{note}")
     if added == 0:
-        lines.append("Nothing was added, so the brief is your prompt as written. Answering the questions gives "
-                     "the rewriter something to work from.")
+        lines.append("Nothing was added, so the brief is your prompt as written." +
+                     ("" if all(a.text for a in answers.values()) else
+                      " Answering the questions gives the rewriter something to work from."))
     for w in result.warnings:
         lines.append(f"Warning: {w}")
     lines.append(HONESTY)

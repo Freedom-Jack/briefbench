@@ -26,6 +26,6 @@ Stage 1 (rewrite) is built: `briefbench rewrite`, Python 3.11+, the standard lib
 
 - Run `uv sync`. `uv run pytest` and `uv run --isolated --python 3.14 pytest` must both pass.
 - Offline tests use no real keys, no internet and not `~/.briefbench/`. `tests/conftest.py` clears the key variables, points `HOME` and `BRIEFBENCH_HOME` at temporary folders, and fails the run if the real data folder changes. Live tests are marked `live` and run only with `-m live`.
-- Vendor names, hosts, key variables, model ids and quirks live only in `src/briefbench/presets.py`. `tests/test_architecture.py` fails if they appear anywhere else in `src/`, comments included.
+- Vendor names, hosts, key variables and default model ids live in `src/briefbench/presets.py`. `tests/test_architecture.py` scans every other `.py` module in `src/briefbench/` for known vendor and model names, comments included, and fails if it finds one. Generic protocol handling, such as think blocks, chunked content and error shapes, lives in `openai_compat.py`, and `rewrite.py` decides which finish reasons make a reply unusable.
 - Technique text and the rewriter templates are what the records measure. Their hashes go in every log entry, so an edit starts a new record; say so in the commit message.
 - The log and playbook formats are a contract for later stages ([docs/data-formats.md](docs/data-formats.md)): add fields, but never rename, remove or reinterpret them.

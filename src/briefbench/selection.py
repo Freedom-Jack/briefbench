@@ -42,11 +42,12 @@ def detected(environ: Mapping[str, str]) -> list[str]:
     return [n for n in sorted(PRESETS) if (environ.get(PRESETS[n].key_env) or "").strip()]
 
 
-def no_provider_message() -> str:
+def no_provider_message(dry_run: bool = False) -> str:
     names = [PRESETS[n].key_env for n in sorted(PRESETS)]
     listed = ", ".join(names[:-1]) + " or " + names[-1]
     return (f"no model provider is configured. Set one of {listed}, or use --base-url and --model "
-            "for another OpenAI-compatible endpoint.")
+            "for another OpenAI-compatible endpoint" +
+            (", or pass --provider NAME to see the request without a key." if dry_run else "."))
 
 
 def select_provider(*, provider, model, base_url, api_key_env, timeout_s, environ, require_key=True) -> Selection:
@@ -63,7 +64,7 @@ def select_provider(*, provider, model, base_url, api_key_env, timeout_s, enviro
     else:
         found = detected(environ)
         if not found:
-            raise ConfigError(no_provider_message())
+            raise ConfigError(no_provider_message(dry_run=not require_key))
         preset = PRESETS[found[0]]
         chosen_by = f"auto: {preset.key_env} is set"
         others = tuple(PRESETS[n].key_env for n in found[1:])
@@ -80,7 +81,7 @@ def select_provider(*, provider, model, base_url, api_key_env, timeout_s, enviro
         if api_key is not None and not KEY_CHARS.fullmatch(api_key):
             raise ConfigError(f"{key_env} contains spaces, line breaks or other characters an API key can't "
                               "contain, so it was not used. Its value is not shown.")
-    url = check_base_url(base_url or preset.base_url, sends_key=api_key is not None)
+    url = check_base_url(base_url or preset.base_url, sends_key=key_env is not None)   # as the real run would
     info = ProviderInfo(
         name=preset.name if preset else "custom",
         vendor=preset.vendor if preset else None,
@@ -97,8 +98,9 @@ def select_provider(*, provider, model, base_url, api_key_env, timeout_s, enviro
 
 def check_base_url(url: str, *, sends_key: bool) -> str:
     """Validate before anything is sent. Errors never echo the URL, which may hold a secret."""
+    url = url.strip()
     try:
-        parts = urllib.parse.urlsplit(url.strip())
+        parts = urllib.parse.urlsplit(url)
         host, _port = parts.hostname, parts.port      # .port raises ValueError unless it is 0-65535
     except ValueError:
         raise UsageError("--base-url is not a valid URL.") from None
@@ -107,6 +109,14 @@ def check_base_url(url: str, *, sends_key: bool) -> str:
                          "environment variable and name it with --api-key-env.")
     if parts.scheme not in ("http", "https") or not host:
         raise UsageError("--base-url must start with https:// (or http:// for a server on this machine).")
+    # urlsplit silently drops tabs and line breaks, and http.client can't send the rest; an IDN host is fine
+    if any(c.isspace() or not c.isprintable() for c in url) or not parts.path.isascii():
+        raise UsageError("--base-url contains a space, a control character or a non-ASCII character, perhaps an "
+                         "invisible one from copying it. Type the URL again.")
+    try:
+        host.encode("idna")         # as the socket layer will: it fails on an empty or over-long label, as in a..b
+    except UnicodeError:
+        raise UsageError("--base-url has an invalid host name. Type the URL again.") from None
     if parts.scheme == "http" and sends_key and not is_loopback(host):
         raise UsageError(f"refusing to send an API key over plain http to {host}; use https.")
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
+import signal
 import sys
 import time
 import traceback
@@ -14,7 +16,7 @@ from .errors import BriefbenchError, OutputError, ProviderError, UsageError
 from .log import display_path, new_id, prepare, rewrite_entry, utc_now
 from .log import append as log_append
 from .playbook import load_playbook
-from .questions import QUESTIONS, collect_answers
+from .questions import QUESTIONS, collect_answers, line_mode_off
 from .redact import MIN_SECRET, redact_error, scrub, strip_controls
 from .report import render_report
 from .rewrite import MAX_OUTPUT_TOKENS, build_messages, rewrite
@@ -22,15 +24,40 @@ from .selection import ENV_NAME, build_provider, key_env_names, provider_rows, s
 
 
 def main() -> None:
-    sys.exit(run(sys.argv[1:]))
+    code = run(sys.argv[1:])
+    if code == 130 and os.name == "posix":
+        _die_by_sigint()
+    sys.exit(code)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+def _die_by_sigint() -> None:
+    """End by SIGINT after Ctrl-C, as Python does by default, so a shell loop or script that runs
+    briefbench stops too. Shells still report 130; Python's subprocess reports -2."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:  # noqa: BLE001 - closed or gone: there is nothing left to show
+            pass
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    os.kill(os.getpid(), signal.SIGINT)
+
+
+class _Parser(argparse.ArgumentParser):
+    """argparse with key values removed from its error messages, which quote what was mistyped."""
+
+    secrets: tuple[str, ...] = ()
+
+    def error(self, message):
+        super().error(scrub(message, self.secrets))
+
+
+def build_parser(secrets=()) -> argparse.ArgumentParser:
+    parser = _Parser(
         prog="briefbench", allow_abbrev=False,
         description="Rewrite a rough prompt into a brief for an AI model or agent, and log every rewrite.")
+    parser.secrets = tuple(secrets)
     parser.add_argument("--version", action="version", version=f"briefbench {__version__}")
-    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")   # parsers are _Parser too
     r = commands.add_parser(
         "rewrite", allow_abbrev=False, help="rewrite a prompt into a brief (asks up to three questions)",
         formatter_class=argparse.RawDescriptionHelpFormatter, epilog=_epilog(),
@@ -38,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
                     "call, print the brief on stdout and log the run.\n\n"
                     "Your prompt is kept word for word; each technique adds at most one short\n"
                     "section below it. Every technique is on trial: none has been shown to help yet.")
+    r.secrets = parser.secrets
     r.add_argument("prompt", metavar="PROMPT", help="the prompt, in quotes, or - to read it from stdin")
     a = r.add_argument_group("answers (each one replaces its question; an empty string skips it)")
     for q in QUESTIONS:
@@ -86,26 +114,33 @@ def _timeout(value: str) -> float:
 
 class _Err:
     """stderr, with every known key value and every terminal control character (ESC included)
-    removed from everything written. Error text and model ids come from the server."""
+    removed from everything written. Error text and model ids come from the server. Once its reader
+    has gone (`2>&1 | head -2`), writes are dropped: losing stderr never changes the outcome."""
 
     def __init__(self, stream, secrets):
-        self.stream, self.secrets = stream, secrets
+        self.stream, self.secrets, self.gone = stream, secrets, False
 
     def write(self, text: str) -> None:
-        self.stream.write(strip_controls(scrub(text, self.secrets)))
-        self.stream.flush()
+        if self.gone:
+            return
+        try:
+            self.stream.write(strip_controls(scrub(text, self.secrets)))
+            self.stream.flush()
+        except BrokenPipeError:
+            self.gone = True
+            _to_devnull(self.stream)
 
     def say(self, text: str = "") -> None:
         self.write(text + "\n")
 
 
 def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, make_provider=build_provider) -> int:
-    stdin = sys.stdin if stdin is None else stdin
-    stdout = sys.stdout if stdout is None else stdout
-    stderr = sys.stderr if stderr is None else stderr
+    stdin = _or_empty(sys.stdin if stdin is None else stdin)
+    stdout = _or_empty(sys.stdout if stdout is None else stdout)
+    stderr = _or_empty(sys.stderr if stderr is None else stderr)
     environ = os.environ if environ is None else environ
-    try:
-        args = build_parser().parse_args(argv)
+    try:                                         # argparse quotes what it rejects, so it scrubs the keys
+        args = build_parser(_keys_before_parsing(argv, environ)).parse_args(argv)
     except SystemExit as e:                      # --help, --version and usage errors (argparse prints them)
         return e.code if isinstance(e.code, int) else 2
     secrets = secret_values(environ, args.api_key_env)
@@ -117,6 +152,7 @@ def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, make_provid
         selection = select_provider(provider=args.provider, model=args.model, base_url=args.base_url,
                                     api_key_env=args.api_key_env, timeout_s=args.timeout, environ=environ,
                                     require_key=not args.dry_run)
+        _check_texts([args.model, args.base_url], environ, args.api_key_env, what="--model or --base-url")
         log_path = None if args.dry_run else prepare(environ)
         err.say(_using_line(selection, args))
         prompt, via = read_prompt(args.prompt, stdin, err)
@@ -144,7 +180,9 @@ def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, make_provid
         err.say("\nbriefbench: cancelled; nothing was sent or logged.")
         return 130
     except BriefbenchError as e:
-        err.say(f"briefbench: {redact_error(str(e), secrets)}")
+        # Exact key values only: these messages hold paths and hosts the user must fix, intact. Server and
+        # exception text in them was redacted where it was put in.
+        err.say(f"briefbench: {scrub(str(e), secrets)}")
         return e.exit_code
     except Exception as e:  # noqa: BLE001 - a bug: report it without leaking a key
         err.say(f"briefbench: internal error (a bug): {redact_error(f'{type(e).__name__}: {e}', secrets)}")
@@ -152,35 +190,76 @@ def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, make_provid
         return 1
 
 
+def _keys_before_parsing(argv, environ) -> list[str]:
+    """The preset keys, and the key in each variable that --api-key-env names, found in argv before argparse
+    runs. A NAME that is not a variable name is probably a pasted key, so it is kept out too."""
+    secrets = secret_values(environ)
+    for i, arg in enumerate(argv):
+        if arg.startswith("--api-key-env="):
+            name = arg.partition("=")[2]
+        elif arg == "--api-key-env" and i + 1 < len(argv):
+            name = argv[i + 1]
+        else:
+            continue
+        secrets += secret_values(environ, name) if ENV_NAME.fullmatch(name) else [name]
+    return secrets
+
+
 def _call(provider, prompt, via, answers, playbook, log_path, secrets, err, stdout, environ) -> int:
     info = provider.info
     entry_id, ts, start = new_id(), utc_now(), time.monotonic()
     shown = display_path(log_path, environ)                       # "~/.briefbench/log.jsonl"
+    logged = []                                                   # what _append returned, once it has run
 
     def entry(**outcome):
         return rewrite_entry(entry_id=entry_id, ts=ts, prompt=prompt, prompt_via=via, answers=answers,
                              playbook=playbook, info=info, **outcome)
 
+    def log(record) -> str | None:
+        logged.append(_append(log_path, record, secrets))
+        return logged[-1]
+
+    def elapsed_ms():
+        return round((time.monotonic() - start) * 1000)
+
     err.say(f"Rewriting with {info.model} (one call, no tools)...")
     try:
-        result = rewrite(provider, prompt, answers, playbook.active())
-    except KeyboardInterrupt:
-        problem = _append(log_path, entry(interrupted=True, latency_ms=round((time.monotonic() - start) * 1000)),
-                          secrets)
-        err.say("\nbriefbench: cancelled during the model call; " +
-                (f"logged as {entry_id} (interrupted)." if problem is None else "it could not be logged."))
+        try:
+            result = rewrite(provider, prompt, answers, playbook.active())
+        except KeyboardInterrupt:
+            problem = log(entry(interrupted=True, latency_ms=elapsed_ms()))
+            err.say("\nbriefbench: cancelled during the model call; " +
+                    (f"logged as {entry_id} (interrupted)." if problem is None else "it could not be logged."))
+            return 130
+        except (ProviderError, OutputError) as e:
+            problem = log(entry(error=e))                         # guarded: never hides the real error
+            err.say(f"briefbench: {e}")
+            err.say("No brief was printed. " + (f"Logged as {entry_id} in {shown}." if problem is None
+                                                else f"The failed call could not be logged ({problem})."))
+            return e.exit_code
+        problem = log(entry(result=result))                       # logged before printing
+        err.say()
+        _print(stdout, scrub(result.brief, secrets))              # BrokenPipeError -> silenced
+        err.say()
+        err.say(render_report(prompt, result, answers, info, entry_id, shown if problem is None else None))
+    except KeyboardInterrupt:   # after the call was sent, e.g. while a terminal frozen by Ctrl-S held the output
+        err.say("\nbriefbench: cancelled after the model call was sent, so the output may be incomplete. " +
+                ("It may not have been logged." if not logged else f"Logged as {entry_id} in {shown}."
+                 if logged[-1] is None else f"It could not be logged ({logged[-1]})."))
         return 130
-    except (ProviderError, OutputError) as e:
-        problem = _append(log_path, entry(error=e), secrets)      # guarded: never hides the real error
-        err.say(f"briefbench: {e}")
-        err.say("No brief was printed. " + (f"Logged as {entry_id} in {shown}." if problem is None
-                                            else f"The failed call could not be logged ({problem})."))
-        return e.exit_code
-    problem = _append(log_path, entry(result=result), secrets)    # logged before printing
-    err.say()
-    _print(stdout, scrub(result.brief, secrets))                  # BrokenPipeError -> silenced
-    err.say()
-    err.say(render_report(prompt, result, answers, info, entry_id, shown if problem is None else None))
+    except Exception as e:  # noqa: BLE001 - a bug once the call started, which may have been billed
+        try:
+            if not logged:  # one line per run: log it as kind "internal"; run() then reports it and exits 1
+                record = entry(error=e, latency_ms=elapsed_ms())
+                record["error"] = {"kind": "internal", "status": None,
+                                   "message": redact_error(" ".join(f"{type(e).__name__}: {e}".split()), secrets)}
+                log(record)
+            if logged[-1] is not None:
+                err.say(f"briefbench: the run could not be logged ({logged[-1]}). "
+                        f"Check that {display_path(log_path.parent, environ)} is writable.")
+        except Exception:  # noqa: BLE001 - logging must never hide the bug itself
+            pass
+        raise
     if problem is not None:
         err.say(f"briefbench: the brief was printed but could not be logged ({problem}). "
                 f"Check that {display_path(log_path.parent, environ)} is writable.")
@@ -201,18 +280,31 @@ def _print(stdout, text: str) -> None:
         stdout.write(text)
         stdout.flush()
     except BrokenPipeError:                       # e.g. `| head -1`; the run itself succeeded
-        try:
-            os.dup2(os.open(os.devnull, os.O_WRONLY), stdout.fileno())
-        except (OSError, ValueError, AttributeError):
-            pass
+        _to_devnull(stdout)
+
+
+def _to_devnull(stream) -> None:
+    """Point a stream whose reader has gone at /dev/null, so Python's flush at exit can't fail."""
+    try:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), stream.fileno())
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def _or_empty(stream):
+    """sys.stdin and sys.stdout are None when the descriptor was closed (`<&-`, `>&-`). An empty stream
+    stands in: not a terminal, nothing to read, and output with nowhere to go is dropped."""
+    return io.StringIO() if stream is None else stream
 
 
 def read_prompt(arg: str, stdin, err) -> tuple[str, str]:
     if arg == "-":
-        if stdin.isatty():
-            err.say("Paste or type the prompt, then press Ctrl-D on an empty line.")
+        with line_mode_off(stdin) as read:       # before the hint, so a paste that follows it is read whole
+            if stdin.isatty():
+                err.say("Paste or type the prompt, then press Ctrl-D.")
+            typed = None if read is None else read(answer=False)
         try:
-            text = stdin.read()
+            text = stdin.read() if typed is None else typed.decode("utf-8")
         except UnicodeDecodeError:
             raise UsageError("the prompt on stdin is not valid UTF-8.") from None
         if stdin.isatty():
@@ -226,19 +318,19 @@ def read_prompt(arg: str, stdin, err) -> tuple[str, str]:
     return text, via
 
 
-def _check_texts(texts, environ, api_key_env) -> None:
+def _check_texts(texts, environ, api_key_env, what="the prompt or an answer") -> None:
     for text in texts:
         if not text:
             continue
         try:
             text.encode("utf-8")
         except UnicodeEncodeError:
-            raise UsageError("the prompt or an answer contains bytes that are not valid UTF-8.") from None
+            raise UsageError(f"{what} contains bytes that are not valid UTF-8.") from None
         for name in key_env_names(api_key_env):
             value = (environ.get(name) or "").strip()
             if len(value) >= MIN_SECRET and value in text:
-                raise UsageError(f"the prompt or an answer contains the value of {name}. Remove it and run "
-                                 "again; nothing was sent or logged.")
+                raise UsageError(f"{what} contains the value of {name}. Remove it and run again; nothing was "
+                                 "sent or logged.")
 
 
 def _using_line(selection, args) -> str:

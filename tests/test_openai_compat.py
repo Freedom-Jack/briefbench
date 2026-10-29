@@ -7,7 +7,7 @@ import truststore
 from briefbench import __version__
 from briefbench.errors import ProviderError
 from briefbench.openai_compat import (OpenAICompatProvider, TransportError, _classify, _opener, error_message,
-                                      retry_after_seconds, visible_text)
+                                      post_json, retry_after_seconds, visible_text)
 from briefbench.provider import Message
 from briefbench.selection import select_provider
 from conftest import KEY, chat
@@ -70,6 +70,19 @@ def test_visible_text_variants():
     assert visible_text([{"type": "thinking", "thinking": "zz"}, {"type": "text", "text": "ok"}]) == ("ok", False)
     assert visible_text("<think>\nhmm\n</think>\n\n<a>") == ("<a>", False)
     assert visible_text("<think>never closed") == ("", True)
+    assert visible_text("<think>\nonly thoughts\n</think>\n") == ("", True)
+    # Reasoning in any other shape stays: guessing where it ends cost real sections. The parser reads only the
+    # blocks, and the last copy of a block wins, so a draft before the answer doesn't reach the brief.
+    assert visible_text("Let me plan.\n</think>\n\n<a>x</a>") == ("Let me plan.\n</think>\n\n<a>x</a>", False)
+    assert visible_text("<a>x</a> then <think>mid-reply</think>") == ("<a>x</a> then <think>mid-reply</think>", False)
+
+
+@pytest.mark.parametrize("reply", [
+    "<a>\nThe UI shows raw reasoning.\n</a>\n<b>\nRequired: the parser drops everything up to </think> first.\n</b>",
+    "<a>\nFeed the parser this reply:\n```\nreasoning\n</think>\nanswer\n```\n</a>\n<b>\nRequired: only answer.\n</b>",
+    "<a>\nStrip reasoning.\n</a>\n<b>\nKeep the reply whole.</b>\nNote: the tag is </think>\n"])
+def test_an_answer_that_quotes_the_closing_think_tag_is_kept_whole(reply):
+    assert visible_text(reply) == (reply, False)
 
 
 def test_reasoning_fields_never_reach_text(stub):
@@ -173,6 +186,21 @@ def test_dropped_three_times(stub):
     assert e.value.kind == "network" and "3 times" in str(e.value)
 
 
+def test_reply_cut_short_is_a_dropped_connection(stub):
+    stub.reply(short=True)                           # Content-Length promised more than arrived
+    stub.reply()
+    assert provider(stub).complete(MSGS, max_output_tokens=10).attempts == 2
+    for _ in range(3):
+        stub.reply(short=True)
+    with pytest.raises(ProviderError) as e:
+        provider(stub).complete(MSGS, max_output_tokens=10)
+    assert e.value.kind == "network" and "3 times" in str(e.value)
+    stub.reply(401, {"error": {"message": "bad key"}}, short=True)       # an error status is kept, not retried
+    with pytest.raises(ProviderError) as e:
+        provider(stub).complete(MSGS, max_output_tokens=10)
+    assert (e.value.kind, e.value.status, len(stub.requests)) == ("auth", 401, 6)
+
+
 def test_timeout_not_retried(stub):
     stub.reply(delay=1.0)
     with pytest.raises(ProviderError) as e:
@@ -191,6 +219,56 @@ def test_connection_refused():
     with pytest.raises(ProviderError) as e:
         OpenAICompatProvider(sel.info).complete(MSGS, max_output_tokens=10)
     assert "connection refused" in str(e.value) and "Is the server running?" in str(e.value)
+
+
+@pytest.mark.parametrize("scheme,variable,asked", [
+    ("https", "HTTPS_PROXY", "CONNECT llm.example.invalid:443"),     # the proxy is asked for a tunnel
+    ("http", "HTTP_PROXY", "POST http://llm.example.invalid/v1/chat/completions")])
+def test_other_hosts_go_through_the_proxy_settings(stub, monkeypatch, scheme, variable, asked):
+    # .invalid never resolves, so a request that skipped the proxy fails without reaching anything
+    monkeypatch.setenv(variable, stub.url.removesuffix("/v1"))
+    stub.reply()
+    try:
+        post_json(f"{scheme}://llm.example.invalid/v1/chat/completions", {}, b"{}", 5)
+    except TransportError:                           # the stub refuses to open a tunnel
+        pass
+    assert [f"{r['method']} {r['path']}" for r in stub.requests] == [asked]
+
+
+def test_loopback_is_never_sent_through_a_proxy(stub, stub_b, monkeypatch):
+    # Over plain http a proxy would receive the key and the prompt, and it can't reach this machine anyway
+    monkeypatch.setenv("HTTP_PROXY", stub_b.url.removesuffix("/v1"))
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    for host in ("127.0.0.1", "localhost"):
+        stub.reply()
+        provider(stub, base=stub.url.replace("127.0.0.1", host)).complete(MSGS, max_output_tokens=10)
+    assert [r["headers"]["Authorization"] for r in stub.requests] == [f"Bearer {KEY}"] * 2
+    assert stub_b.requests == []
+
+
+def test_tls_failure_without_a_certificate_problem(stub):
+    # https:// aimed at a plain http server, the usual slip with a local server
+    sel = select_provider(provider=None, model="m", base_url=stub.url.replace("http://", "https://"),
+                          api_key_env=None, timeout_s=2, environ={})
+    with pytest.raises(ProviderError) as e:
+        OpenAICompatProvider(sel.info).complete(MSGS, max_output_tokens=10)
+    assert e.value.kind == "tls" and e.value.exit_code == 4 and stub.requests == []
+    assert str(e.value).startswith(f"TLS error talking to {stub.url.split('/')[2]}: ")
+    assert "certificate" not in str(e.value) and "use http:// in --base-url" in str(e.value)
+
+
+def test_long_server_text_is_cut_before_it_is_redacted(stub):
+    stub.reply(200, {"choices": [{"error": {"message": "E" * 64_000}}]})
+    with pytest.raises(ProviderError) as e:
+        provider(stub).complete(MSGS, max_output_tokens=10)
+    assert e.value.kind == "bad_response" and len(str(e.value)) < 500
+
+    def garbage_status_line(*a):
+        raise TransportError("network", "x" * 60_000)
+    with pytest.raises(ProviderError) as e:
+        provider(stub, transport=garbage_status_line).complete(MSGS, max_output_tokens=10)
+    assert e.value.kind == "network" and len(str(e.value)) < 500
 
 
 def test_redirect_not_followed(stub, stub_b):

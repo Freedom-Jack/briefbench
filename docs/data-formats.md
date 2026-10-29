@@ -30,9 +30,14 @@ Hashes are sha256, in hex. "Canonical JSON" is `json.dumps(value, sort_keys=True
 
 ## Log (schema 1)
 
-The log is `log.jsonl` in `$BRIEFBENCH_HOME`, or in `~/.briefbench/` when that is unset. It holds one JSON object per line, in ASCII only. Lines are only ever appended. The file is created with mode 0600 and the folder with mode 0700.
+The log is `log.jsonl` in `$BRIEFBENCH_HOME`, or in `~/.briefbench/` when that is unset. It holds one JSON object per line, in ASCII only. Lines are only ever appended. The file is created with mode 0600 and the folder with mode 0700. An existing folder keeps its mode. An existing file has any group and other permissions removed, and briefbench refuses it if they can't be, or if it is a symbolic link.
 
-Each run that reaches the model call writes exactly one line, whether it ends `ok`, `error` or `interrupted`. Runs that stop earlier write nothing: usage and setup errors, Ctrl-C during the questions, and dry runs. Readers split on `\n` only and skip a last line cut short by a crash, as `read_entries()` in `src/briefbench/log.py` does.
+Each run that reaches the model call writes exactly one line, whether it ends `ok`, `error` or `interrupted`. If a bug in briefbench stops such a run before its line is written, the line is an `error` of kind `internal`, and the run exits 1. There are three exceptions, and each leaves no line or one cut short:
+- **The line can't be written**, for example on a full disk. The run says so. It exits 1 if a bug stopped it, else 6 if it had printed the brief.
+- **A bug also breaks building the line.** The run exits 1.
+- **Ctrl-C lands while the line is being written.** The run says it may not have been logged.
+
+Runs that stop earlier write nothing: usage and setup errors, Ctrl-C during the questions, and dry runs. Readers split on `\n` only and skip any line that is not valid JSON, as `read_entries()` in `src/briefbench/log.py` does. A line cut short is such a line, and the next run starts on a new line after it, so it can sit mid-file.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -55,13 +60,14 @@ Each run that reaches the model call writes exactly one line, whether it ends `o
 | `usage` | null \| `{input_tokens, output_tokens, reasoning_tokens, raw}` | `raw` is the vendor's usage object, unchanged. There is no price table in code. |
 | `timing` | `{latency_ms, attempts}` | |
 
-Error kinds: `auth`, `redirect`, `not_found`, `quota`, `bad_request`, `rate_limit`, `server`, `timeout`, `network`, `tls` and `bad_response` from the provider; `truncated`, `blocked`, `refused`, `reasoning_only`, `empty` and `malformed` for an unusable reply.
+Error kinds: `auth`, `redirect`, `not_found`, `quota`, `bad_request`, `rate_limit`, `server`, `timeout`, `network`, `tls` and `bad_response` from the provider; `truncated`, `blocked`, `refused`, `reasoning_only`, `empty` and `malformed` for an unusable reply; `internal` for a bug in briefbench.
 
 How outcomes differ:
 - **ok.** `error` is null. Every other top-level field is set.
 - **Provider error.** `outcome` is `"error"` and `error` is set. `techniques[].result`, `brief`, `sizes`, `response`, `usage` and `model.reported` are null. `timing` comes from the error.
 - **Unusable reply.** As for a provider error, except that `response` (with `raw_output`), `usage`, `model.reported` and `timing` come from the reply, because the call may have been billed.
 - **Interrupted.** `outcome` is `"interrupted"` and `error` is null. As for a provider error, the reply fields are null. `timing.attempts` is null.
+- **Internal error.** As for a provider error, with `error.kind` `internal` and `error.status` null. `timing.attempts` is null.
 
 An `ok` line, from the fake provider. The hashes are real for the current playbook and rewriter:
 
@@ -75,7 +81,7 @@ An `ok` line, from the fake provider. The hashes are real for the current playbo
 - Request or response headers, `Authorization` included.
 - Environment values, apart from the key variable's name.
 - Raw HTTP bodies, including error bodies. Only the redacted error message is kept.
-- Reasoning or thinking text. Only token counts are kept.
+- Reasoning or thinking text that the API returns apart from the answer: in a reasoning field, or as a `<think>` block at the start of the reply. Only token counts are kept. A model that writes its reasoning into the reply some other way has it kept in `raw_output`.
 - The rendered system message. Only the hashes are kept.
 - Machine details, the working directory and prices.
 - Runs that end before the model call.

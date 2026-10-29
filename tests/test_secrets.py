@@ -1,5 +1,6 @@
 import io
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -40,12 +41,34 @@ def test_scrub_is_exact_only():
     assert scrub(f'{{"k":"{KEY}"}}', [KEY]) == '{"k":"[redacted]"}'
 
 
+def test_redaction_takes_linear_time():
+    # Server text is cut to 300 characters first; this bounds the pattern itself (100,000 took 20 s before)
+    start = time.monotonic()
+    assert redact_error("E" * 100_000, [KEY]) == "E" * 100_000
+    assert time.monotonic() - start < 2.0
+
+
 def test_key_only_in_authorization_header(stub):
     stub.reply()
     code, blob = run_openai(stub)
     assert code == 0 and stub.requests[0]["headers"]["Authorization"] == f"Bearer {KEY}"
+    assert [name for name, value in stub.requests[0]["headers"].items() if KEY in value] == ["Authorization"]
     assert KEY not in str(stub.requests[0]["json"])
     assert_clean(blob)
+
+
+def test_key_value_in_model_or_base_url_is_refused(stub, monkeypatch):
+    # The Anthropic key must not go to another endpoint as the model id, where an error could echo it
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-SECRET-0123456789")
+    monkeypatch.setenv("GW_KEY", "sk-ant-api03-GATEWAY-9876543210")
+    for flags in (["--model", "sk-ant-api03-SECRET-0123456789"],
+                  ["--model", "m", "--base-url", stub.url + "/sk-ant-api03-SECRET-0123456789"]):
+        out, err = io.StringIO(), Err()
+        code = cli.run(["rewrite", "-n", "--base-url", stub.url, "--api-key-env", "GW_KEY", *flags, "x"],
+                       stdin=io.StringIO(""), stdout=out, stderr=err)
+        assert code == 2 and "--model or --base-url contains the value of ANTHROPIC_API_KEY" in err.getvalue()
+        assert "SECRET" not in out.getvalue() + err.getvalue()
+    assert stub.requests == []
 
 
 def test_key_echoed_by_the_model_is_never_printed_or_logged(stub):
@@ -79,11 +102,12 @@ def test_malformed_key_is_not_echoed_or_sent(stub):
 
 
 @pytest.mark.parametrize("value", ["sk-proj-abcdefghijklmnop", "lowercase_name"])
-def test_key_passed_as_api_key_env_not_echoed(value):
-    err = Err()
-    code = cli.run(["rewrite", "--provider", "openai", "--api-key-env", value, "x"], stdin=io.StringIO(""),
-                   stdout=io.StringIO(), stderr=err)
-    assert code == 2 and value not in err.getvalue()
+@pytest.mark.parametrize("dry_run", [[], ["--dry-run"]])
+def test_key_passed_as_api_key_env_not_echoed(value, dry_run):
+    out, err = io.StringIO(), Err()
+    code = cli.run(["rewrite", *dry_run, "--provider", "openai", "--api-key-env", value, "x"], stdin=io.StringIO(""),
+                   stdout=out, stderr=err)
+    assert code == 2 and value not in out.getvalue() + err.getvalue()
 
 
 def test_other_vendor_key_in_prompt_refused(stub, monkeypatch):

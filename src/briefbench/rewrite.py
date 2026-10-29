@@ -14,6 +14,7 @@ from .redact import strip_controls
 
 MAX_OUTPUT_TOKENS = 8192    # hidden reasoning counts toward this on most vendors
 LONG_SECTION_WORDS = 150
+LONG_CODE_LINES = 5         # a command or two is expected, e.g. in the verification section
 STRAY_CHARS = 200
 NO_ANSWER = "(no answer)"
 
@@ -63,13 +64,24 @@ Write the brief sections for the prompt above. Do not carry out the task."""
 
 _INPUT_TAGS = ("user_prompt", "answer_why", "answer_stretch", "answer_verify")
 _BLOCKED = frozenset({"content_filter", "safety", "recitation", "prohibited_content", "blocklist", "spii"})
-_FILLER = re.compile(
-    r"not\s+stated|skip(?:ped)?|n/?a|none(?:\s+(?:stated|given|provided))?|nothing\s+stated|"
-    r"not\s+(?:provided|specified|given|mentioned|applicable|answered)"
-    r"(?:\s+(?:by|in)\s+(?:the\s+)?(?:user|requester|prompt|answers?))?", re.I)
+_WHO = r"(?:the\s+)?(?:user|requester|prompt|answers?)"
+_FILLER = re.compile(              # a whole section that says nothing; any of these may end "in the prompt" etc.
+    r"(?:not\s+(?:stated|provided|specified|given|mentioned|applicable|answered|known)|"
+    r"none(?:\s+(?:stated|given|provided|specified|mentioned))?|nothing\s+(?:stated|given|specified|mentioned)|"
+    r"skip(?:ped)?|n/?a|no\s+answer|unknown|section\s+text,?\s+or\s+not\s+stated)"
+    rf"(?:\s+(?:by|in)\s+{_WHO}(?:\s+(?:or|and)\s+{_WHO})?)?", re.I)
 _SENTINEL_WITH_REASON = re.compile(r"not\s+stated\s*[-\u2013\u2014:(]", re.I)
-_HEADING_LINE = re.compile(r"\s{0,3}#{1,6}\s+\S")
+_CONTRAST = re.compile(r"\b(?:but|however|although)\b", re.I)    # "NOT STATED - but keep the API": content
+# "Required: NOT STATED": a template line left empty, with the rewriter's own marker (or an echoed "(no answer)").
+# Other values, such as "N/A", can be real content ("Empty cells: N/A"), so they are kept.
+_EMPTY_LABEL = re.compile(r"[^\w\n]*(?:\d+[.)][^\w\n]*)?\w[\w-]*(?:[ \t]+[\w-]+){0,2}[^\w\n:]*:\W*"
+                          r"(?:not\s+stated|no\s+answer)\W*", re.I)
+# "1. **Stretch target:**", "Stretch goal (an aim) -", "_Stretch goal_:" or "Stretch:"; not "Stretch the image
+# to fit", a requirement that uses the verb
+_STRETCH_LINE = re.compile(r"[\W_]*(?:\d+[.)][\W_]*)?stretch(?:[ \t-]+(?:target|goal)s?(?![^\W_])|[\W_]*:)", re.I)
+_HEADING_LINE = re.compile(r"\s{0,3}#{1,6}\s+(?=\S)")
 _FENCE_LINE = re.compile(r"^\s*```.*$", re.M)
+_FENCED = re.compile(r"^[ \t]*```[^\n]*\n(.*?)(?:^[ \t]*```|\Z)", re.S | re.M)    # an unclosed one runs to the end
 
 
 @dataclass(frozen=True)
@@ -131,6 +143,8 @@ def rewrite(provider: Provider, prompt: str, answers: Mapping[str, Answer],
     completion = provider.complete(build_messages(prompt, answers, techniques), max_output_tokens=MAX_OUTPUT_TOKENS)
     check_completion(completion)
     sections, warnings = parse_reply(completion, techniques)
+    if not (answers.get("stretch") and answers["stretch"].text):     # then any stretch target is made up
+        sections, warnings = _drop_stretch_lines(sections, warnings)
     return RewriteResult(assemble_brief(prompt, sections), sections, warnings, completion)
 
 
@@ -178,7 +192,7 @@ def parse_reply(c: Completion, techniques: Sequence[Technique]) -> tuple[tuple[S
         words = len(body.split())
         if words > LONG_SECTION_WORDS:
             warnings.append(f"the {t.name} section is {words} words; the rewriter may have started the task.")
-        if "```" in body:
+        if any(len(block.splitlines()) > LONG_CODE_LINES for block in _FENCED.findall(body)):
             warnings.append(f"the {t.name} section contains a code block; the rewriter may have started the task.")
         sections.append(Section(t, "added", body))
     if not spans:
@@ -193,17 +207,37 @@ def parse_reply(c: Completion, techniques: Sequence[Technique]) -> tuple[tuple[S
 
 def clean_section(body: str, t: Technique) -> str:
     body = strip_controls(textwrap.dedent(body)).strip()
-    lines = body.splitlines()
+    lines = [line for line in body.splitlines() if not _EMPTY_LABEL.fullmatch(line)]    # "Required: NOT STATED"
     if lines and _is_echoed_heading(lines[0], t):
         lines = lines[1:]
+    elif lines and (mark := _HEADING_LINE.match(lines[0])):    # "### Must not change": keep the text, so that
+        lines[0] = lines[0][mark.end():]                         # it can't break the brief's own headings
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 def _is_echoed_heading(line: str, t: Technique) -> bool:
-    if _HEADING_LINE.match(line):                          # "## Why": the brief adds its own heading
-        return True
+    names = (t.heading.casefold(), t.name.casefold(), t.id.casefold())
     bare = line.strip().strip("*_#").strip().rstrip(":").strip("*_").strip().casefold()
-    return bare in {t.heading.casefold(), t.name.casefold(), t.id.casefold()}
+    if _HEADING_LINE.match(line):    # "## Why" starts "Why this matters", the heading the brief adds itself
+        return bool(bare) and any(re.match(rf"{re.escape(bare)}(?!\w)", n) for n in names)
+    return bare in names
+
+
+def _drop_stretch_lines(sections: Sequence[Section],
+                        warnings: Sequence[str]) -> tuple[tuple[Section, ...], tuple[str, ...]]:
+    """Removes every line that starts with a stretch target or goal, or a "Stretch:" label, in any section; a
+    section left with nothing is skipped."""
+    kept, warnings = [], list(warnings)
+    for s in sections:
+        lines = s.text.splitlines() if s.text else []
+        rest = [line for line in lines if not _STRETCH_LINE.match(line)]
+        if len(rest) < len(lines):
+            warnings.append(f"the {s.technique.name} section had a stretch target, but the stretch question was "
+                            "not answered; the invented target was removed.")
+            text = re.sub(r"\n{3,}", "\n\n", "\n".join(rest)).strip()
+            s = Section(s.technique, "skipped", None) if is_skip(text) else Section(s.technique, "added", text)
+        kept.append(s)
+    return tuple(kept), tuple(warnings)
 
 
 def is_skip(body: str) -> bool:
@@ -211,7 +245,8 @@ def is_skip(body: str) -> bool:
     t = t.rstrip(".").strip("()[] ").strip("*_`\"'").strip()
     if not t or _FILLER.fullmatch(t):
         return True
-    return "\n" not in t and len(t.split()) <= 25 and _SENTINEL_WITH_REASON.match(t) is not None
+    return ("\n" not in t and len(t.split()) <= 25 and _SENTINEL_WITH_REASON.match(t) is not None
+            and not _CONTRAST.search(t))
 
 
 def _outside(text: str, spans) -> str:

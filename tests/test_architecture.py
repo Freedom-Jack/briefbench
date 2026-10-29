@@ -8,8 +8,10 @@ import briefbench
 
 SRC = Path(briefbench.__file__).parent
 ROOT = Path(__file__).resolve().parent.parent
-VENDOR = re.compile(r"anthropic|claude|gemini|google|gpt-|deepseek|mistral|ollama|lm.?studio|groq|grok|"
-                    r"\bxai\b|\bx\.ai\b|openrouter|openai(?!_compat|-compatible|compat)|localhost:\d", re.I)
+# Letter-only lookarounds, not \b: "_" is a word character, so \bxai\b misses XAI_API_KEY
+VENDOR = re.compile(r"anthropic|claude|gemini|gemma|google|gpt-|o[1-9]-(?:mini|pro)|deepseek|mistral|mixtral|"
+                    r"codestral|llama|qwen|ollama|lm.?studio|groq|grok|(?<![a-z])xai(?![a-z])|"
+                    r"(?<![a-z])x\.ai(?![a-z])|openrouter|openai(?!_compat|-compatible|compat)|localhost:\d", re.I)
 CORE = ("errors", "redact", "provider", "questions", "playbook", "rewrite", "report", "log")
 MODULES = {p.stem for p in SRC.glob("*.py")} - {"__init__"}
 
@@ -37,6 +39,13 @@ def test_core_is_vendor_neutral():
             continue
         found = VENDOR.findall(path.read_text())
         assert not found, (path.name, found)
+
+
+def test_vendor_pattern_catches_names_inside_identifiers():
+    for text in ("XAI_API_KEY", "api.x.ai", "gemma3:12b", "llama3.1", "qwen2.5", "o4-mini", "OPENAI_API_KEY"):
+        assert VENDOR.search(text), text
+    for text in ("relaxation", "maxai", "openai_compat", "OpenAI-compatible"):
+        assert not VENDOR.search(text), text
 
 
 def test_import_direction():

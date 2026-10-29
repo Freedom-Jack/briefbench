@@ -5,7 +5,7 @@ import re
 REDACTED = "[redacted]"
 MIN_SECRET = 8      # shorter values (placeholders for local servers) are not treated as secrets
 MIN_FRAGMENT = 4
-MASKED = r"[A-Za-z0-9_-]*\*{3,}[A-Za-z0-9_-]*"     # sk-bbFAK***9876, ****9876, xa***XX
+MASKED = r"[A-Za-z0-9_-]{0,64}\*{3,}[A-Za-z0-9_-]{0,64}"     # sk-bbFAK***9876, ****9876, xa***XX; bounded, so linear
 _RUNS = re.compile(r"(?:\[redacted\]){2,}")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")   # C0 and C1 controls except \t and \n
 

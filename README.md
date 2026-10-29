@@ -36,16 +36,16 @@ uv run briefbench rewrite "Fix the flaky login test in tests/test_auth.py"
 
 `uv tool install --editable .` puts `briefbench` on your PATH.
 
-It asks up to three questions (Enter skips one, Ctrl-D skips the rest), makes one model call with no tools, prints the brief and logs the run. Your prompt stays word for word at the top. Each technique adds at most one short section below it, using only what you said. Every technique is on trial: none has been shown to help yet, and the report after each brief says so.
+It asks up to three questions (Enter skips one, Ctrl-D skips the rest), makes one model call with no tools, prints the brief and logs the run. Your prompt stays word for word at the top. Each technique adds at most one section below it, and the rewriter is told to keep it short and use only what you said. Every technique is on trial: none has been shown to help yet, and the report after each brief says so.
 
 | You want | Run |
 |---|---|
 | A long prompt without shell quoting | `briefbench rewrite -`, paste, then Ctrl-D |
 | No questions (scripts, agents, CI) | `briefbench rewrite -n --why "..." --verify "..." "..."` |
 | The brief on the clipboard (macOS) | `briefbench rewrite "..." \| pbcopy` |
-| The exact request, without calling a model | `briefbench rewrite --dry-run "..."` |
+| The exact request, without calling a model | `briefbench rewrite --dry-run --provider openai "..."` |
 
-Only the brief goes to stdout. Questions, progress and the report go to stderr. Questions are asked only when stdin and stderr are both terminals. A prompt that starts with `-` needs `--` before it. `briefbench rewrite --help` lists every option and exit code.
+Only the brief goes to stdout (in a dry run, the request). Questions, progress and the report go to stderr. Questions are asked only when stdin and stderr are both terminals. A typed answer is one line. Lines pasted at once are one answer, whether or not the paste ends with a line break. Long answers go in `--why`, `--stretch` and `--verify`. If the prompt starts with `-`, put `--` before it. `briefbench rewrite --help` lists every option and exit code.
 
 ### Choosing a model
 
@@ -61,11 +61,11 @@ Other OpenAI-compatible endpoints work with `--base-url URL --model ID`, plus `-
 
 ### Your data
 
-Keys are read only from environment variables. They are never printed or logged, and are sent only in the provider's Authorization header. A prompt that contains a key is refused.
+Keys are read only from environment variables. They are never printed or logged, and are sent only in the provider's Authorization header. briefbench refuses a prompt, answer, `--model` or `--base-url` that contains the value of `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY` or the variable `--api-key-env` names. Values shorter than 8 characters, such as placeholders for local servers, are not checked.
 
 Each run that reaches the model, failed calls included, adds one JSON line to `~/.briefbench/log.jsonl`. Set `BRIEFBENCH_HOME` to move it. The line holds your prompt, your answers, the brief, the model that answered, token usage and timing, in plain text, in a file only you can read. The format is in [docs/data-formats.md](docs/data-formats.md).
 
-Certificates are checked against your operating system's trust store, so briefbench works on networks that inspect TLS when the OS trusts the network's certificate. It never turns verification off.
+Certificates are checked against your operating system's trust store, so briefbench works on networks that inspect TLS when the OS trusts the network's certificate. It never turns verification off. Proxy settings such as `HTTPS_PROXY` are honoured, except for a loopback host such as `localhost`, which is always reached directly.
 
 ### Develop
 

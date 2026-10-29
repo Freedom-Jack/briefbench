@@ -29,6 +29,21 @@ def select(**kwargs):
     (dict(base_url="https://host/v1?key=sk-123", model="m"), {}, UsageError),
     (dict(base_url="ftp://host/v1", model="m"), {}, UsageError),
     (dict(base_url="https://host:99999/v1", model="m"), {}, UsageError),
+    # a dry run checks what the real run would send, though the key is not set yet
+    (dict(base_url="http://10.0.0.5/v1", model="m", api_key_env="MY_KEY", require_key=False), {}, UsageError),
+    (dict(provider="openai", base_url="http://llm.example.com/v1", require_key=False), {}, UsageError),
+    # paths http.client can't send: an invisible zero-width space from copying, an accent, a space
+    (dict(base_url="http://127.0.0.1:1/v1\u200b", model="m"), {}, UsageError),
+    (dict(base_url="http://127.0.0.1:1/v\xe9", model="m"), {}, UsageError),
+    (dict(base_url="http://127.0.0.1:1/v 1", model="m"), {}, UsageError),
+    # and anywhere else: urlsplit drops a tab silently, and the host would not resolve
+    (dict(base_url="http://127.0.0.1:1/v\t1", model="m"), {}, UsageError),
+    (dict(base_url="http://127.0.0.1\u200b:1/v1", model="m"), {}, UsageError),
+    (dict(base_url="https://a..b/v1", model="m"), {}, UsageError),          # an empty label: the socket layer
+    (dict(base_url="https://.example.com/v1", model="m"), {}, UsageError),  # would raise UnicodeError
+    (dict(base_url="https://example.com./v1", model="m"), {}, "custom"),    # a trailing dot is a valid name
+    (dict(base_url="http://local host:1/v1", model="m"), {}, UsageError),
+    (dict(base_url="https://b\xfccher.example/v1", model="m"), {}, "custom"),        # an IDN host is fine
 ])
 def test_select_provider(kwargs, environ, expect):
     if isinstance(expect, str):
@@ -36,7 +51,7 @@ def test_select_provider(kwargs, environ, expect):
     else:
         with pytest.raises(expect) as e:
             select(environ=environ, **kwargs)
-        assert "sk-" not in str(e.value) and "u:p" not in str(e.value)
+        assert not any(s in str(e.value) for s in ("sk-", "u:p", "/v"))     # never echoes what was given
 
 
 def test_selection_details():
@@ -52,3 +67,10 @@ def test_selection_details():
     assert "g" * 12 not in repr(auto)
     dry = select(provider="openai", require_key=False)
     assert dry.api_key is None and dry.info.params == {"reasoning_effort": "low"}
+
+
+def test_no_provider_message_says_how_to_dry_run_without_a_key():
+    with pytest.raises(ConfigError, match=r"for another OpenAI-compatible endpoint\.$"):
+        select()
+    with pytest.raises(ConfigError, match=r"endpoint, or pass --provider NAME to see the request without a key\.$"):
+        select(require_key=False)

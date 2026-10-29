@@ -34,6 +34,7 @@ USER_AGENT = f"briefbench/{__version__}"     # some CDN fronts answer 403 to url
 _API_KEY_WORDS = re.compile(r"api[\s_-]?key", re.I)
 _THINK = re.compile(r"\A\s*<think>.*?</think>\s*", re.S | re.I)
 _SPACE = re.compile(r"\s+")
+_KINDS = {"refused": "network", "dns": "network", "dropped": "network", "tls_other": "tls"}   # -> ProviderError kinds
 
 
 # ----------------------------------------------------------------------------- transport
@@ -60,22 +61,30 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_OPENER: urllib.request.OpenerDirector | None = None
+_OPENERS: dict[bool, urllib.request.OpenerDirector] = {}     # by "uses the proxy settings"; built once
 
 
-def _opener() -> urllib.request.OpenerDirector:
-    global _OPENER
-    if _OPENER is None:
+def _opener(proxied: bool = True) -> urllib.request.OpenerDirector:
+    if proxied not in _OPENERS:
         context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)   # CERT_REQUIRED and hostname checks stay on
-        _OPENER = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _NoRedirect())
-    return _OPENER                                                 # ProxyHandler stays: HTTPS_PROXY is honoured
+        handlers = [urllib.request.HTTPSHandler(context=context), _NoRedirect()]
+        if not proxied:
+            handlers.append(urllib.request.ProxyHandler({}))
+        _OPENERS[proxied] = urllib.request.build_opener(*handlers)
+    return _OPENERS[proxied]
 
 
 def post_json(url: str, headers: Mapping[str, str], payload: bytes, timeout: float) -> HttpResponse:
     request = urllib.request.Request(url, data=payload, headers=dict(headers), method="POST")
+    # Other hosts keep the proxy settings, so HTTPS_PROXY is honoured. Loopback goes direct: a proxy can't
+    # reach this machine's loopback, and over plain http it would be handed the key and the prompt.
+    opener = _opener(proxied=not is_loopback(urllib.parse.urlsplit(url).hostname or ""))
     try:
-        with _opener().open(request, timeout=timeout) as response:
-            return HttpResponse(response.status, _lower(response.headers), _read(response))
+        with opener.open(request, timeout=timeout) as response:
+            body = _read(response)
+            if (getattr(response, "length", None) or 0) > 0:      # closed before Content-Length bytes arrived
+                raise TransportError("dropped", "the reply was cut short", retryable=True)
+            return HttpResponse(response.status, _lower(response.headers), body)
     except urllib.error.HTTPError as e:              # every non-2xx, refused redirects included
         try:
             body = _read(e)
@@ -108,8 +117,8 @@ def _classify(exc) -> TransportError:
         return TransportError("tls", getattr(exc, "verify_message", None) or str(exc))
     if isinstance(exc, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
         return TransportError("dropped", "the TLS connection was closed", retryable=True)
-    if isinstance(exc, ssl.SSLError):
-        return TransportError("tls", str(exc))
+    if isinstance(exc, ssl.SSLError):                  # no certificate involved, e.g. https:// to a plain http server
+        return TransportError("tls_other", str(exc))
     if isinstance(exc, TimeoutError):
         return TransportError("timeout", "timed out")
     if isinstance(exc, ConnectionRefusedError):
@@ -160,9 +169,8 @@ class OpenAICompatProvider:
                 if e.retryable and attempt < MAX_ATTEMPTS:
                     self._pause("the connection dropped", float(2 ** (attempt - 1)), attempt)
                     continue
-                raise ProviderError("network" if e.kind in ("refused", "dns", "dropped") else e.kind,
-                                    self._transport_message(e, attempt), attempts=attempt,
-                                    latency_ms=self._elapsed(start)) from None
+                raise ProviderError(_KINDS.get(e.kind, e.kind), self._transport_message(e, attempt),
+                                    attempts=attempt, latency_ms=self._elapsed(start)) from None
             if 200 <= response.status < 300:
                 return self._parse(response.body, attempt, self._elapsed(start))
             wait = self._retry_wait(response, attempt)
@@ -241,13 +249,16 @@ class OpenAICompatProvider:
         return err("bad_request", f"HTTP {status} from {host}: {detail}")
 
     def _transport_message(self, e: TransportError, attempts: int) -> str:
-        host, detail = self._host, self._redact(e.detail)
+        host, detail = self._host, self._redact(_one_line(e.detail))
         if e.kind == "timeout":
             return f"No response from {host} within {self.info.timeout_s:g} s. Try again, or raise --timeout."
         if e.kind == "tls":
             return (f"The TLS certificate of {host} failed verification against your operating system's trust "
                     f"store ({detail}). briefbench never turns verification off; on a network that inspects "
                     "TLS, the operating system must trust the network's root certificate.")
+        if e.kind == "tls_other":
+            return f"TLS error talking to {host}: {detail}." + (
+                " If the server doesn't use TLS, use http:// in --base-url." if is_loopback(self._hostname) else "")
         if e.kind == "refused":
             return f"Could not connect to {host} (connection refused)." + (
                 " Is the server running?" if is_loopback(self._hostname) else "")
@@ -279,9 +290,9 @@ class OpenAICompatProvider:
             raise bad("no choices")
         choice = choices[0]
         if choice.get("error"):                                   # some gateways put errors here
-            raise bad("an error inside the reply: " + self._redact(_message_of(choice["error"])))
+            raise bad("an error inside the reply: " + self._redact(_one_line(_message_of(choice["error"]))))
         message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
-        text, unclosed_think = visible_text(message.get("content"))
+        text, think_only = visible_text(message.get("content"))
         reasoning = any(_has_content(message.get(k)) for k in ("reasoning", "reasoning_content", "reasoning_details"))
         finish = choice.get("finish_reason")
         return Completion(
@@ -291,7 +302,7 @@ class OpenAICompatProvider:
             response_id=_str(data.get("id")),
             system_fingerprint=_str(data.get("system_fingerprint")),
             refusal=_str(message.get("refusal")),
-            reasoning_only=not text.strip() and (reasoning or unclosed_think),
+            reasoning_only=not text.strip() and (reasoning or think_only),
             usage=normalize_usage(data.get("usage")),
             latency_ms=latency_ms,
             attempts=attempts,
@@ -301,7 +312,9 @@ class OpenAICompatProvider:
 # ----------------------------------------------------------------------------- helpers
 
 def visible_text(content) -> tuple[str, bool]:
-    """(text, unclosed_think). Keeps text chunks only; strips one leading <think> block."""
+    """(text, reasoning_only). Keeps text chunks only; strips one leading <think> block. Reasoning written into
+    the reply in any other shape stays in the text: the parser reads only the section blocks, and the last
+    copy of a block wins."""
     if isinstance(content, list):          # chunked content (e.g. reasoning on): keep the text chunks
         content = "".join(p["text"] for p in content if isinstance(p, dict)
                           and p.get("type") in ("text", "output_text") and isinstance(p.get("text"), str))
@@ -310,7 +323,7 @@ def visible_text(content) -> tuple[str, bool]:
     text = _THINK.sub("", content, count=1)
     if text.lstrip()[:7].lower() == "<think>":    # never closed: all reasoning, no answer
         return "", True
-    return text, False
+    return text, text != content and not text.strip()
 
 
 def normalize_usage(raw) -> Usage:
@@ -333,6 +346,11 @@ def error_message(body: bytes) -> str:
         if isinstance(data, list) and data:
             data = data[0]
         text = _message_of(data) if isinstance(data, dict) else body.decode("utf-8", "replace")
+    return _one_line(text)
+
+
+def _one_line(text: str) -> str:
+    """Server text on one line, at most 300 characters, before it is redacted, shown or logged."""
     return _SPACE.sub(" ", text).strip()[:300]
 
 

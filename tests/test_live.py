@@ -1,7 +1,6 @@
 """Real network calls. Deselected by default; run with: uv run pytest -m live -v -rA"""
 import io
 import os
-import re
 from pathlib import Path
 
 import pytest
@@ -13,7 +12,7 @@ from conftest import Err
 pytestmark = pytest.mark.live
 PRESET_KEYS = {"anthropic": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}
 PROMPT = "Write a script that renames the photos in a folder by the date they were taken."
-STRETCH_LINE = re.compile(r"^[\s>*_\-]*stretch\b", re.I | re.M)
+NO_STRETCH_PROMPT = "Rename the variable tmp to total in utils.py."
 
 
 def run(argv, environ):
@@ -53,10 +52,11 @@ def test_live_rewrite(name):
 @pytest.mark.parametrize("name", sorted(PRESET_KEYS))
 def test_live_no_invented_stretch_target(name):
     real_key(name)
-    code, out, err, _, _ = run(["--provider", name, "Rename the variable tmp to total in utils.py."],
-                               dict(os.environ))
+    code, out, err, _, _ = run(["--provider", name, "--why", "The name tmp hides that it holds the running total.",
+                                "--verify", "Run pytest -q; all tests pass.", NO_STRETCH_PROMPT], dict(os.environ))
+    print(out, err)                                  # shown with -rA, for a person to read
     assert code == 0, err
-    assert not STRETCH_LINE.search(out), out
+    assert "stretch" not in out[len(NO_STRETCH_PROMPT):].casefold(), out      # in any form, anywhere
 
 
 @pytest.mark.parametrize("name", sorted(PRESET_KEYS))
