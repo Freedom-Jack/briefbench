@@ -1,0 +1,61 @@
+{
+  "format_version": 1,
+  "note": "Every technique is a hypothesis. It stays on trial until blind, paired comparisons on your own tasks show that it helps. Records are computed from the log, never stored here.",
+  "techniques": [
+    {
+      "id": "background-and-why",
+      "name": "Background and why",
+      "heading": "Why this matters",
+      "status": "on_trial",
+      "added": "2026-10-29",
+      "uses_answers": ["why"],
+      "instruction": "Say why the requester wants this: what the result is for, and what happens next with it. Take this from the answer to the why question and from any purpose the prompt states. Include background from that answer that would change how the work is done, such as who the result is for or what went wrong before. If the prompt or the answers name raw material to work from, such as files, logs, data or links, tell the reader to start from that material itself rather than from summaries of it. Write NOT STATED if no purpose was given, or if the prompt already states the purpose plainly and there is no background to add.",
+      "source": "Felix Rieseberg, \"How to be more ambitious: A tutorial for humans with models\" (13 Oct 2026), on altitude: decide what you want to happen next, state the purpose behind the task, and give the model raw material rather than pre-digested inputs. Based on the author's experience. Not measured.",
+      "source_url": "https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/"
+    },
+    {
+      "id": "outcome-and-stretch",
+      "name": "Outcome with a stretch target",
+      "heading": "Outcome",
+      "status": "on_trial",
+      "added": "2026-10-29",
+      "uses_answers": ["why", "stretch"],
+      "instruction": "Write up to two labelled lines. \"Required:\" the result that meets the requester's real need, as an end state rather than an activity, taken only from the prompt and the answer to the why question. Write it only when they describe a result beyond the literal task; do not restate the task. \"Stretch target:\" the result from the answer to the stretch question, in the requester's own words and numbers, followed by a sentence saying it is an aim rather than a requirement and asking the reader to report how close the work came. Never make up a stretch target: if the stretch question was not answered, leave that line out. Write NOT STATED if neither line applies.",
+      "source": "Same essay, on altitude: ask for the outcome rather than the task, with a target far past the real need. Keeping the stretch target apart from what is required, so results are judged against the real goal, is briefbench's own rule (docs/design.md). Based on the author's experience. Not measured.",
+      "source_url": "https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/"
+    },
+    {
+      "id": "external-verification",
+      "name": "Verification outside the model",
+      "heading": "How the result will be verified",
+      "status": "on_trial",
+      "added": "2026-10-29",
+      "uses_answers": ["verify"],
+      "instruction": "Say how the result will be checked by something other than the model doing the work: tests or commands to run, figures to reproduce from raw data, predictions to check against data the model has not seen, or a person who will review it. Use only checks named in the answer to the verification question or in the prompt, and keep each one exactly as the requester wrote it. For each check the reader can run itself, tell it to run the check and report the actual result, including failures. Do not add checks of your own, and do not tell the reader to review, grade or double-check its own work. Write NOT STATED if no check was named.",
+      "source": "Same essay: never let a model judge its own work; prefer checks it can run and get feedback from right away, claims reproduced from raw data, and predictions tested on data it has not seen. Leaving out self-check instructions also follows Anthropic's prompting guidance, which reports that they cause over-verification on recent models. Based on experience and vendor guidance. Not measured.",
+      "source_url": "https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/"
+    },
+    {
+      "id": "definition-of-done",
+      "name": "Definition of done",
+      "heading": "Done when",
+      "status": "on_trial",
+      "added": "2026-10-29",
+      "uses_answers": [],
+      "instruction": "List, as a short checklist, what must be true for the work to count as finished, and what to hand back, such as a pull request, a file or a short report. Use only deliverables and conditions that the prompt or the answers state or directly imply, and write each item so it can be seen to be true or false. Leave out the stretch target, which is not a condition for being done. Write NOT STATED if the list would only repeat the prompt, the outcome or the checks, or if nothing says when the work is finished.",
+      "source": "briefbench's own candidate. The essay gives no explicit criteria for when work is done. Not measured.",
+      "source_url": null
+    },
+    {
+      "id": "constraints-and-non-goals",
+      "name": "Constraints and non-goals",
+      "heading": "Constraints and non-goals",
+      "status": "on_trial",
+      "added": "2026-10-29",
+      "uses_answers": [],
+      "instruction": "List the limits the work must respect, in the requester's words: what must not change, tools or approaches to use or avoid, compatibility to keep, and any budget, deadline or scope limit. Mark anything the requester said is out of scope with \"Non-goal:\". Gather limits mentioned in passing anywhere in the prompt or the answers, so they are not missed. Add no limits or non-goals of your own, including generic ones such as \"keep it simple\". Write NOT STATED if the requester stated none, or if the prompt already lists them together in one place.",
+      "source": "briefbench's own candidate. The essay says almost nothing about constraints; it notes only that vague top-level goals don't work yet. Not measured.",
+      "source_url": null
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[project]
+name = "briefbench"
+version = "0.1.0"
+description = "Rewrite rough prompts into briefs for any AI model, and log every rewrite so later stages can test which techniques help."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # HTTPS is verified against the operating system's trust store, so calls work
+    # behind TLS-inspecting proxies. The only runtime dependency (docs/design.md, "Decisions").
+    "truststore>=0.10",
+]
+
+[project.scripts]
+briefbench = "briefbench.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not live"]
+markers = [
+    "live: real network calls to vendor APIs; run with: uv run pytest -m live",
+]
