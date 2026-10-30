@@ -20,4 +20,12 @@ Read [docs/design.md](docs/design.md) before changing anything. It covers the go
 
 ## Status
 
-Nothing is built yet. Stage 1 (rewrite) is next. The language choice is still open: see "Open decisions" in docs/design.md.
+Stage 1 (rewrite) is built: `briefbench rewrite`, Python 3.11+, the standard library plus truststore, managed with uv. Its offline tests pass on Python 3.11 and 3.14. Its done-when check, a live rewrite with models from two vendors (`uv run pytest -m live`), is pending; the README roadmap shows where it stands. Don't start stage 2 until it passes.
+
+## Working on the code
+
+- Run `uv sync`. `uv run pytest` and `uv run --isolated --python 3.14 pytest` must both pass.
+- Offline tests use no real keys, no internet and not `~/.briefbench/`. `tests/conftest.py` clears the key variables, points `HOME` and `BRIEFBENCH_HOME` at temporary folders, and fails the run if the real data folder changes. Live tests are marked `live` and run only with `-m live`.
+- Vendor names, hosts, key variables and default model ids live in `src/briefbench/presets.py`. `tests/test_architecture.py` scans every other `.py` module in `src/briefbench/` for known vendor and model names, comments included, and fails if it finds one. Generic protocol handling, such as think blocks, chunked content and error shapes, lives in `openai_compat.py`, and `rewrite.py` decides which finish reasons make a reply unusable.
+- Technique text and the rewriter templates are what the records measure. Their hashes go in every log entry, so an edit starts a new record; say so in the commit message.
+- The log and playbook formats are a contract for later stages ([docs/data-formats.md](docs/data-formats.md)): add fields, but never rename, remove or reinterpret them.

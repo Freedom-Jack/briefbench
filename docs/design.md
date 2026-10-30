@@ -1,6 +1,6 @@
 # briefbench design
 
-Status: design only; nothing is built yet. Last updated 2026-10-28.
+Status: stage 1 (rewrite) is built and passes its offline tests; its live check with models from two vendors is pending. Stages 2–4 are not started. Last updated 2026-10-29.
 
 ## Goal
 
@@ -73,7 +73,7 @@ Trials only work for tasks you hand off whole. If you steer the agent partway th
 ## Architecture
 
 - **Core.** A standalone CLI and library holding the playbook, rewriting, the A/B runner, the judge, the log and the statistics. No vendor-specific code.
-- **Providers.** One interface for calling models, with adapters for OpenAI, Anthropic, Google, DeepSeek and local models. Most of these offer OpenAI-compatible endpoints, which may be enough at first.
+- **Providers.** One interface for calling models. At first it covers only OpenAI-compatible chat endpoints, which OpenAI, Anthropic, Google, DeepSeek and local models all offer (see "Decisions").
 - **Harness runners.** Run a task through an agent CLI using a command template, such as `claude -p {prompt}`, `codex exec {prompt}` or `gemini -p {prompt}`, or through a plain model API. Each version runs in its own copy of the working folder.
 - **Adapters (later).**
   - An MCP server with rewrite and logging tools, for Claude, Gemini CLI, Codex, Cursor, and ChatGPT through connectors.
@@ -83,6 +83,7 @@ Trials only work for tasks you hand off whole. If you steer the agent partway th
   - Local files only, under your home folder, never in the repo.
   - The log is append-only JSONL, and the playbook is a readable file.
   - API keys come from environment variables and are never logged.
+  - Formats: [data-formats.md](data-formats.md).
 
 ## Measurement
 
@@ -138,15 +139,25 @@ Test the premise before building past stage 3:
 
 Fix the decision rule in advance. If the rewrite wins at least 21 of 30 decided comparisons, continue to stage 4. If it doesn't, the rewriting doesn't pay off for your work as designed, so rethink before building more.
 
+## Decisions
+
+Made on 2026-10-28, for stage 1:
+
+- **Language: Python.** GEPA and DSPy are Python, which helps stage 4, and it installs with `uvx` or `pipx`. TypeScript's edge, an easier path to a browser extension for web chats, can wait.
+- **Model access: OpenAI-compatible chat endpoints only, behind one provider interface.** OpenAI, Anthropic, Google, DeepSeek and local servers such as Ollama all offer one. If one of them falls short, a vendor-specific adapter can go behind the same interface later.
+- **Data location: `~/.briefbench/`.** The stage 1 request puts the log there.
+
+Made while building stage 1:
+
+- **HTTPS trusts what the operating system trusts, through the `truststore` package.** On networks that inspect TLS, such as a corporate proxy, Python's own certificate bundle rejects the vendors' certificates. On the machine stage 1 was built on, calls to OpenAI and Anthropic failed this way, and calls to Gemini did not. `truststore` is small and has no dependencies of its own; pip uses it too. It is the only runtime dependency.
+- **The brief keeps your prompt word for word.** Code puts it at the top and adds at most one section per technique below it, so nothing you wrote is lost. Each added section is logged, so stage 3 can leave one out to test that technique without rewriting the prompt again.
+- **Presets for Anthropic, Gemini and OpenAI only.** Other OpenAI-compatible endpoints work through `--base-url` but are untested. DeepSeek and xAI were unreachable from the build network.
+- **The playbook is JSON inside the package; records come from the log.** Each log entry holds every technique's hash and the rewriter's hash, so editing a technique starts a new record.
+- **Every run that reaches the model is logged, failures included.** Each entry holds the model the API reported, usage and latency.
+- **Exit codes say what to do next.** 2 usage, 3 setup, 4 try again, 5 unusable reply, 6 printed but not logged.
+
 ## Open decisions
 
-- **Language.** Python or TypeScript.
-  - Python: GEPA and DSPy are Python, which helps stage 4, and it installs with `uvx` or `pipx`.
-  - TypeScript: it installs with `npx`, and it is an easier path to a browser extension for web chats.
-
-  The name is free on both npm and PyPI.
-- **Model access.** A multi-provider library, or only OpenAI-compatible endpoints at first.
-- **Data location.** For example `~/.briefbench/`.
 - **Judge defaults.** Which model judges which, and how often you spot-check the judge.
 - **Negative controls.** Include tricks known to have no effect, such as tipping, to check that the bench doesn't report false wins.
 
