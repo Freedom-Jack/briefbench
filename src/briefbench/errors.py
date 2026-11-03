@@ -8,12 +8,19 @@ class BriefbenchError(Exception):
 
 
 class UsageError(BriefbenchError):
-    """Fix the command: a bad flag value or an empty prompt."""
+    """Fix the command: a bad flag value, an unknown treatment or an empty prompt."""
 
     exit_code = 2
 
 
 class ConfigError(BriefbenchError):
-    """Fix the setup: an unusable data folder, or an agent CLI that is missing or not logged in."""
+    """Fix the setup: an unusable data folder, an agent CLI that is missing or not on a plan login, or a
+    treatment that changed since `init`."""
 
     exit_code = 3
+
+
+class AgentError(BriefbenchError):
+    """A trial step failed, such as setup or the headless rewrite; its log says why. Try again."""
+
+    exit_code = 4

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
+from . import __version__
 from .errors import ConfigError
 from .redact import scrub
 
@@ -61,6 +62,11 @@ def new_id() -> str:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def header(kind: str) -> dict:
+    """The fields every log line starts with (docs/data-formats.md)."""
+    return {"schema": SCHEMA, "kind": kind, "id": new_id(), "ts": utc_now(), "briefbench_version": __version__}
 
 
 def append(path: Path, entry: dict, secrets) -> None:

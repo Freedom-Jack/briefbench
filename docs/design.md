@@ -328,7 +328,7 @@ Each stage is committed separately, on a branch `redesign` from `main`, and is d
    *Done when:* on 5 of your real prompts, in Claude Code and one other host, it asks only unanswered questions, and you find nothing in the briefs you didn't say or point to.
 2. **Paired runs:** `init`, `ab` without the judge, `clean`, the treatments and the headless rewrite. Offline tests use fake agent CLI scripts: a worker that edits files, and a rewriter that returns a brief.
 
-   *Done when:* one real task runs end to end on your Claude plan, and you keep the winner.
+   *Done when:* one real task runs end to end on your Claude plan, and you keep the winner. Built 2026-11-03, and run end to end once through Codex on your ChatGPT plan; your run is pending.
 3. **Judge and score.**
 
    *Done when:*
@@ -408,6 +408,15 @@ Changed on 2026-11-03, after you reviewed the redesign:
 - **Subscriptions, not APIs.** The worker, the rewriter and the judge all run through agent CLIs logged in with your plans. The first plan's provider layer, its API presets and `truststore` are retired, so the bench has no runtime dependency. This also removes the TLS problems with your network's proxy: the CLIs handle their own connections.
 - **Claude Code and Codex only, for now.** They are the two CLIs whose vendors clearly document scripted use on a plan login. Gemini CLI stopped serving personal Google accounts in June 2026. Its successor, Antigravity CLI, is meant for scripting, but whether consumer plans may run it from another tool is disputed, and its free tier trains on your prompts and code.
 - **No 3 runs per arm** after a noisy noise check; it would triple the cost. A noisy bench needs more pairs instead.
+
+Made while building stages 1 and 2, on 2026-11-03:
+- **The skill asks the stretch question only when the task has room to go further**, and it says what is wanted and why, not how, pointing to files instead of pasting them. Headless test runs showed both were needed.
+- **The rewriter gets the skill's text in its prompt** rather than through the host's own skill loading. Any skill folder can then be compared, and an installed copy can't interfere: Claude Code's slash commands are switched off for it.
+- **Least-permissive worker modes:** Claude Code with `--permission-mode acceptEdits`, only your check command allowed (`--allowedTools=Bash(<check>:*)`) and `--permission-prompts none`; Codex with `-s workspace-write`. The rewriter and the judge get read-only tools.
+- **CLIs are found on PATH first, then in the desktop apps**, so the ChatGPT app's Codex works as it is.
+- **Codex's model is left to its default** unless you name one at `init`, because `codex exec` doesn't report which model answered. Claude Code reports its model on every run, and the log keeps it.
+- **Your setup and check commands run in a shell**, since you wrote them; agent CLIs never do.
+- **Exit code 4** means a trial step failed, such as setup or the headless rewrite; its log says why.
 
 From the first plan, still holding:
 - **Language: Python** (2026-10-28). GEPA and DSPy are Python, which helps future stage A, and it installs with `uvx` or `pipx`.

@@ -17,8 +17,40 @@ Every line has these fields:
 | `id`, `ts`, `briefbench_version` | str | `id` is a uuid4. `ts` is a UTC time with milliseconds and a `Z`. |
 
 Kinds:
+- `trial`: one paired trial, written by `briefbench ab`.
+- `aa`: a noise-check trial, written by `briefbench ab --aa`, with treatment A in both arms. Same fields as `trial`.
+- `excluded`: a task that failed the eligibility questions, so it was not run.
 - `rewrite`: written by the first plan's `briefbench rewrite`, now retired. Old lines stay in the log, and readers ignore them. Their fields are described in this file as it was at commit 5662bcc.
-- `trial`, `aa` and `excluded`: added by stage 2.
+
+A `trial` or `aa` line also has:
+
+| Field | Type | Notes |
+|---|---|---|
+| `experiment` | str | The name in `experiments/<name>.json`. |
+| `repo` | `{root, commit}` | The repo's absolute path and the commit both arms started from. With `task` and `settings`, enough to replay the task later. |
+| `task` | `{type, prompt, answers}` | `type` is code, writing, research, analysis or other. `answers` is `{why, check, stretch}`, each a string, empty when skipped. `why` is the goal. |
+| `settings` | `{setup, check, protected, timeout_s}` | The setup and check commands as run (empty for none), the protected paths, and the timeout per arm. |
+| `treatments` | `{a, b}` | Each arm's treatment spec. In an `aa` line both are A's. |
+| `prompts` | `{a, b}` | Exactly what each arm's worker received. |
+| `worker` | `{agent, model, version}` | `model` is null when left to the CLI's default. |
+| `arms` | `{a, b}`, each below | |
+| `.exit_code`, `.timed_out`, `.seconds` | int or null, bool, float | `exit_code` is null when the run was stopped at the timeout. |
+| `.tokens`, `.model`, `.error` | int, str, str, each or null | As the CLI reported them: input and output tokens, cached ones included; the model that answered; a failure it reported. |
+| `.protected_changed` | bool | The agent changed a protected path. It was put back, and the check fails. |
+| `.diff` | `{files, insertions, deletions, bytes}` | Of everything the agent changed, as saved in `<side>.diff`. |
+| `.check` | null or `{exit_code, seconds, passed}` | null when there is no check command. `passed` needs exit 0 and no protected path changed. |
+| `decision` | `{by, winner, sides, pick, guess}` | `by` is `check` or `you`. `winner` is `a`, `b` or `tie`. `sides` maps the blind sides `1` and `2` to `a` and `b`. `pick` is `1`, `2` or `t`, and `guess` is the side you thought got B; both are null when the check decided. |
+| `judge` | null or an object | Stage 3. |
+| `output` | str | The trial's folder of prompts, diffs and logs. |
+
+An `excluded` line has `experiment`, `repo`, `reasons` (any of `leans_on_chat`, `side_effects`, `steered`) and `task` (`{prompt}`).
+
+## Experiments and repo settings
+
+Both are JSON files, readable only by you, written whole.
+
+- `experiments/<name>.json` holds one frozen experiment: `format` (1), `name`, `created`, `briefbench_version`, the treatments `a` and `b` (`{spec, kind, path, sha256, version}`), `worker` and `rewriter` (`{agent, vendor, model, version, argv}`, where `argv` is the command template `init` showed; the rewriter is null without a skill treatment), `judge`, `cap_percent`, `timeout_s` and `rule`. A skill's `sha256` covers every file in its folder except caches and git data; a snippet's covers the file. `ab` refuses to run when either has changed, or when the command template has.
+- `repos.json` maps a repo's absolute path to `{setup, check, protected, judge_allowed}`, asked on its first trial.
 
 ## Never logged
 

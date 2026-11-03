@@ -2,7 +2,7 @@
 
 A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** being rebuilt to the redesign of 2026-11-02. Stage 0 (trim) is done. Stage 1, the `brief` skill, is built; its check on your real prompts is pending. Stages 2 and 3 add the bench. See the roadmap below and [docs/design.md](docs/design.md).
+> **Status:** being rebuilt to the redesign of 2026-11-02. Stage 0 (trim) is done. Stage 1, the `brief` skill, and stage 2, paired runs (`init`, `ab`, `clean`), are built; their checks with you are pending. Stage 3 adds the judge and `score`. See the roadmap below and [docs/design.md](docs/design.md).
 
 ## Why
 
@@ -34,16 +34,25 @@ Any other prompt treatment can be compared the same way: two versions of the ski
 
 Then type `/brief` after your prompt (`$brief` in Codex, `@brief` in ChatGPT; in the Claude apps and Gemini CLI, ask for "a brief").
 
-### The bench (stages 2 and 3, not built yet)
+### The bench
 
-You need Python 3.11 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code or Codex logged in with your plan. From a clone, `uv tool install --editable .` puts `briefbench` on your PATH. Then, in the repo where you work:
+You need Python 3.11 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code or Codex logged in with your plan. briefbench finds each CLI on your PATH, or else the copy inside the Claude or ChatGPT desktop app. From a clone, `uv tool install --editable .` puts `briefbench` on your PATH. Then, in the repo where you work:
 
 | Command | What it does |
 |---|---|
 | `briefbench init <name>` | Freezes an experiment: the two treatments (default: your original prompt against the brief), the agent CLIs that do the work, write the brief and judge, and your cost cap |
 | `briefbench ab "<prompt>"` | Runs one trial: the skill's questions, the headless brief, both arms, your check, your blind pick, and the command that applies the winner's diff |
-| `briefbench score` | Wins, losses and ties, the significance verdict, and the extra time and tokens |
+| `briefbench score` | Wins, losses and ties, the significance verdict, and the extra time and tokens (stage 3) |
 | `briefbench clean` | Removes finished trial worktrees |
+
+For example, to compare your original prompts with the brief, Codex doing the work and writing the brief:
+
+```bash
+briefbench init first --worker codex --rewriter codex
+briefbench ab "mean() in stats.py crashes on an empty list. Make it return 0.0 instead."
+```
+
+`init` asks for anything you leave out, such as the models and your cost cap, and shows the exact commands before freezing them. To compare two versions of the skill instead, use `--a skill:<folder> --b skill:<other folder>`. `ab` asks whether the task is one you'd hand off whole, its type, and the skill's three questions; on a repo's first trial it also asks for its setup command and protected paths. Then it writes the brief headless, runs both arms in their own worktrees, runs your check, and asks for your blind pick when the check can't decide.
 
 ### Your data
 
@@ -64,6 +73,6 @@ uv run pytest -m live -v -rA             # real agent CLI calls on your plans (f
 |---|---|---|
 | 0. Trim | The first plan's stage 1 cut to its log; docs for the redesign | Done |
 | 1. Skill | `/brief` in your agent or chat | Built; your check on 5 real prompts pending |
-| 2. Paired runs | `briefbench init`, `ab` and `clean`, with four treatments | Not started |
+| 2. Paired runs | `briefbench init`, `ab` and `clean`, with four treatments | Built and run end to end through Codex; your run on a real task pending |
 | 3. Judge and score | An optional blind judge, and `briefbench score` with the sign test | Not started |
 | Later | A standing bench for prompting claims, a richer front end, routing by task type | Not planned yet |
