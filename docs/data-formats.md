@@ -40,7 +40,7 @@ A `trial` or `aa` line also has:
 | `.diff` | `{files, insertions, deletions, bytes}` | Of everything the agent changed, as saved in `<side>.diff`. |
 | `.check` | null or `{exit_code, seconds, passed}` | null when there is no check command. `passed` needs exit 0 and no protected path changed. |
 | `decision` | `{by, winner, sides, pick, guess}` | `by` is `check` or `you`. `winner` is `a`, `b` or `tie`. `sides` maps the blind sides `1` and `2` to `a` and `b`. `pick` is `1`, `2` or `t`, and `guess` is the side you thought got B; both are null when the check decided. |
-| `judge` | null or an object | Stage 3. |
+| `judge` | null or `{agent, model, orders, winner}` | null when the judge is off, not allowed for the repo, or the check decided. `orders` has one `{a, b, verdict, goal_met, check_passed}` per order, where `a` and `b` are the blind sides shown as assistant A and B, and `verdict` is one of `[[A>>B]]`, `[[A>B]]`, `[[A=B]]`, `[[B>A]]` or `[[B>>A]]`. `winner` is `a`, `b`, `tie` (the orders disagreed), or null with `skipped` (no goal, or a side over 60,000 characters) or `error` set. |
 | `output` | str | The trial's folder of prompts, diffs and logs. |
 
 An `excluded` line has `experiment`, `repo`, `reasons` (any of `leans_on_chat`, `side_effects`, `steered`) and `task` (`{prompt}`).
@@ -50,7 +50,7 @@ An `excluded` line has `experiment`, `repo`, `reasons` (any of `leans_on_chat`, 
 Both are JSON files, readable only by you, written whole.
 
 - `experiments/<name>.json` holds one frozen experiment: `format` (1), `name`, `created`, `briefbench_version`, the treatments `a` and `b` (`{spec, kind, path, sha256, version}`), `worker` and `rewriter` (`{agent, vendor, model, version, argv}`, where `argv` is the command template `init` showed; the rewriter is null without a skill treatment), `judge`, `cap_percent`, `timeout_s` and `rule`. A skill's `sha256` covers every file in its folder except caches and git data; a snippet's covers the file. `ab` refuses to run when either has changed, or when the command template has.
-- `repos.json` maps a repo's absolute path to `{setup, check, protected, judge_allowed}`, asked on its first trial.
+- `repos.json` maps a repo's absolute path to `{setup, check, protected, judge_allowed}`, asked on its first trial. `judge_allowed` is null until the judge first needs it, then your answer.
 
 ## Never logged
 

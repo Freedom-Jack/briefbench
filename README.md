@@ -2,7 +2,7 @@
 
 A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** being rebuilt to the redesign of 2026-11-02. Stage 0 (trim) is done. Stage 1, the `brief` skill, and stage 2, paired runs (`init`, `ab`, `clean`), are built; their checks with you are pending. Stage 3 adds the judge and `score`. See the roadmap below and [docs/design.md](docs/design.md).
+> **Status:** a first working version of the redesign of 2026-11-02. The `brief` skill (stage 1), paired runs (stage 2) and the judge and `score` (stage 3) are built, and have run for real through Codex on a ChatGPT plan. Two checks with you are still owed: the skill on 5 of your real prompts, and one real task on your Claude plan. See the roadmap below and [docs/design.md](docs/design.md).
 
 ## Why
 
@@ -42,7 +42,7 @@ You need Python 3.11 or later, [uv](https://docs.astral.sh/uv/), git, and Claude
 |---|---|
 | `briefbench init <name>` | Freezes an experiment: the two treatments (default: your original prompt against the brief), the agent CLIs that do the work, write the brief and judge, and your cost cap |
 | `briefbench ab "<prompt>"` | Runs one trial: the skill's questions, the headless brief, both arms, your check, your blind pick, and the command that applies the winner's diff |
-| `briefbench score` | Wins, losses and ties, the significance verdict, and the extra time and tokens (stage 3) |
+| `briefbench score` | Wins, losses and ties, the significance verdict, and the extra time and tokens |
 | `briefbench clean` | Removes finished trial worktrees |
 
 For example, to compare your original prompts with the brief, Codex doing the work and writing the brief:
@@ -52,7 +52,9 @@ briefbench init first --worker codex --rewriter codex
 briefbench ab "mean() in stats.py crashes on an empty list. Make it return 0.0 instead."
 ```
 
-`init` asks for anything you leave out, such as the models and your cost cap, and shows the exact commands before freezing them. To compare two versions of the skill instead, use `--a skill:<folder> --b skill:<other folder>`. `ab` asks whether the task is one you'd hand off whole, its type, and the skill's three questions; on a repo's first trial it also asks for its setup command and protected paths. Then it writes the brief headless, runs both arms in their own worktrees, runs your check, and asks for your blind pick when the check can't decide.
+`init` asks for anything you leave out, such as the models, the judge and your cost cap, and shows the exact commands before freezing them. A judge must come from a third vendor, so with Codex doing the work it is Claude Code (`--judge claude-code`), and with Claude Code doing the work it is Codex. It rules only after your blind pick, and only in repos where you allow it. To compare two versions of the skill instead, use `--a skill:<folder> --b skill:<other folder>`. `ab` asks whether the task is one you'd hand off whole, its type, and the skill's three questions; on a repo's first trial it also asks for its setup command and protected paths. Then it writes the brief headless, runs both arms in their own worktrees, runs your check, and asks for your blind pick when the check can't decide. A long prompt can come from a file (`--file prompt.md`) or be pasted (`-`).
+
+On a tiny task, a Codex arm used about 80,000 to 100,000 tokens of plan usage, the headless rewrite about 40,000, and each judge call about 20,000.
 
 ### Your data
 
@@ -64,7 +66,7 @@ Everything stays under `~/.briefbench/`; set `BRIEFBENCH_HOME` to move it. brief
 uv sync
 uv run pytest                            # offline, Python 3.11
 uv run --isolated --python 3.14 pytest   # the same tests on Python 3.14
-uv run pytest -m live -v -rA             # real agent CLI calls on your plans (from stage 2)
+uv run pytest -m live -v -rA             # real agent CLI calls on your plans; skips a CLI that isn't logged in
 ```
 
 ## Roadmap
@@ -73,6 +75,6 @@ uv run pytest -m live -v -rA             # real agent CLI calls on your plans (f
 |---|---|---|
 | 0. Trim | The first plan's stage 1 cut to its log; docs for the redesign | Done |
 | 1. Skill | `/brief` in your agent or chat | Built; your check on 5 real prompts pending |
-| 2. Paired runs | `briefbench init`, `ab` and `clean`, with four treatments | Built and run end to end through Codex; your run on a real task pending |
-| 3. Judge and score | An optional blind judge, and `briefbench score` with the sign test | Not started |
+| 2. Paired runs | `briefbench init`, `ab` and `clean`, with four treatments | Built, and run end to end through Codex; your run on a real task pending |
+| 3. Judge and score | An optional blind judge, and `briefbench score` with the sign test | Done: the judge's live test passed through Codex, and `score` matches a hand-computed fixture |
 | Later | A standing bench for prompting claims, a richer front end, routing by task type | Not planned yet |

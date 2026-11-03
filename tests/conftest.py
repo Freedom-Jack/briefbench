@@ -41,9 +41,9 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(autouse=True)
 def hermetic(request, monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("BRIEFBENCH_HOME", str(tmp_path / "bbhome"))
-    if request.node.get_closest_marker("live") is None:
+    if request.node.get_closest_marker("live") is None:       # live tests keep HOME: the agent CLIs' logins live there
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
         for name in KEY_ENVS:
             monkeypatch.delenv(name, raising=False)
         for key, agent in presets.AGENTS.items():              # never the real CLIs in the desktop apps

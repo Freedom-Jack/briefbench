@@ -280,7 +280,7 @@ trials/<id>/a, b, output/     worktrees and captured output; `clean` removes the
 | Command | What it does |
 |---|---|
 | `briefbench init <name> [--a <treatment>] [--b <treatment>] [--judge <cli>]` | Asks for the worker, the rewriter and your cost cap, shows the commands it will run, then freezes the experiment. Defaults: `--a original --b brief`, no judge |
-| `briefbench ab "<prompt>" [--aa]` | The prompt as an argument, or `-` to paste it. Eligibility questions and task type; the skill's three questions, which give the goal and the check; the headless brief; both arms; check; blind pick; judge; one log line with both treatments; prints how to keep the winner |
+| `briefbench ab "<prompt>" [--aa]` | The prompt as an argument, from `--file`, or `-` to paste it. Eligibility questions and task type; the skill's three questions, which give the goal and the check; the headless brief; both arms; check; blind pick; judge; one log line with both treatments; prints how to keep the winner |
 | `briefbench score [<name>]` | The report above |
 | `briefbench clean` | Removes finished trial worktrees |
 
@@ -308,10 +308,10 @@ trials/<id>/a, b, output/     worktrees and captured output; `clean` removes the
 
 | Module | Fate | Lines |
 |---|---|---|
-| `errors`, `redact`, `log` | Kept, trimmed: `log` drops `rewrite_entry` | ~150 |
+| `errors`, `redact`, `log` | Kept, trimmed: `log` drops `rewrite_entry` | ~150 planned; 160 built |
 | `provider`, `openai_compat`, `selection` and the API presets, with the `truststore` dependency | Retired: every model call goes through an agent CLI on your subscription | ~600 |
 | `rewrite`, `questions` (with the terminal line editor), `report`, `playbook.py`, `playbook.json`, the `rewrite` command | Retired; the host's model asks and rewrites now | ~1,070 |
-| `presets` (rewritten), `treatments`, `experiment`, `runner`, `judge`, `stats`, `score`, `cli` | New | ~850 |
+| `presets` (rewritten), `treatments`, `experiment`, `runner`, `judge`, `stats`, `score`, `cli` | New | ~850 planned; 1,151 built |
 
 ## Stages
 
@@ -334,6 +334,8 @@ Each stage is committed separately, on a branch `redesign` from `main`, and is d
    *Done when:*
    - the judge's live test passes through Codex on your ChatGPT plan, the second vendor
    - `score` matches hand-computed results on a fixture log
+
+   Done 2026-11-03: both checks pass.
 
    The first look at 20 decided pairs is then the experiment itself, not part of the build.
 4. **Later:** the future stages below.
@@ -417,6 +419,13 @@ Made while building stages 1 and 2, on 2026-11-03:
 - **Codex's model is left to its default** unless you name one at `init`, because `codex exec` doesn't report which model answered. Claude Code reports its model on every run, and the log keeps it.
 - **Your setup and check commands run in a shell**, since you wrote them; agent CLIs never do.
 - **Exit code 4** means a trial step failed, such as setup or the headless rewrite; its log says why.
+
+Made while building stage 3, on 2026-11-03:
+- **The judge rules only on trials you picked**, not where the check decided: its agreement with your picks is what makes it trustworthy, and skipping the rest saves plan usage. It is also skipped when no goal was given, or when a side is over 60,000 characters.
+- **Its verdict comes back as JSON**, held to a schema by the CLI, with the five Arena-Hard-Auto labels as the allowed values and a one-line reason per criterion.
+- **The judge prompt ships with Arena-Hard-Auto's Apache-2.0 license** (`src/briefbench/judge_prompt_license.txt`), and its header says what was changed.
+- **The cost cap applies to both medians**, extra time and extra tokens, each as a percentage of A's, over all trials.
+- **Size.** The bench is 1,311 lines, over the ~1,000 estimated in review: asking the skill's questions, the headless rewrite, plan-login checks and two CLIs' templates and parsers moved into it. It is still under the first redesign's 1,600.
 
 From the first plan, still holding:
 - **Language: Python** (2026-10-28). GEPA and DSPy are Python, which helps future stage A, and it installs with `uvx` or `pipx`.

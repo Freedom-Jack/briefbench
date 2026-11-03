@@ -30,7 +30,8 @@ def entries():
 
 def init(repo, *extra, b=f"skill:{SKILL}"):
     return bench(["init", "exp", "--a", "original", "--b", b, "--worker", "codex", "--worker-model", "",
-                  "--rewriter", "codex", "--rewriter-model", "", "--cap", "50", "-y", *extra], cwd=repo)
+                  "--rewriter", "codex", "--rewriter-model", "", "--judge", "none", "--cap", "50", "-y", *extra],
+                 cwd=repo)
 
 
 def test_init_freezes_the_experiment_once(agents, repo):
@@ -155,3 +156,52 @@ def test_ab_needs_an_experiment_and_a_repo(agents, repo, tmp_path):
     (tmp_path / "plain").mkdir()
     code, err = bench(["ab", PROMPT], ANSWERS, cwd=tmp_path / "plain")
     assert code == 3 and "git repo" in err
+
+
+def init_judged(repo, judge="claude-code"):
+    return bench(["init", "exp", "--b", f"skill:{SKILL}", "--worker", "codex", "--worker-model", "", "--rewriter",
+                  "codex", "--rewriter-model", "", "--judge", judge, "--judge-model", "", "--cap", "50", "-y"], cwd=repo)
+
+
+def test_the_judge_rules_after_your_pick_in_both_orders(agents, repo, monkeypatch):
+    monkeypatch.setenv("FAKE_JUDGE", "brief-wins")
+    assert init_judged(repo)[0] == 0
+    code, err = bench(["ab", PROMPT], "\n\n\ncode\n\n\nKeep CI honest\ntest -f result.txt\n\n1\n\ny\n", cwd=repo)
+    assert code == 0, err
+    [t] = entries()
+    assert t["judge"]["winner"] == "b" and sorted(o["verdict"] for o in t["judge"]["orders"]) == ["[[A>B]]", "[[B>A]]"]
+    judged = [c for c in agents() if c["role"] == "judge"]
+    assert len(judged) == 2 and all(c["name"] == "claude" and "--json-schema" in c["argv"] for c in judged)
+    assert all(PROMPT not in c["argv"][-1] and "BRIEF:" not in c["argv"][-1] for c in judged)   # blind to treatments
+    assert "Keep CI honest" in judged[0]["argv"][-1] and "B wins, in both orders" in err
+
+
+def test_score_prints_the_report(agents, repo):
+    init(repo)
+    bench(["ab", PROMPT], ANSWERS, cwd=repo)
+    out = io.StringIO()
+    assert cli.run(["score"], stdout=out, stderr=io.StringIO()) == 0
+    assert "Trials: 1. B won 1, A won 0, 0 ties." in out.getvalue() and "Verdict: none yet." in out.getvalue()
+
+
+def test_a_judge_failure_never_stops_a_trial(agents, repo, monkeypatch):
+    monkeypatch.setenv("FAKE_JUDGE", "fail")
+    init_judged(repo)
+    code, err = bench(["ab", PROMPT], "\n\n\ncode\n\n\nKeep CI honest\ntest -f result.txt\n\nt\n\ny\n", cwd=repo)
+    assert code == 0, err
+    [t] = entries()
+    assert t["judge"]["winner"] is None and "judge failed" in t["judge"]["error"] and "yours alone" in err
+
+
+def test_the_judge_waits_for_your_ok_for_each_repo(agents, repo):
+    init_judged(repo)
+    code, err = bench(["ab", PROMPT], "\n\n\ncode\n\n\nKeep CI honest\ntest -f result.txt\n\n1\n\nn\n", cwd=repo)
+    assert code == 0, err
+    code, err = bench(["ab", PROMPT], "\n\n\ncode\nKeep CI honest\n\n\n2\n\n", cwd=repo)      # not asked again
+    assert code == 0, err
+    assert [e["judge"] for e in entries()] == [None, None] and not [c for c in agents() if c["role"] == "judge"]
+
+
+def test_the_judge_must_come_from_a_third_vendor(agents, repo):
+    code, err = init_judged(repo, judge="codex")
+    assert code == 2 and "neither the worker's vendor nor the rewriter's" in err
