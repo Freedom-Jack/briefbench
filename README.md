@@ -2,7 +2,7 @@
 
 A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** a first working version of the redesign of 2026-11-02. The `brief` skill (stage 1), paired runs (stage 2) and the judge and `score` (stage 3) are built, and have run for real through Codex on a ChatGPT plan. Two checks with you are still owed: the skill on 5 of your real prompts, and one real task on your Claude plan. See the roadmap below and [docs/design.md](docs/design.md).
+> **Status:** a first working version of the redesign of 2026-11-02. The `brief` skill (stage 1), paired runs (stage 2) and the judge and `score` (stage 3) are built, and have run for real through Codex on a ChatGPT plan. Two checks with you are still owed: the skill on 5 of your real prompts, and one real task on your Claude plan. See the roadmap below, and "Next steps" in [docs/design.md](docs/design.md).
 
 ## Why
 

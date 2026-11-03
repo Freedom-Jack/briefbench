@@ -1,6 +1,6 @@
 # briefbench design
 
-Status: the redesign, approved 2026-11-02 and revised after review on 2026-11-03, replaced the first plan. The revision keeps the skill to prompt enhancement alone, and runs the bench on your subscriptions instead of API keys; "Decisions" lists what changed. Stage 0 (trim and redocument) is done; stages 1–3 are next, on the branch `redesign`. See "Stages". The first plan's stage 1, `briefbench rewrite` (PR #1), is retired apart from its log.
+Status: the redesign, approved 2026-11-02 and revised after review on 2026-11-03, replaced the first plan. The revision keeps the skill to prompt enhancement alone, and runs the bench on your subscriptions instead of API keys; "Decisions" lists what changed. Stages 0–3 are built on the branch `redesign`: a first working version. Two of their checks are still owed to you; "Next steps" lists them, and what comes after. The first plan's stage 1, `briefbench rewrite` (PR #1), is retired apart from its log.
 
 **Why this project exists.** It started with one question about Felix Rieseberg's essay ["How to be more ambitious: A tutorial for humans with models"](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/) (13 Oct 2026): is its advice really useful? briefbench makes that a habit. Apply a post's advice as a prompt treatment, and measure it on your own tasks before trusting it.
 
@@ -340,6 +340,19 @@ Each stage is committed separately, on a branch `redesign` from `main`, and is d
    The first look at 20 decided pairs is then the experiment itself, not part of the build.
 4. **Later:** the future stages below.
 
+## Next steps
+
+As of 2026-11-03, in order:
+
+1. **Stage 1's check, owed.** Install the skill for Claude Code (copy `skills/brief/` to `~/.claude/skills/brief/`) and for Codex (`~/.agents/skills/brief/`). Try it on 5 of your real prompts in both. For each, check that it asked only questions the prompt left open, and that the brief holds nothing you didn't say or point to. A failure means a new skill version.
+2. **Stage 2's check, owed.** Put Claude Code on your PATH and log in with your plan: `brew install --cask claude-code`, then `claude auth login --claudeai`. Run `uv run pytest -m live -v -rA`, so the Claude Code live tests run too. Then run one real task with `briefbench ab`, Claude Code as the worker, and keep the winner. Watch whether Claude Code accepts the permission rule for a check command with brackets or quotes in it (`--allowedTools=Bash(<check>:*)`). If it doesn't, the agent can't run the check itself, though briefbench still runs it.
+3. **Merge.** Open the PR from `redesign` into `main`, review it and merge it.
+4. **Compare your other version of the skill**, if you want: `briefbench init <name> --a skill:skills/brief --b skill:<its folder>`.
+5. **Noise check.** Before the first experiment, run `briefbench ab --aa` on 5 tasks.
+6. **Decide the first experiment** ("First experiment"): `original` against `brief`, or write `variants/essay/` and run `original` against `skill:variants/essay`. Collect 20 to 40 decided pairs; `briefbench score` gives the verdict.
+7. **Size, your call.** The bench is 1,311 lines against the ~1,000 estimated in review. Trimming further would cut features, such as pasting a prompt with `-`.
+8. **Later:** stage 4 and the future stages below.
+
 ## Future stages
 
 These came from your comments of 2 Nov 2026. None is part of stages 0–3, but stages 2–3 already record what they need.
@@ -418,6 +431,10 @@ Made while building stages 1 and 2, on 2026-11-03:
 - **CLIs are found on PATH first, then in the desktop apps**, so the ChatGPT app's Codex works as it is.
 - **Codex's model is left to its default** unless you name one at `init`, because `codex exec` doesn't report which model answered. Claude Code reports its model on every run, and the log keeps it.
 - **Your setup and check commands run in a shell**, since you wrote them; agent CLIs never do.
+- **Each CLI's environment also drops** `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CLAUDECODE` and the other `CLAUDE_CODE_*` variables, so a CLI started from inside another agent's session uses its own login. A `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` is a plan login, so it stays.
+- **The rewriter runs first, before setup, in worktree A, reading only.** A failed rewrite then costs no setup or agent run. If it changes a file anyway, the trial stops.
+- **Time limits:** each arm 30 minutes by default (`init --timeout`); the rewrite and each judge call 10 minutes; setup and the check 15 minutes each. Whatever still runs then is stopped, with its child processes.
+- **`brief` means your installed skill**, looked for in `~/.claude/skills/brief`, then `~/.agents/skills/brief`. For any other folder, use `skill:<folder>`.
 - **Exit code 4** means a trial step failed, such as setup or the headless rewrite; its log says why.
 
 Made while building stage 3, on 2026-11-03:
