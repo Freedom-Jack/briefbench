@@ -23,7 +23,7 @@ Read [docs/design.md](docs/design.md) before changing anything. It covers the go
 
 ## Status
 
-The redesign of 2026-11-02, revised on 2026-11-03, is being built in stages 0–3 on the branch `redesign` (docs/design.md, "Stages"). Stage 0 is done: the first plan's `briefbench rewrite` and its API provider layer are retired, and its log is kept, on Python 3.11+ with the standard library only, managed with uv. Next is stage 1, the `brief` skill. Its done-when check needs the user: 5 of their real prompts, in Claude Code and one other host. Don't start stage 2 until it passes. The README roadmap shows where each stage stands.
+The redesign of 2026-11-02, revised on 2026-11-03, is being built in stages 0–3 on the branch `redesign` (docs/design.md, "Stages"). Stage 0 is done: the first plan's `briefbench rewrite` and its API provider layer are retired, and its log is kept, on Python 3.11+ with the standard library only, managed with uv. Stage 1, the `brief` skill in `skills/brief/`, is built. Its done-when check needs the user: 5 of their real prompts, in Claude Code and one other host. On 2026-11-03 the user asked for stages 2 and 3 to be built before that check, to get a first working version; the check is still owed. The README roadmap shows where each stage stands.
 
 ## Working on the code
 

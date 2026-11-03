@@ -2,7 +2,7 @@
 
 A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** being rebuilt to the redesign of 2026-11-02. Stage 0 (trim) is done. Nothing is ready to use yet: stage 1 adds the `brief` skill, and stages 2 and 3 add the bench. See the roadmap below and [docs/design.md](docs/design.md).
+> **Status:** being rebuilt to the redesign of 2026-11-02. Stage 0 (trim) is done. Stage 1, the `brief` skill, is built; its check on your real prompts is pending. Stages 2 and 3 add the bench. See the roadmap below and [docs/design.md](docs/design.md).
 
 ## Why
 
@@ -23,7 +23,7 @@ Any other prompt treatment can be compared the same way: two versions of the ski
 
 ## Use it
 
-### The skill (stage 1, not built yet)
+### The skill
 
 | Host | Install |
 |---|---|
@@ -63,7 +63,7 @@ uv run pytest -m live -v -rA             # real agent CLI calls on your plans (f
 | Stage | What you get | Status |
 |---|---|---|
 | 0. Trim | The first plan's stage 1 cut to its log; docs for the redesign | Done |
-| 1. Skill | `/brief` in your agent or chat | Not started |
+| 1. Skill | `/brief` in your agent or chat | Built; your check on 5 real prompts pending |
 | 2. Paired runs | `briefbench init`, `ab` and `clean`, with four treatments | Not started |
 | 3. Judge and score | An optional blind judge, and `briefbench score` with the sign test | Not started |
 | Later | A standing bench for prompting claims, a richer front end, routing by task type | Not planned yet |

@@ -323,7 +323,7 @@ Each stage is committed separately, on a branch `redesign` from `main`, and is d
    - Update AGENTS.md (status, stage gate) and the README (what it is, how to use it, roadmap).
 
    *Done when:* tests pass on Python 3.11 and 3.14, and you've approved the doc changes.
-1. **Skill.** Write `skills/brief/`, with the first plan's five techniques.
+1. **Skill.** Write `skills/brief/`, with the first plan's five techniques. Built 2026-11-03; your check is pending, and at your request stages 2 and 3 are built before it.
 
    *Done when:* on 5 of your real prompts, in Claude Code and one other host, it asks only unanswered questions, and you find nothing in the briefs you didn't say or point to.
 2. **Paired runs:** `init`, `ab` without the judge, `clean`, the treatments and the headless rewrite. Offline tests use fake agent CLI scripts: a worker that edits files, and a rewriter that returns a brief.
