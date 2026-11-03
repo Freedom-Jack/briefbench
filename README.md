@@ -1,89 +1,69 @@
 # briefbench
 
-Rewrite your prompts into better briefs for any AI model, and prove which rewrites actually help.
+A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** stage 1 (rewrite) is built and passes its offline tests on Python 3.11 and 3.14. Its done-when check, a live rewrite with models from two vendors, is pending. Stages 2–4 are not started. See [docs/design.md](docs/design.md).
+> **Status:** being rebuilt to the redesign of 2026-11-02. Stage 0 (trim) is done. Nothing is ready to use yet: stage 1 adds the `brief` skill, and stages 2 and 3 add the bench. See the roadmap below and [docs/design.md](docs/design.md).
 
 ## Why
 
 Most prompts handed to AI agents are thin. Advice on writing better ones is everywhere, but little of it is tested, and independent tests found that several popular tricks do nothing reliable.
 
-briefbench treats every prompting tip as a hypothesis:
-1. It rewrites your prompt.
-2. It runs both versions on the same task.
-3. A judge from a different vendor picks the better result without knowing which prompt produced it.
+briefbench started with one question about Felix Rieseberg's essay ["How to be more ambitious: A tutorial for humans with models"](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/): is its advice really useful? It treats every prompting tip as a hypothesis, to be measured on your own tasks before you trust it.
 
-Over time it keeps score of which techniques win on your own work.
+## How it works
 
-## How it will work
+Two separate parts. The skill works without the bench.
 
-1. **Rewrite.** It asks up to three questions: why you want this, what a stretch result looks like, and how to verify it. Then it turns your prompt into a brief you can paste into any chat or agent.
-2. **A/B.** It runs your original and the rewrite side by side. A blind judge picks the better result.
-3. **Scoreboard.** It tracks each technique's wins, losses and cost for each model, with a significance check.
-4. **Adapt.** Techniques that keep winning stay, losers retire, and new tips start on trial.
+1. **`brief`, an Agent Skill.** Write your prompt, then type `/brief`. It reads what the prompt points to, asks at most three questions the prompt leaves open (why you want this, how the result will be checked, and optionally a stretch result), and returns one rewritten brief. That is all it does: it saves nothing and keeps no records. It runs inside your agent or chat, with that host's own model and context: Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot, the Claude apps, ChatGPT and others.
+2. **`briefbench`, a small CLI.** Give it a task's prompt. It asks the skill's three questions itself, runs the skill headless to write the brief, then runs the task twice from the same commit, each arm in its own git worktree: once with your original prompt and once with the brief. Your check decides when exactly one arm passes it; otherwise you pick the better result blind. An optional judge from a third vendor rules alongside. After 20 to 40 decided pairs, a sign test with its rule fixed in advance says whether the brief helps. You keep the better result either way.
 
-It works with any model or harness: Claude, ChatGPT, Gemini, DeepSeek, local models and agent CLIs.
+The bench calls models only through agent CLIs logged in with your own plans: Claude Code on a Claude plan, and Codex, which comes with the ChatGPT desktop app, on a ChatGPT plan. It needs no API key and adds no per-token charges; a trial uses one extra agent run of your plan's usage. Keep pay-as-you-go extra usage off in your account, so a trial that reaches your plan's limit stops instead of billing you.
 
-## Use it (stage 1)
+Any other prompt treatment can be compared the same way: two versions of the skill, or a tip someone claims works, added as a snippet.
 
-You need Python 3.11 or later and [uv](https://docs.astral.sh/uv/). From a clone:
+## Use it
 
-```bash
-uv sync
-export GEMINI_API_KEY=...    # or OPENAI_API_KEY, or ANTHROPIC_API_KEY
-uv run briefbench rewrite "Fix the flaky login test in tests/test_auth.py"
-```
+### The skill (stage 1, not built yet)
 
-`uv tool install --editable .` puts `briefbench` on your PATH.
-
-It asks up to three questions (Enter skips one, Ctrl-D skips the rest), makes one model call with no tools, prints the brief and logs the run. Your prompt stays word for word at the top. Each technique adds at most one section below it, and the rewriter is told to keep it short and use only what you said. Every technique is on trial: none has been shown to help yet, and the report after each brief says so.
-
-| You want | Run |
+| Host | Install |
 |---|---|
-| A long prompt without shell quoting | `briefbench rewrite -`, paste, then Ctrl-D |
-| No questions (scripts, agents, CI) | `briefbench rewrite -n --why "..." --verify "..." "..."` |
-| The brief on the clipboard (macOS) | `briefbench rewrite "..." \| pbcopy` |
-| The exact request, without calling a model | `briefbench rewrite --dry-run --provider openai "..."` |
+| Claude Code | Copy `skills/brief/` to `~/.claude/skills/brief/` |
+| Codex, Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy it to `.agents/skills/brief/` in a project, or run `npx skills add Freedom-Jack/briefbench` |
+| Claude apps, ChatGPT | Upload it as a ZIP |
+| Anything else | Paste `SKILL.md`, or keep it in a Project, GPT or Gem |
 
-Only the brief goes to stdout (in a dry run, the request). Questions, progress and the report go to stderr. Questions are asked only when stdin and stderr are both terminals. A typed answer is one line. Lines pasted at once are one answer, whether or not the paste ends with a line break. Long answers go in `--why`, `--stretch` and `--verify`. If the prompt starts with `-`, put `--` before it. `briefbench rewrite --help` lists every option and exit code.
+Then type `/brief` after your prompt (`$brief` in Codex, `@brief` in ChatGPT; in the Claude apps and Gemini CLI, ask for "a brief").
 
-### Choosing a model
+### The bench (stages 2 and 3, not built yet)
 
-| Provider | Key variable | Default model |
-|---|---|---|
-| anthropic | `ANTHROPIC_API_KEY` | `claude-haiku-5-5` |
-| gemini | `GEMINI_API_KEY` | `gemini-3.5-flash-lite` |
-| openai | `OPENAI_API_KEY` | `gpt-6-luna` |
+You need Python 3.11 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code or Codex logged in with your plan. From a clone, `uv tool install --editable .` puts `briefbench` on your PATH. Then, in the repo where you work:
 
-Without `--provider`, briefbench uses the first of these, alphabetically, whose key is set, and says which. `--model ID` picks another model.
-
-Other OpenAI-compatible endpoints work with `--base-url URL --model ID`, plus `--api-key-env NAME` if they need a key. These are untested. Examples are a local Ollama (`--base-url http://localhost:11434/v1 --model gemma3:12b`), LM Studio, Mistral, Groq and OpenRouter. DeepSeek and xAI were unreachable from the network stage 1 was built on.
+| Command | What it does |
+|---|---|
+| `briefbench init <name>` | Freezes an experiment: the two treatments (default: your original prompt against the brief), the agent CLIs that do the work, write the brief and judge, and your cost cap |
+| `briefbench ab "<prompt>"` | Runs one trial: the skill's questions, the headless brief, both arms, your check, your blind pick, and the command that applies the winner's diff |
+| `briefbench score` | Wins, losses and ties, the significance verdict, and the extra time and tokens |
+| `briefbench clean` | Removes finished trial worktrees |
 
 ### Your data
 
-Keys are read only from environment variables. They are never printed or logged, and are sent only in the provider's Authorization header. briefbench refuses a prompt, answer, `--model` or `--base-url` that contains the value of `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY` or the variable `--api-key-env` names. Values shorter than 8 characters, such as placeholders for local servers, are not checked.
+Everything stays under `~/.briefbench/`; set `BRIEFBENCH_HOME` to move it. briefbench handles no API keys: each agent CLI uses your own login, and briefbench removes any API key variables from its environment, so nothing is billed to an API account. The judge sends diffs and check output to its vendor, so it is off unless you allow it for a repo.
 
-Each run that reaches the model, failed calls included, adds one JSON line to `~/.briefbench/log.jsonl`. Set `BRIEFBENCH_HOME` to move it. The line holds your prompt, your answers, the brief, the model that answered, token usage and timing, in plain text, in a file only you can read. The format is in [docs/data-formats.md](docs/data-formats.md).
-
-Certificates are checked against your operating system's trust store, so briefbench works on networks that inspect TLS when the OS trusts the network's certificate. It never turns verification off. Proxy settings such as `HTTPS_PROXY` are honoured, except for a loopback host such as `localhost`, which is always reached directly.
-
-### Develop
+## Develop
 
 ```bash
-uv run pytest                            # offline: a fake provider and a local HTTP stub, Python 3.11
+uv sync
+uv run pytest                            # offline, Python 3.11
 uv run --isolated --python 3.14 pytest   # the same tests on Python 3.14
-uv run pytest -m live -v -rA             # real API calls; see "Live check"
+uv run pytest -m live -v -rA             # real agent CLI calls on your plans (from stage 2)
 ```
-
-### Live check
-
-Stage 1 is done when the live tests pass with models from at least two vendors. Set two vendors' keys, for example `GEMINI_API_KEY` and `OPENAI_API_KEY`, then run `uv run pytest -m live -v -rA`. `test_live_rewrite` and `test_live_no_invented_stretch_target` must pass, not skip, for both.
 
 ## Roadmap
 
 | Stage | What you get | Status |
 |---|---|---|
-| 1. Rewrite | Better briefs, logged | Built; live check with two vendors pending |
-| 2. A/B | Blind comparisons | Not started |
-| 3. Scoreboard | Evidence for each technique | Not started |
-| 4. Adapt | A playbook that updates itself | Not started |
+| 0. Trim | The first plan's stage 1 cut to its log; docs for the redesign | Done |
+| 1. Skill | `/brief` in your agent or chat | Not started |
+| 2. Paired runs | `briefbench init`, `ab` and `clean`, with four treatments | Not started |
+| 3. Judge and score | An optional blind judge, and `briefbench score` with the sign test | Not started |
+| Later | A standing bench for prompting claims, a richer front end, routing by task type | Not planned yet |

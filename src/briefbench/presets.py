@@ -1,40 +1,18 @@
-"""Vendor-specific settings: the only module that names vendors, hosts, key variables or model ids.
-
-Endpoints and auth error shapes were checked on 2026-10-28 with a fake key. Request parameters come
-from each vendor's documentation. No preset has completed a real rewrite yet; `uv run pytest -m live`
-with keys set is that check.
-
-Error bodies the client parses, by vendor (verified with a fake key unless marked):
-  OpenAI, Anthropic, Groq, OpenRouter: {"error": {"message": ...}}; OpenAI's 401 echoes 8+4 key characters.
-  Gemini: a JSON array [{"error": {...}}]; a bad key is HTTP 400, not 401.
-  Mistral: {"detail": ...}.  xAI (secondary source): {"code": ..., "error": "..."}, bad key may be HTTP 400.
-  Cloudflare fronts: plain text such as "error code: 1010".
-"""
+"""Vendor-specific settings: the only module that names vendors, their agent CLIs or their key variables.
+Stage 2 adds how to run each agent CLI as worker, rewriter and judge (docs/design.md, "Runner")."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Mapping
+
+from .redact import MIN_SECRET
+
+# briefbench never uses these. It removes them from every agent CLI's environment, so the CLI runs on your
+# subscription login instead of billing an API account, and it scrubs their values from what it prints and logs.
+KEY_ENVS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CODEX_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+            "OPENAI_API_KEY")
 
 
-@dataclass(frozen=True)
-class Preset:
-    name: str
-    vendor: str
-    base_url: str
-    key_env: str
-    default_model: str
-    token_param: str = "max_tokens"
-    model_params: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)  # model id -> extra fields
-    auth_hint: str = ""
-
-
-PRESETS: dict[str, Preset] = {p.name: p for p in (
-    Preset("anthropic", "anthropic", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY", "claude-haiku-5-5",
-           auth_hint="If the key is not scoped to a workspace, Anthropic also needs an "
-                     "anthropic-workspace-id header, which briefbench does not send."),
-    Preset("gemini", "google", "https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY",
-           "gemini-3.5-flash-lite"),
-    Preset("openai", "openai", "https://api.openai.com/v1", "OPENAI_API_KEY", "gpt-6-luna",
-           token_param="max_completion_tokens",
-           model_params={"gpt-6-luna": {"reasoning_effort": "low"}}),
-)}
+def secret_values(environ: Mapping[str, str]) -> list[str]:
+    """The values of the key variables that are set. Shorter ones, such as placeholders, are ignored."""
+    values = ((environ.get(name) or "").strip() for name in KEY_ENVS)
+    return [v for v in values if len(v) >= MIN_SECRET]
