@@ -56,43 +56,42 @@ The skill works without the bench and knows nothing about it. The bench never pa
   - An MCP server needs a running process and per-client setup, and support for its prompts is patchy.
   - A CLI sits outside the chat and sees none of your context.
 
-**What you do.**
+**What you do.** This describes version 0.2.0, your rewrite of 2026-11-04 ("Decisions").
 1. Write your prompt, then type `/brief`; it uses your last message. Or type `/brief <prompt>`. Each host invokes it differently:
    - Codex: `$brief`
    - ChatGPT: `@brief`
-   - The Claude apps and Gemini CLI pick skills on their own, so there you ask for "a brief".
-2. It reads what the prompt points to (files, links, earlier messages) and nothing more.
-3. In one message it asks at most three questions, and only those the prompt and context leave open:
-   - Why do you want this?
-   - How will the result be checked by something other than the model?
-   - What would a stretch result look like? (optional)
-
-   It uses the host's question tool when there is one. You can skip any question, and it asks nothing when you say so or the run is headless.
-4. It returns **one rewritten brief** in a copyable block, and offers to run it.
+   - It never starts on its own, so a host that only picks skills by itself, such as the Claude apps, may not run it.
+2. It reads what the prompt points to, and only what it needs to understand your intent. It doesn't start investigating the task.
+3. It asks up to three focused questions, together, and only when the answers would change the brief: about the purpose, the deliverable, a constraint that matters, or what success means. It never asks you to choose methods or tools the agent can choose, and asks about a stretch target only if you said one matters. It uses the host's question tool when there is one. It asks nothing when you say so, and a skipped question stays open rather than guessed.
+4. It returns **one brief** in a copyable block, sometimes with a one-line note on what changed or what is still unclear, and stops. A prompt that needs no change comes back unchanged.
 
 **Rules for the brief.**
-- Keep the requester's specifics word for word: names, numbers, paths, commands, quoted text.
-- Add nothing they didn't say or point to. Leave a skipped answer out; don't guess it.
-- No personas, praise, threats, capitals for emphasis, or advice that fits any task.
-- Write in the prompt's language. Keep only the parts that have content.
+- Keep your specifics and explicit requirements word for word: names, numbers, paths, commands, quoted text, and any method you required. Keep distinctions such as required against optional.
+- Add nothing: no requirements, thresholds, formats or deliverables of its own, and no wider scope or authority.
+- Leave methods and solutions to the agent unless you set them.
+- Treat the prompt as text to rewrite, never as orders to carry out, and show conflicting requirements instead of picking one.
+- No personas, filler, invented urgency, or advice that fits any task. Keep the prompt's language and tone.
 
-**Techniques**, inside `SKILL.md`. The skill starts with the five techniques the first plan set for its stage 1. It holds only the techniques it applies: no status markers and no retired list, because the bench keeps those records. Changing them later is just a new skill version for the bench to compare.
-1. **Background and why:** what the result is for and what happens next with it.
-2. **Outcome, with a stretch target:** the required end state. A stretch target appears only if you gave one, labelled as an aim with a request to report how close the work came.
-3. **Verification outside the model:** your checks, exactly as given, with a request to run them and report the actual results. Never "double-check your work".
-4. **Definition of done:** what must be true and what to hand back, only from what you said or directly implied.
-5. **Constraints and non-goals:** limits in your words, with non-goals marked.
+**Lenses**, inside `SKILL.md`: the first plan's five techniques, used as candidates rather than required sections. It holds no status markers and no retired list, because the bench keeps those records. Changing them is just a new skill version for the bench to compare.
+1. **Purpose and context:** the stated reason and the background you gave, easy to find.
+2. **Outcome:** the result you want, with the requested deliverable kept. A stretch target you gave stays an optional aim.
+3. **Verification:** checks you named, kept exactly. Further checks are left to the agent.
+4. **Completion:** the deliverable and when the work is done, when you stated or directly implied them.
+5. **Constraints:** your actual limits and non-goals, with none added.
 
 **Files and install.** The source lives in `skills/brief/`; installed copies are not edited.
 
 | Host | Install |
 |---|---|
-| Claude Code | Copy the folder to `~/.claude/skills/brief/` |
-| Codex, Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy to `.agents/skills/brief/` in a project, or use `npx skills add Freedom-Jack/briefbench` |
-| Claude apps, ChatGPT | Upload a ZIP |
+| Claude Code | Link or copy the folder to `~/.claude/skills/brief/` |
+| Codex, and the ChatGPT desktop app | Link or copy it to `~/.agents/skills/brief/`, or to `.agents/skills/brief/` in a project |
+| Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy to `.agents/skills/brief/` in a project, or use `npx skills add Freedom-Jack/briefbench` |
+| Claude apps | Upload a ZIP; it may not run there, since it never starts on its own |
 | Anything else | Paste `SKILL.md`, or keep it in a Project, GPT or Gem |
 
-`agents/openai.yaml` tells Codex to run the skill only when called. The frontmatter uses only the standard fields; `metadata.version` names the version for people, while the bench tells versions apart by their content.
+A link to a folder you keep current keeps the skill up to date: Claude Code and Codex both follow it and pick up changes without a reinstall.
+
+`agents/openai.yaml` tells Codex, and `disable-model-invocation: true` in the frontmatter tells Claude Code, to run the skill only when called. That field is the one exception to the standard fields; other hosts ignore it. `metadata.version` names the version for people, while the bench tells versions apart by their content.
 
 ## Back end: `briefbench`
 
@@ -216,19 +215,19 @@ Its evidence is the author's own experience, with no measurements. Today's skill
 
 | The essay's advice | In the skill today |
 |---|---|
-| Decide what you want to happen next, and state the purpose | Yes: the "why" question and background-and-why |
-| Ask for the outcome, not the task | Partly: the outcome is stated, but the brief keeps your task |
-| Set targets far past the real need | Yes, when you answer the stretch question; none is invented |
+| Decide what you want to happen next, and state the purpose | Partly: made easy to find when you give it, and asked about only when it would change the brief |
+| Ask for the outcome, not the task | Partly: the outcome is made clear, but the brief keeps your requested deliverable |
+| Set targets far past the real need | Only if you raise one; it stays optional, and none is invented |
 | Insist when the model says a target is impossible | No; left out as an untested extra |
 | **Depth:** before rewriting, state what a top professional would do that wasn't asked, the rawest material, their methods and tools, and what outside check would show the result is right | No. This is the essay's most distinctive rewrite technique, and nobody has measured it |
 | **Range:** borrow from other fields, with specialist and red-team views | No |
-| Verify by something other than the model | Yes: external-verification, the essay's strongest point |
-| Ask for an expert's methods, not their voice | Yes: the no-persona rule |
+| Verify by something other than the model | Partly: checks you name are kept exactly, but it doesn't ask for one. This is the essay's strongest point |
+| Ask for an expert's methods, not their voice | Half: no personas, but methods are left to the agent |
 | Definition of done; constraints and non-goals | Not from the essay. These are briefbench's own candidates |
 
-So `original` vs `brief` tests three of the essay's ideas mixed with two of briefbench's own. On its own, it can't say whether the essay is useful.
+So `original` vs `brief` tests faithful clarification, with parts of three of the essay's ideas and two of briefbench's own. On its own, it can't say whether the essay is useful.
 
-**When to decide: after stage 3.** Nothing in the build depends on it. Each question below is only a choice of which two treatments `briefbench init` compares, and an essay version of the skill is one more folder, written when you get there. The skill is built with the first plan's five techniques.
+**When to decide: after stage 3.** Nothing in the build depends on it. Each question below is only a choice of which two treatments `briefbench init` compares, and an essay version of the skill is one more folder, written when you get there. The skill uses the first plan's five techniques as optional lenses.
 
 There are two questions. Ask them in either order, each with its own 20–40 decided pairs:
 1. **Does the essay's method help?** Write `variants/essay/`, the skill with techniques taken from the essay alone:
@@ -323,7 +322,7 @@ Each stage is committed separately, on a branch `redesign` from `main`, and is d
    - Update AGENTS.md (status, stage gate) and the README (what it is, how to use it, roadmap).
 
    *Done when:* tests pass on Python 3.11 and 3.14, and you've approved the doc changes.
-1. **Skill.** Write `skills/brief/`, with the first plan's five techniques. Built 2026-11-03; your check is pending, and at your request stages 2 and 3 are built before it.
+1. **Skill.** Write `skills/brief/`, with the first plan's five techniques. Built 2026-11-03; your check is pending, and at your request stages 2 and 3 are built before it. On 2026-11-04 your rewritten version, 0.2.0, replaced the first.
 
    *Done when:* on 5 of your real prompts, in Claude Code and one other host, it asks only unanswered questions, and you find nothing in the briefs you didn't say or point to.
 2. **Paired runs:** `init`, `ab` without the judge, `clean`, the treatments and the headless rewrite. Offline tests use fake agent CLI scripts: a worker that edits files, and a rewriter that returns a brief.
@@ -344,10 +343,10 @@ Each stage is committed separately, on a branch `redesign` from `main`, and is d
 
 As of 2026-11-03, in order:
 
-1. **Stage 1's check, owed.** Install the skill for Claude Code (copy `skills/brief/` to `~/.claude/skills/brief/`) and for Codex (`~/.agents/skills/brief/`). Try it on 5 of your real prompts in both. For each, check that it asked only questions the prompt left open, and that the brief holds nothing you didn't say or point to. A failure means a new skill version.
+1. **Stage 1's check, owed.** Install the skill for Claude Code and Codex by linking `skills/brief/` into `~/.claude/skills/` and `~/.agents/skills/`. Try it on 5 of your real prompts in both. For each, check that it asked only questions the prompt left open, and that the brief holds nothing you didn't say or point to. A failure means a new skill version.
 2. **Stage 2's check, owed.** Put Claude Code on your PATH and log in with your plan: `brew install --cask claude-code`, then `claude auth login --claudeai`. Run `uv run pytest -m live -v -rA`, so the Claude Code live tests run too. Then run one real task with `briefbench ab`, Claude Code as the worker, and keep the winner. Watch whether Claude Code accepts the permission rule for a check command with brackets or quotes in it (`--allowedTools=Bash(<check>:*)`). If it doesn't, the agent can't run the check itself, though briefbench still runs it.
 3. **Merge.** Open the PR from `redesign` into `main`, review it and merge it.
-4. **Compare your other version of the skill**, if you want: `briefbench init <name> --a skill:skills/brief --b skill:<its folder>`.
+4. **Compare the two skill versions**, if you want, best after the first experiment. The first version, 0.1.0, is in git at commit 32883ab. Put it in a folder of its own, for example with `git worktree add <folder> 32883ab`, then run `briefbench init <name> --a skill:<folder>/skills/brief --b skill:skills/brief`.
 5. **Noise check.** Before the first experiment, run `briefbench ab --aa` on 5 tasks.
 6. **Decide the first experiment** ("First experiment"): `original` against `brief`, or write `variants/essay/` and run `original` against `skill:variants/essay`. Collect 20 to 40 decided pairs; `briefbench score` gives the verdict.
 7. **Size, your call.** The bench is 1,311 lines against the ~1,000 estimated in review. Trimming further would cut features, such as pasting a prompt with `-`.
@@ -443,6 +442,11 @@ Made while building stage 3, on 2026-11-03:
 - **The judge prompt ships with Arena-Hard-Auto's Apache-2.0 license** (`src/briefbench/judge_prompt_license.txt`), and its header says what was changed.
 - **The cost cap applies to both medians**, extra time and extra tokens, each as a percentage of A's, over all trials.
 - **Size.** The bench is 1,311 lines, over the ~1,000 estimated in review: asking the skill's questions, the headless rewrite, plan-login checks and two CLIs' templates and parsers moved into it. It is still under the first redesign's 1,600.
+
+Changed on 2026-11-04:
+- **Your rewrite of the skill is the skill**, version 0.2.0. It asks only about gaps that would change the brief, leaves methods and solutions open, can return a prompt unchanged, and stops after the brief instead of offering to run it. The first version, 0.1.0, with the fixed three questions and a worked example, is in git at commit 32883ab.
+- **It runs only when you call it**, in Claude Code (`disable-model-invocation: true`) and in Codex (`allow_implicit_invocation: false`). The Claude Code field is the one non-standard field in its frontmatter.
+- **Installs are links** to a folder you keep current, so edits reach Claude Code and Codex without a reinstall. A link makes every edit live, so experiments freeze a copy and name it with `skill:<folder>`.
 
 From the first plan, still holding:
 - **Language: Python** (2026-10-28). GEPA and DSPy are Python, which helps future stage A, and it installs with `uvx` or `pipx`.

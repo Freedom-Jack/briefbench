@@ -38,7 +38,7 @@ def test_init_freezes_the_experiment_once(agents, repo):
     code, err = init(repo)
     assert code == 0, err
     exp = json.loads((Path(os.environ["BRIEFBENCH_HOME"]) / "experiments" / "exp.json").read_text())
-    assert exp["b"]["kind"] == "skill" and exp["b"]["version"] == "0.1.0" and len(exp["b"]["sha256"]) == 64
+    assert exp["b"]["kind"] == "skill" and exp["b"]["version"] == "0.2.0" and len(exp["b"]["sha256"]) == 64
     assert exp["worker"]["agent"] == "codex" and exp["worker"]["argv"][-2:] == ["--", "{prompt}"]
     assert exp["rule"]["adopt_first"] == 16 and exp["cap_percent"] == 50
     assert init(repo)[0] == 2                                    # frozen settings are never changed

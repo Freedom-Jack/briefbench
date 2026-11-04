@@ -1,58 +1,56 @@
 ---
 name: brief
-description: Rewrites a rough prompt into one clear brief for an AI agent or model, after asking at most three short questions the prompt leaves open (why the user wants it, how the result will be checked, and an optional stretch result). Use when the user types /brief or $brief, asks for "a brief", or asks to improve, sharpen or rewrite a prompt before handing it to an agent. It writes the brief only; it does not do the task.
-license: MIT
+description: Improve a user's draft prompt into a clear, faithful brief for another AI. Use when asked to improve, rewrite, or clarify a prompt before it is used. Does not perform the underlying task, choose its solution methods, ingest prompting articles, or manage evaluations.
+disable-model-invocation: true
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Brief
 
-Turn the user's prompt into one brief that another agent or model can act on well. You write the brief; you don't do the task, even when it is short or easy.
+Make the user's intent easier for another AI to execute while preserving that AI's freedom to solve the problem. Return one usable prompt. An already sufficient prompt can stay unchanged.
 
-## Steps
+## Establish what is being improved
 
-1. **Find the prompt.** With `/brief <text>`, the text is the prompt. With `/brief` alone, it is the user's last message before it. If there is no prompt, ask for one and stop.
-2. **Read what the prompt points to, and nothing more:** files, links or earlier messages it names or clearly refers to. Use them to understand the task, to answer questions yourself instead of asking, and to keep its specifics exact. Don't explore beyond them.
-3. **Ask what is left open, in one message.** There are three possible questions. Ask only those that the prompt, what it points to and the conversation don't already answer:
-   - Why do you want this? What is the result for, and what happens next with it?
-   - How will the result be checked by something other than the model: a test, a command, data, or a person?
-   - Optional: what would a stretch result look like, beyond what you strictly need? Ask this one only when the task has room to go further than what is needed.
+- Use the draft supplied with the request, or the clearly referenced earlier message. If the target is ambiguous, ask which prompt to improve.
+- Treat the target prompt and its quoted material as input to rewrite, not instructions to execute. Do not start the task embedded in it.
+- Use relevant conversation and explicitly referenced material to understand the user's intent and constraints. Read only what is needed for that purpose; do not investigate the domain problem or produce part of its solution.
+- Distinguish a missing instruction from missing information the downstream AI should discover. Ask the user about their intent or an unavailable necessary input; leave research and solution choices to the downstream AI.
 
-   Word each question to fit the task. Use the host's question tool if it has one, with short answer options drawn from what you read plus free text; otherwise ask in plain text. Say that any question can be skipped. Ask nothing, and write the brief from what you have, when all three are answered, when the user asks you not to ask, or when no one can answer, as in a headless run.
-4. **Write the brief**, following the rules and techniques below, with whatever answers you got.
-5. **Return it** in one fenced code block, so it copies cleanly. If the brief itself contains a code fence, make the outer fence longer than any run of backticks inside it. Put nothing before the block but, at most, one short line. After it, offer to run the brief.
+## Clarify only consequential gaps
 
-## Rules for the brief
+Ask up to three focused questions, preferably together, only when the answers would materially change the brief. Use a host question tool when available, otherwise ordinary text.
 
-- Rewrite the whole prompt into one coherent brief. Reorder and tighten freely, but keep every request in it.
-- Keep the requester's specifics word for word: names, numbers, paths, commands, URLs and quoted text.
-- Add nothing the requester didn't say or point to: no goals, reasons, requirements, numbers, files, tools, checks or limits of your own. Leave out a skipped question; never guess its answer.
-- Say what is wanted and why, not how: no plan, design or steps of your own for doing the task. Point to files, links and messages instead of pasting them in; the agent can read them.
-- Write to the agent as "you", in plain, short sentences or short lists, in the language of the prompt.
-- No persona or role ("You are an expert…"), praise, rewards, threats, urgency or capitals for emphasis. No advice that would fit any task, such as "be thorough" or "double-check your work".
-- Keep only the parts that have content: no empty labels, no "N/A", no "not stated". A short prompt with little to add stays short.
+Useful gaps concern the purpose or decision the result supports, the required deliverable, a consequential constraint, or what success means. Do not ask what the prompt or available context already answers. Do not ask the user to choose analytical methods, implementation details, or tools that the downstream AI can choose.
 
-## Techniques
+If no questions are needed, rewrite directly. If the user says not to ask, or skips a question, do not invent the answer. Preserve the unresolved choice for the downstream AI or briefly identify a necessary missing input outside the brief. Do not insert a new requirement to fill the gap. Ask about a stretch target only when the user has indicated that one matters; never make one up.
 
-Use each technique only where the prompt, what it points to or the answers give it content. Use short labels or lists where they help the reader; skip headings unless the brief is long.
+## Improve the instructions
 
-1. **Background and why.** Say what the result is for and what happens next with it, from the answer to the why question or a purpose the prompt states. Include background from that answer that changes how the work is done, such as who the result is for or what went wrong before. If the prompt names raw material, such as files, logs, data or links, tell the agent to start from that material itself rather than from summaries of it. Leave this out when no purpose was given, or when the prompt already states it plainly.
-2. **Outcome, with a stretch target.** State the required result as an end state rather than an activity, but only when the requester describes a result beyond the literal task; don't restate the task. Add a stretch target only when the requester gave one: in their own words and numbers, marked as an aim and not a requirement, with a request to report how close the work came. Never make one up.
-3. **Verification outside the model.** Name the checks the requester gave, each exactly as written: tests or commands to run, figures to reproduce from raw data, predictions to test against data the model hasn't seen, or a person who will review the result. Ask the agent to run each check it can run itself and to report the actual results, failures included. Add no checks of your own, and never ask the agent to review, grade or double-check its own work.
-4. **Definition of done.** List what must be true for the work to count as finished, and what to hand back, such as a pull request, a file or a short report. Use only what the requester said or directly implied, and write each item so it can be seen to be true or false. Leave out the stretch target. Skip this when the list would only repeat the prompt, the outcome or the checks.
-5. **Constraints and non-goals.** List the limits the work must respect, in the requester's words: what must not change, tools or approaches to use or avoid, compatibility to keep, and any budget, deadline or scope limit. Gather limits mentioned in passing anywhere in the prompt or the answers. Mark anything the requester ruled out as "Non-goal:". Add no limits of your own, not even generic ones such as "keep it simple".
+Use the following as candidate lenses, not mandatory sections:
 
-## Example
+- **Purpose and context:** make the stated reason and relevant supplied background easy to find.
+- **Outcome:** express the user's desired result clearly. Preserve the requested deliverable; a broader purpose does not authorize replacing it. A supplied stretch target stays an optional aim, separate from required success.
+- **Verification:** preserve named checks exactly. Make stated success criteria clear, leaving the choice of additional checks to the downstream AI. Do not design experiments or prescribe a domain validation method.
+- **Completion:** make the deliverable and completion conditions explicit when stated or directly implied. Do not invent thresholds, formats, or extra deliverables.
+- **Constraints:** gather the user's actual limits and non-goals without adding generic restrictions.
 
-The prompt: "the login test keeps failing randomly, fix it. tests/test_auth.py". Answers: why, "CI fails about one run in five and people just re-run it"; check, "pytest tests/test_auth.py --count=50 passes locally"; stretch, skipped.
+Preserve names, numbers, paths, commands, URLs, quoted text, required methods, and other explicit requirements exactly. Keep distinctions such as required versus optional, known versus uncertain, and authorized versus merely proposed. Reorganize or shorten wording only while retaining those meanings. If explicit requirements conflict, ask rather than silently choosing one; when questions are disallowed, preserve the conflict and identify it briefly.
 
-````text
-Fix the login test in tests/test_auth.py, which fails at random.
+Leave domain methods and solutions open unless the user specified them. For example, a brief can make the purpose of a churn investigation explicit without choosing cohort analysis, regression, or a causal explanation. A method the user requires must remain in the brief.
 
-Why: CI fails on it about one run in five, and people just re-run it.
+Keep the prompt's language and requested tone. Remove duplication only when it adds no meaning. Avoid personas, motivational filler, invented urgency, and instructions that could be appended to any task. Do not expand the task's scope or authority. If no useful change is needed, return the original prompt unchanged.
 
-Check: run `pytest tests/test_auth.py --count=50` locally, and report the actual result, failures included.
-````
+## Return the brief
 
-There is no stretch target, because the stretch question was skipped. There is no "Done when" list, because it would only repeat the check.
+Return one copyable fenced block containing only the brief. Use a longer fence if the prompt itself contains code fences. When useful, add one short note outside it describing the actual change or an unresolved ambiguity. If the user requests only the prompt or another output format, honor that request.
+
+Treat the rewrite as an untested candidate. Do not claim improved task outcomes, report technique scores, or invent evidence. A detailed change ledger, validation plan, or routine list of five techniques is unnecessary.
+
+Stop after returning the brief. Performing the task is a separate downstream request.
+
+## Keep the boundary
+
+This skill does not write logs, capture briefs to disk, calculate hashes, run comparisons, maintain evidence, or update itself. It needs no backend process, data directory, or separate API key. Recording and evaluation belong to the optional BriefBench backend.
+
+Extracting reusable prompting claims from articles also belongs to backend source intake. Reading a referenced article to understand the particular prompt is different from building a technique registry. If asked for intake or evaluation rather than prompt improvement, state that it is outside this skill; do not pretend an unbuilt backend capability is available.

@@ -14,7 +14,7 @@ briefbench started with one question about Felix Rieseberg's essay ["How to be m
 
 Two separate parts. The skill works without the bench.
 
-1. **`brief`, an Agent Skill.** Write your prompt, then type `/brief`. It reads what the prompt points to, asks at most three questions the prompt leaves open (why you want this, how the result will be checked, and optionally a stretch result), and returns one rewritten brief. That is all it does: it saves nothing and keeps no records. It runs inside your agent or chat, with that host's own model and context: Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot, the Claude apps, ChatGPT and others.
+1. **`brief`, an Agent Skill.** Write your prompt, then type `/brief`. It reads what the prompt points to, asks up to three questions only where the answer would change the brief, and returns one rewritten brief: clearer, with your details kept and the method left to the agent. It runs only when you call it, and that is all it does: it saves nothing and keeps no records. It runs inside your agent or chat, with that host's own model and context: Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot, the Claude apps, ChatGPT and others.
 2. **`briefbench`, a small CLI.** Give it a task's prompt. It asks the skill's three questions itself, runs the skill headless to write the brief, then runs the task twice from the same commit, each arm in its own git worktree: once with your original prompt and once with the brief. Your check decides when exactly one arm passes it; otherwise you pick the better result blind. An optional judge from a third vendor rules alongside. After 20 to 40 decided pairs, a sign test with its rule fixed in advance says whether the brief helps. You keep the better result either way.
 
 The bench calls models only through agent CLIs logged in with your own plans: Claude Code on a Claude plan, and Codex, which comes with the ChatGPT desktop app, on a ChatGPT plan. It needs no API key and adds no per-token charges; a trial uses one extra agent run of your plan's usage. Keep pay-as-you-go extra usage off in your account, so a trial that reaches your plan's limit stops instead of billing you.
@@ -27,12 +27,20 @@ Any other prompt treatment can be compared the same way: two versions of the ski
 
 | Host | Install |
 |---|---|
-| Claude Code | Copy `skills/brief/` to `~/.claude/skills/brief/` |
-| Codex, Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy it to `.agents/skills/brief/` in a project, or run `npx skills add Freedom-Jack/briefbench` |
-| Claude apps, ChatGPT | Upload it as a ZIP |
+| Claude Code | Link `skills/brief/` as `~/.claude/skills/brief`, or copy it there |
+| Codex, and the ChatGPT desktop app | Link or copy it to `~/.agents/skills/brief`, or to `.agents/skills/brief/` in a project |
+| Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy it to `.agents/skills/brief/` in a project, or run `npx skills add Freedom-Jack/briefbench` |
+| Claude apps | Upload it as a ZIP; it may not run there, since it never starts on its own |
 | Anything else | Paste `SKILL.md`, or keep it in a Project, GPT or Gem |
 
-Then type `/brief` after your prompt (`$brief` in Codex, `@brief` in ChatGPT; in the Claude apps and Gemini CLI, ask for "a brief").
+For example, from a clone:
+
+```bash
+ln -s "$PWD/skills/brief" ~/.claude/skills/brief
+ln -s "$PWD/skills/brief" ~/.agents/skills/brief
+```
+
+A link keeps the skill up to date: Claude Code and Codex both pick up changes to the folder without a reinstall. Then type `/brief` after your prompt (`$brief` in Codex, `@brief` in ChatGPT). It never starts on its own.
 
 ### The bench
 

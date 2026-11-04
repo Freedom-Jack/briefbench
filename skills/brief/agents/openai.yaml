@@ -1,6 +1,5 @@
 interface:
   display_name: "Brief"
-  short_description: "Rewrite a rough prompt into a clear brief for an agent"
-  default_prompt: "Use $brief to turn my last prompt into a brief."
+  short_description: "Clarify prompts while leaving solutions open"
 policy:
   allow_implicit_invocation: false
