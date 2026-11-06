@@ -67,7 +67,8 @@ def parse(spec: str, environ: Mapping[str, str], base: Path) -> dict:
         found = [p for p in (d.replace("~", home, 1) for d in SKILL_DIRS) if Path(p, "SKILL.md").is_file()]
         if not found:
             raise ConfigError(f"`brief` runs your installed brief skill, which isn't in {' or '.join(SKILL_DIRS)}. "
-                              "Install it, or name its folder with skill:<folder>.")
+                              "Link or copy the skill folder there (a plugin install isn't read), or name its folder "
+                              "with skill:<folder>.")
         return _skill(spec, Path(found[0]))
     kind, _, where = spec.partition(":")
     path = Path(base, os.path.expanduser(where)) if where else None

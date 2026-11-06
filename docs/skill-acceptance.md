@@ -13,10 +13,11 @@ All checks so far used synthetic or made-up prompts. None is real-use acceptance
 | 2026-11-04 | 0.2.0: the same body, plus `disable-model-invocation: true` and `allow_implicit_invocation: false` | A live headless rewrite through Codex; an offline Codex check of invocation | Rewrite passed. Codex no longer offered the skill on its own, while an explicit `$brief` still used it |
 | 2026-11-05 | 0.2.0 | The bench's two headless calls, live through Claude Code 2.1.317 and Codex 0.166.0-alpha.6, on a clear prompt (rename a variable in one file) | Both listed no questions and returned the prompt unchanged, as the skill says for a sufficient prompt |
 | 2026-11-05 | 0.2.0 | Three demonstration prompts written for [examples/](../examples/README.md), headless through Claude Code 2.1.317, with answers written for the skill's actual questions | Vague request: three relevant questions, including where the missing results are; the brief added only what the answers gave. Required method: the paired t-test kept; a skipped question left open, though the brief asks the agent to state the criterion it used, a possible added requirement. Clear request: unchanged, though it didn't mention that the file it names was missing. Both doubtful points are open for the real-use review |
+| 2026-11-06 | 0.2.0 | Installed as a plugin from a local copy of the repo, in throwaway home folders, with Claude Code 2.1.317 and Codex 0.167.0-alpha.3.2. No prompt went to a model | Both installed 0.2.0 and found the one skill. Claude Code: `/brief:brief` loaded it; in `claude -p`, `/brief` reached Claude Code's own brief-mode command instead, while a linked copy in `~/.claude/skills/brief` did take `/brief`. Codex listed it as `brief:brief` and kept it from the model unless called |
 
 Inputs and replies from these checks were kept outside the repository. Synthetic cases are not a sample of real work, and subagent contexts are not host integrations.
 
-**Pending:** real-use acceptance, native installation and discovery in two hosts, and any evidence of better downstream results.
+**Pending:** real-use acceptance; installing from GitHub and calling the skill in an interactive session, in two hosts; and any evidence of better downstream results.
 
 ## What the checks establish
 
@@ -41,7 +42,7 @@ Keep actual prompts, source material, generated briefs and per-case results outs
 | Conflicting requirements | Shows the conflict rather than silently choosing; honours a no-questions request |
 | Another language or an explicit output format | Keeps the requested language or format without an unnecessary wrapper or boilerplate |
 | Article intake or evaluation request | Doesn't do those bench jobs under the prompt-improvement skill |
-| Invocation | Runs when called (`/brief`, `$brief`, `@brief`); doesn't start on its own in Claude Code or Codex |
+| Invocation | Runs when called (`/brief`, or `/brief:brief` for a Claude Code plugin install; `$brief`, listed as `brief:brief` for a Codex plugin install; `@brief`); doesn't start on its own in Claude Code or Codex |
 
 Inspect actual outputs and any tool activity. String matching alone is not a fidelity check. Record omissions, inventions, unrequested domain choices, unnecessary questions and unwanted side effects. A person decides whether a change keeps the intended meaning.
 
