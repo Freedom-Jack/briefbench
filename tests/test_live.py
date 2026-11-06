@@ -51,10 +51,19 @@ def test_live_judge(name, tmp_path):
 
 @pytest.mark.parametrize("name", sorted(AGENTS))
 def test_live_headless_rewrite(name, tmp_path):
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    call = caller(name, "rewriter", tmp_path)
-    skill = treatments.parse(f"skill:{SKILL}", os.environ, tmp_path)
-    brief = treatments.render(skill, "Rename the variable tmp to total in utils.py.",
-                              {"why": "tmp hides that it holds the running total", "check": "pytest -q"}, call)
+    """The two headless steps: the questions the skill would ask, then the brief from answers to them."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    schema = tmp_path / "questions.schema.json"                  # outside the repo, which the rewriter only reads
+    schema.write_text(json.dumps(treatments.QUESTIONS_SCHEMA))
+    ask = caller(name, "asker", repo, schema=str(schema), schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
+    skill = treatments.parse(f"skill:{SKILL}", os.environ, repo)
+    prompt = "Rename the variable tmp to total in utils.py."
+    found, listed = treatments.questions(skill, prompt, ask)
+    print(f"the skill would ask: {found}")
+    assert listed <= 3                                           # the skill asks at most three
+    qa = [{"q": q, "a": "tmp hides that it holds the running total; nothing else should change."} for q in found]
+    brief = treatments.render(skill, prompt, qa, caller(name, "rewriter", repo))
     print(brief)
-    assert "total" in brief and "pytest -q" in brief and "stretch" not in brief.casefold()
+    assert "total" in brief and "utils.py" in brief and "stretch" not in brief.casefold()

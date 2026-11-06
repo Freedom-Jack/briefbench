@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from . import __version__, experiment, judge, runner, score, treatments
@@ -18,10 +19,16 @@ from .log import append, data_dir, display_path, header, prepare, read_entries, 
 from .presets import AGENTS, agent_env, secret_values
 from .redact import scrub, strip_controls
 
-TIMEOUT_S = {"rewriter": 600, "setup": 900, "check": 900, "judge": 600}
+TIMEOUT_S = {"rewriter": 600, "asker": 600, "setup": 900, "check": 900, "judge": 600}
 ELIGIBILITY = (("leans_on_chat", "Does the task lean on earlier chat that the prompt leaves out?"),
                ("side_effects", "Could it change anything outside the repo, such as a deploy, a message or a payment?"),
                ("steered", "Will you want to steer the agent midway?"))
+# Your review of a brief, after the blind pick so it can't sway it. A yes to any of them is a fidelity failure.
+FIDELITY = (("added", "Does it add a requirement, method, scope or authority you didn't state or point to?"),
+            ("dropped", "Does it drop or change a requirement, name, number or other detail you gave?"),
+            ("changed", "Does it change what you asked for: the deliverable, or the purpose behind it?"))
+ROLE_LABELS = {"worker": "Worker", "rewriter": "Rewriter", "asker": "Rewriter, listing the skill's questions",
+               "judge": "Judge"}
 
 
 def main() -> None:
@@ -46,7 +53,7 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     i = commands.add_parser("init", allow_abbrev=False, help="freeze a new experiment")
     i.add_argument("name")
     i.add_argument("--a", default="original", metavar="TREATMENT",
-                   help="original, brief, skill:<folder> or snippet:<file> (default: original)")
+                   help="original, clarified, brief, skill:<folder> or snippet:<file> (default: original)")
     i.add_argument("--b", default="brief", metavar="TREATMENT", help="the newcomer (default: brief)")
     for role, what in (("worker", "does the task in both arms"), ("rewriter", "runs a skill headless"),
                        ("judge", "rules after your blind pick, from a third vendor; or none")):
@@ -56,18 +63,31 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     i.add_argument("--cap", type=_number, metavar="PERCENT",
                    help="the most extra time and tokens B may use, as a median percentage of A's")
     i.add_argument("--timeout", type=_number, default=30.0, metavar="MINUTES", help="per arm (default: 30)")
+    i.add_argument("--rule", type=_rule, default="two-step", metavar="RULE",
+                   help="two-step (the default), or fixed:N for one test after exactly N trials")
     i.add_argument("-y", "--yes", action="store_true", help="freeze without asking to confirm the commands")
     a = commands.add_parser("ab", allow_abbrev=False, help="run one trial in the current repo")
     a.add_argument("prompt", nargs="?", help="the task's prompt, in quotes, or - to paste it")
     a.add_argument("--file", type=Path, help="read the prompt from this file")
     a.add_argument("--aa", action="store_true", help="noise check: treatment A in both arms")
     a.add_argument("--experiment", metavar="NAME", help="default: the newest experiment")
-    commands.add_parser("score", allow_abbrev=False, help="the report on an experiment").add_argument(
-        "name", nargs="?", help="default: the newest experiment")
+    s = commands.add_parser("score", allow_abbrev=False, help="the report on an experiment")
+    s.add_argument("name", nargs="?", help="default: the newest experiment")
+    s.add_argument("--json", action="store_true", help="every number in the report, as JSON")
     commands.add_parser("clean", allow_abbrev=False, help="remove finished trials' worktrees; diffs and logs stay")
     for p in (parser, *commands.choices.values()):
         p.secrets = tuple(secrets)
     return parser
+
+
+def _rule(value: str) -> dict:
+    if value == "two-step":
+        return dict(experiment.RULE)
+    kind, _, trials = value.partition(":")
+    low, high = experiment.FIXED_TRIALS
+    if kind == "fixed" and trials.isdigit() and low <= int(trials) <= high:
+        return experiment.fixed_rule(int(trials))
+    raise argparse.ArgumentTypeError(f"use two-step, or fixed:N for N from {low} to {high} trials")
 
 
 def _number(value: str) -> float:
@@ -137,6 +157,8 @@ def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, cwd=None) -
 def cmd_init(args, con, environ, cwd, secrets) -> int:
     experiment.check_name(args.name)
     sides = {s: treatments.parse(spec, environ, cwd) for s, spec in (("a", args.a), ("b", args.b))}
+    treatments.check_pair(sides["a"], sides["b"])
+    rule = args.rule if isinstance(args.rule, dict) else _rule(args.rule)
     names = sorted(AGENTS)
     roles = {"worker": _agent_settings(args.worker or con.pick("Worker: the agent CLI that does the task", names,
                                                                names[0]), "worker", args.worker_model, con, environ)}
@@ -145,6 +167,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         roles["rewriter"] = _agent_settings(args.rewriter or con.pick(
             "Rewriter: the agent CLI that runs the skill headless", names, roles["worker"]["agent"]),
             "rewriter", args.rewriter_model, con, environ)
+    roles["asker"] = _asker(roles["rewriter"]) if roles["rewriter"] else None
     judge_name = args.judge or con.pick("Judge: an agent CLI from a third vendor, or none", names + ["none"], "none")
     roles["judge"] = None
     if judge_name != "none":
@@ -157,12 +180,14 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         "Cost cap: the most extra time and tokens B may use, as a median % of A's (for example 50)"))
     frozen = {"format": experiment.FORMAT, "name": args.name, "created": utc_now(), "briefbench_version": __version__,
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
-              "rule": experiment.RULE}
-    con.say(f"\nExperiment {args.name}: A is {args.a}, B is {args.b}. B is adopted only if it wins and its median "
-            f"extra time and tokens stay within {cap:g}% of A's.")
+              "rule": rule, "render": experiment.RENDER if roles["rewriter"] else None,
+              "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
+                            "judge": judge.prompt_sha256() if roles["judge"] else None}}
+    con.say(f"\nExperiment {args.name}: A is {args.a}, B is {args.b}. {_rule_text(rule)} B is adopted only if it also "
+            f"passes your fidelity reviews and its median extra time and tokens stay within {cap:g}% of A's.")
     for role, settings in roles.items():
         if settings:
-            con.say(f"{role.capitalize()} command:\n  {shlex.join(settings['argv'])}")
+            con.say(f"{ROLE_LABELS[role]} command:\n  {shlex.join(settings['argv'])}")
     con.say("Each agent CLI starts with stdin closed and without API key variables, so it runs on your plan.")
     if not args.yes and con.pick("Freeze this experiment?", ("y", "n"), "y") != "y":
         con.say("Nothing was saved.")
@@ -172,6 +197,14 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     con.say(f"Frozen in {display_path(path, environ)}. In the repo of a task you'd hand off whole, run: "
             "briefbench ab \"<prompt>\"")
     return 0
+
+
+def _rule_text(rule: dict) -> str:
+    if experiment.rule_kind(rule) == "fixed":
+        return (f"Rule: fixed, one sign test after exactly {rule['trials']} trials; B needs p <= {rule['alpha']:g} "
+                f"and a net preference of at least {rule['net_min']:g}.")
+    return (f"Rule: two-step, adopt B at {rule['adopt_first']} of the first {rule['first']} decided pairs, or "
+            f"{rule['adopt_second']} of {rule['second']}.")
 
 
 def _cap(text: str) -> float:
@@ -186,10 +219,19 @@ def _agent_settings(name: str, role: str, model, con, environ) -> dict:
     if model is None:
         model = con.ask(f"{role.capitalize()} model (Enter for {agent.default_model or 'the CLI default'})",
                         agent.default_model)
-    version = subprocess.run([executable, "--version"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                             env=agent_env(environ), timeout=60).stdout.strip()
-    return {"agent": name, "vendor": agent.vendor, "model": model or None, "version": version,
+    return {"agent": name, "vendor": agent.vendor, "model": model or None, "version": _version(executable, environ),
             "argv": _template(agent, executable, role, model or "")}
+
+
+def _asker(rewriter: dict) -> dict:
+    """The rewriter's agent and model, held to a schema: it lists the questions the skill would ask."""
+    return rewriter | {"argv": _template(AGENTS[rewriter["agent"]], rewriter["argv"][0], "asker",
+                                         rewriter["model"] or "")}
+
+
+def _version(executable: str, environ) -> str:
+    return subprocess.run([executable, "--version"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                          env=agent_env(environ), timeout=60).stdout.strip()
 
 
 def _template(agent, executable: str, role: str, model: str) -> list[str]:
@@ -217,20 +259,31 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     exp = experiment.load(args.experiment, environ)
     for side in ("a", "b"):
         treatments.check_unchanged(exp[side])
-    agents = {}
-    for role in ("worker", "rewriter", "judge"):
+    if exp.get("rewriter") and exp.get("render") != experiment.RENDER:
+        raise ConfigError(f"experiment {exp['name']} was frozen by an older briefbench, whose headless brief used three "
+                          "fixed questions instead of the skill's own. Start a new experiment with `briefbench init`.")
+    frozen = exp.get("templates") or {}                     # missing from experiments frozen before 2026-11-05
+    for name, now in (("render", treatments.templates_sha256()), ("judge", judge.prompt_sha256())):
+        if frozen.get(name) and frozen[name] != now:
+            raise ConfigError(f"the {'headless request templates' if name == 'render' else 'judge prompt'} differ "
+                              f"from those frozen in experiment {exp['name']}, perhaps after an update of briefbench. "
+                              "Start a new experiment.")
+    agents, versions = {}, {}
+    for role in ("worker", "rewriter", "asker", "judge"):
         if exp.get(role):
             agent, executable = _ready(exp[role]["agent"], environ)
             if _template(agent, executable, role, exp[role]["model"] or "")[1:] != exp[role]["argv"][1:]:
                 raise ConfigError(f"the {role} command differs from the one frozen in experiment {exp['name']}, "
                                   "perhaps after an update of briefbench. Start a new experiment.")
             agents[role] = (agent, executable)
+            versions[role] = _version(executable, environ)
     root = runner.repo_root(cwd)
     commit = runner.head(root)
     prompt = _read_prompt(args, con)
     log_path = prepare(environ)
     specs = {"a": exp["a"], "b": exp["a"] if args.aa else exp["b"]}
-    base = {"experiment": exp["name"], "repo": {"root": str(root), "commit": commit}}
+    base = {"experiment": exp["name"], "experiment_created": exp.get("created"),
+            "repo": {"root": str(root), "commit": commit}}
     con.say(f"Experiment {exp['name']}: A is {exp['a']['spec']}, B is {specs['b']['spec']}"
             + (" (noise check: A in both arms)." if args.aa else "."))
     if runner.dirty(root):
@@ -242,36 +295,60 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
         return 0
     task_type = con.pick("Task type", experiment.TASK_TYPES)
     settings = _repo_settings(root, con, environ)
-    answers = {"why": con.ask("Why do you want this? This is the goal the results are judged against (Enter to skip)"),
-               "check": con.ask("How will the result be checked? A command run in each worktree (Enter for none)",
-                                settings["check"]),
-               "stretch": con.ask("Optional: what would a stretch result look like? (Enter to skip)")}
-    if answers["check"] != settings["check"]:
+    con.say("How the results will be judged. Neither agent sees these answers.")
+    saved = settings["check"]
+    goal = con.ask("Goal: what should the result achieve? (Enter to skip)")
+    typed = con.ask("Check: a command run in each worktree once the agents finish "
+                    + ("(Enter keeps it; none for no check this time)" if saved else "(Enter for none)"), saved)
+    answers = {"why": goal, "check": "" if typed.strip().lower() == "none" else typed, "stretch": ""}
+    if answers["check"] and answers["check"] != saved:
         settings["check"] = answers["check"]
         experiment.save_repo_settings(root, settings, environ)
     trial = header("aa" if args.aa else "trial") | base
-    folder = data_dir(environ) / "trials" / trial["id"]
-    out = folder / "output"
-    out.mkdir(mode=0o700, parents=True)
-    experiment.write_private(out / "meta.json", {"root": str(root), "commit": commit, "pid": os.getpid()})
-    worktrees = runner.add_worktrees(root, commit, folder)
+    for folder in ("trials", "worktrees"):                  # private, like the data folder they are in
+        (data_dir(environ) / folder).mkdir(mode=0o700, exist_ok=True)
+    out = data_dir(environ) / "trials" / trial["id"] / "output"
+    out.parent.mkdir(mode=0o700)
+    out.mkdir(mode=0o700)
+    # The worktrees live apart from the output, so an agent looking around its folder can't find the other arm's
+    # prompt, the brief or your answers.
+    place = data_dir(environ) / "worktrees" / trial["id"]
+    place.mkdir(mode=0o700)
+    meta = {"root": str(root), "commit": commit, "worktrees": str(place)}
+    experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
+    worktrees = runner.add_worktrees(root, commit, place)
+    task = {"type": task_type, "prompt": prompt, "answers": answers, "questions": [], "listed": {}, "headless": []}
+    stage = "questions"
     try:
-        prompts = _render(specs, prompt, answers, agents, exp, worktrees["a"], out, environ, con)
-        arms = _run_arms(prompts, agents["worker"], exp, settings, answers["check"], worktrees, commit, out, environ,
-                         con)
+        try:
+            _skill_questions(task, specs, exp, agents, worktrees["a"], out, environ, con)
+            stage = "rewrite"
+            prompts = _render(specs, task, agents, exp, worktrees["a"], out, environ, con)
+            stage = "run"
+            arms = _run_arms(prompts, agents["worker"], exp, settings, answers["check"], worktrees, commit, out,
+                             environ, con)
+        except (AgentError, ConfigError) as e:   # kept, so a step that keeps failing on some tasks shows in score
+            append(log_path, header("failed") | base | {"aa": args.aa, "stage": stage, "task": task, "error": str(e),
+                                                       "treatments": {s: specs[s]["spec"] for s in "ab"},
+                                                       "versions": versions, "output": str(out)}, secrets)
+            raise
+        for side in "ab":                        # written only now that both arms are done
+            (out / f"{side}.prompt.md").write_text(prompts[side])
+            arms[side]["brief"] = _briefing(specs[side], exp, task["headless"])
         sides = dict(zip(("1", "2"), random.sample(("a", "b"), 2)))
         decision = _decide(arms, sides, answers["check"], specs, out, con)
         verdict = None
         if "judge" in agents and decision["by"] == "you" and _judge_allowed(exp, root, settings, con, environ):
             verdict = _judge(exp, agents["judge"], answers["why"], arms, sides, out, environ, con)
+        fidelity = _fidelity(specs, prompts, out, con)
     finally:
-        experiment.write_private(out / "meta.json", {"root": str(root), "commit": commit, "pid": None})
-    trial |= {"task": {"type": task_type, "prompt": prompt, "answers": answers},
+        experiment.write_private(out / "meta.json", meta | {"pid": None})
+    trial |= {"task": task,
               "settings": {"setup": settings["setup"], "check": answers["check"], "protected": settings["protected"],
                            "timeout_s": exp["timeout_s"]},
               "treatments": {s: specs[s]["spec"] for s in "ab"}, "prompts": prompts,
-              "worker": {k: exp["worker"][k] for k in ("agent", "model", "version")},
-              "arms": arms, "decision": decision, "judge": verdict, "output": str(out)}
+              "worker": {k: exp["worker"][k] for k in ("agent", "model", "version")}, "versions": versions,
+              "arms": arms, "decision": decision, "judge": verdict, "fidelity": fidelity, "output": str(out)}
     append(log_path, trial, secrets)
     _report(trial, specs, root, out, con, environ)
     return 0
@@ -299,46 +376,126 @@ def _repo_settings(root: Path, con, environ) -> dict:
     settings = experiment.repo_settings(root, environ)
     if settings is None:
         con.say(f"First trial in {root}. These answers are kept for its later trials.")
-        settings = {"setup": con.ask("Setup command for a fresh checkout, such as `uv sync` (Enter for none)"),
-                    "check": "",
-                    "protected": [p.strip() for p in con.ask("Protected paths the agents must not change, such as "
-                                                             "tests/, comma-separated (Enter for none)").split(",")
-                                  if p.strip()],
-                    "judge_allowed": None}
+        setup = con.ask("Setup command for a fresh checkout, such as `uv sync` (Enter for none)")
+        while True:
+            try:
+                protected = _protected(root, con.ask("Protected paths the agents must not change, such as tests/, "
+                                                     "comma-separated (Enter for none)"))
+                break
+            except UsageError as e:
+                con.say(f"briefbench: {e}")
+        settings = {"setup": setup, "check": "", "protected": protected, "judge_allowed": None}
         experiment.save_repo_settings(root, settings, environ)
     return settings
 
 
-def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, name: str, environ, **slots):
-    """One run of an agent CLI as rewriter or judge. Raises AgentError if it fails."""
+def _protected(root: Path, text: str) -> list[str]:
+    """Protected paths as paths inside the repo, relative to its root, which is what git needs in each worktree.
+    An absolute path inside the repo is made relative; a path outside it is refused."""
+    top, paths = Path(os.path.realpath(root)), []
+    for given in (p.strip() for p in text.split(",")):
+        if given:
+            full = Path(os.path.realpath(Path(top, os.path.expanduser(given))))
+            try:
+                paths.append(full.relative_to(top).as_posix())
+            except ValueError:
+                raise UsageError(f"{given} is outside the repo, so the agents can't change it in their worktrees. "
+                                 "Give paths inside the repo, such as tests/.") from None
+    return paths
+
+
+def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, name: str, environ, spent=None,
+          skill=None, **slots):
+    """One run of an agent CLI as rewriter, asker or judge. Raises AgentError if it fails. With `spent`, a list,
+    appends the call's {step, skill, seconds, tokens}, so briefing time and tokens count in the arm's cost."""
     agent, executable = pair
     [done] = runner.wait([runner.start(agent.argv(executable, role, prompt=prompt, model=model or "", **slots), cwd,
                                        agent_env(environ), out / f"{name}.out", out / f"{name}.err")],
                          TIMEOUT_S[role])
     reply = agent.parse((out / f"{name}.out").read_text(errors="replace"))
+    if spent is not None:
+        spent.append({"step": name, "skill": skill, "seconds": done.seconds, "tokens": reply.tokens})
     if done.code != 0 or reply.error:
         why = reply.error or ("stopped at the timeout" if done.code is None else f"exit {done.code}")
         raise AgentError(f"the {what} failed ({why}); see {out / name}.err")
     return reply
 
 
-def _render(specs, prompt, answers, agents, exp, readonly_tree, out, environ, con) -> dict[str, str]:
+def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con) -> None:
+    """The questions each skill treatment would ask, listed headless by the rewriter in a worktree it may only read,
+    then put to you. clarified gets those of the experiment's skill treatment. With two skills, all their questions
+    are listed first and asked once each, in random order, without saying which skill asked: knowing that would
+    unblind your pick. task["questions"] gets {skill, q, a} for each skill's questions, in that skill's order, and
+    task["listed"] how many questions each skill listed."""
+    sources = {t["spec"]: t for t in specs.values() if t["kind"] == "skill"}
+    if any(t["kind"] == "clarified" for t in specs.values()):
+        sources |= {t["spec"]: t for t in (exp["a"], exp["b"]) if t["kind"] == "skill"}
+    if not sources:
+        return
+    schema = out / "questions.schema.json"
+    schema.write_text(json.dumps(treatments.QUESTIONS_SCHEMA))
+    found = {}
+    for n, (spec, t) in enumerate(sources.items(), 1):
+        con.say(f"Asking the skill{f' ({n} of {len(sources)})' if len(sources) > 1 else ''} what it would ask you, "
+                f"headless with {exp['rewriter']['agent']}...")
+
+        def ask(request, n=n, spec=spec):
+            (out / f"questions-{n}.request.md").write_text(request)
+            reply = _call(agents["asker"], "asker", "headless list of the skill's questions", exp["rewriter"]["model"],
+                          request, readonly_tree, out, f"questions-{n}", environ, spent=task["headless"], skill=spec,
+                          schema=str(schema), schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
+            if runner.changed(readonly_tree):
+                raise AgentError("the rewriter changed files, which it must not do; the trial was stopped.")
+            return reply.text
+        found[spec], task["listed"][spec] = treatments.questions(t, prompt=task["prompt"], ask=ask)
+        if task["listed"][spec] > len(found[spec]):
+            con.say(f"It listed {task['listed'][spec]} questions; only the first {len(found[spec])} are asked, as "
+                    "the skill allows.")
+    unique = list(dict.fromkeys(q for questions in found.values() for q in questions))
+    if len(sources) > 1:
+        random.shuffle(unique)
+    con.say(("The skill asks:" if len(sources) == 1 else "The skills ask, in random order:") if unique
+            else "No question to ask.")
+    answers = {q: con.ask(f"{q}\n  Your answer (Enter to skip)") for q in unique}
+    task["questions"].extend({"skill": spec, "q": q, "a": answers[q]}      # each skill's questions in its own order
+                             for spec, questions in found.items() for q in questions)
+
+
+def _render(specs, task, agents, exp, readonly_tree, out, environ, con) -> dict[str, str]:
     """Each arm's prompt. A skill treatment is run headless once, by the rewriter, in a worktree it may only read."""
-    rendered, prompts = {}, {}
+    rendered, prompts, prompt, asked = {}, {}, task["prompt"], task["questions"]
+    source = next((t["spec"] for t in (exp["a"], exp["b"]) if t["kind"] == "skill"), None)
     for side, t in specs.items():
         if t["spec"] not in rendered:
             def rewrite(request, side=side):
                 (out / f"rewrite-{side}.request.md").write_text(request)
                 con.say(f"Writing the headless brief with {exp['rewriter']['agent']}...")
                 reply = _call(agents["rewriter"], "rewriter", "headless rewrite", exp["rewriter"]["model"], request,
-                              readonly_tree, out, f"rewrite-{side}", environ)
+                              readonly_tree, out, f"rewrite-{side}", environ, spent=task["headless"],
+                              skill=specs[side]["spec"])
                 if runner.changed(readonly_tree):
                     raise AgentError("the rewriter changed files, which it must not do; the trial was stopped.")
                 return reply.text
-            rendered[t["spec"]] = treatments.render(t, prompt, answers, rewrite)
+            mine = [x for x in asked if x["skill"] == (source if t["kind"] == "clarified" else t["spec"])]
+            rendered[t["spec"]] = treatments.render(t, prompt, mine, rewrite)
         prompts[side] = rendered[t["spec"]]
-        (out / f"{side}.prompt.md").write_text(prompts[side])
     return prompts
+
+
+def _briefing(t, exp, headless) -> dict | None:
+    """The headless calls an arm's prompt needed, as {seconds, tokens}: a skill's questions and its rewrite, or for
+    clarified the questions of the experiment's skill. tokens is null when a call didn't report them; None for
+    original and snippet, which need no call."""
+    if t["kind"] == "clarified":
+        source = next(x["spec"] for x in (exp["a"], exp["b"]) if x["kind"] == "skill")
+        calls = [c for c in headless if c["skill"] == source and c["step"].startswith("questions-")]
+    elif t["kind"] == "skill":
+        calls = [c for c in headless if c["skill"] == t["spec"]]
+    else:
+        return None
+    tokens = [c["tokens"] for c in calls]
+    return {"seconds": round(sum(c["seconds"] for c in calls), 1),
+            "tokens": None if any(x is None for x in tokens) else sum(tokens)}
 
 
 def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, environ, con) -> dict:
@@ -373,12 +530,13 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
 def _decide(arms, sides, check, specs, out, con) -> dict:
     if check and arms["a"]["check"]["passed"] != arms["b"]["check"]["passed"]:
         return {"by": "check", "winner": "a" if arms["a"]["check"]["passed"] else "b", "sides": sides,
-                "pick": None, "guess": None}
+                "pick": None, "guess": None, "tie": None}
     con.say("\nYour blind pick. The sides are in random order; look at the diffs, not at the agents' own words.")
     for n, s in sides.items():
         arm, d = arms[s], arms[s]["diff"]
         shutil.copyfile(out / f"{s}.diff", out / f"side-{n}.diff")
-        result = ("no check" if not arm["check"] else "changed protected paths, so it fails" if arm["protected_changed"]
+        result = (("changed protected paths, which were put back" + (", so it fails the check" if arm["check"] else ""))
+                  if arm["protected_changed"] else "no check" if not arm["check"]
                   else f"check {'passed' if arm['check']['passed'] else 'failed'} (exit {arm['check']['exit_code']})")
         con.say(f"\nSide {n}: {result}; {d['files']} file{'s' if d['files'] != 1 else ''} changed, "
                 f"+{d['insertions']} -{d['deletions']}" + (", stopped at the timeout" if arm["timed_out"] else ""))
@@ -388,12 +546,31 @@ def _decide(arms, sides, check, specs, out, con) -> dict:
             if shown := runner.tail(out / f"{s}.check.log", 8):
                 con.say("  " + shown.replace("\n", "\n  "))
     pick = con.pick("\nWhich side is better? 1, 2, or t for a tie", ("1", "2", "t"))
+    tie = None
+    if pick == "t":
+        tie = ("both_acceptable" if con.pick("Are both good enough to keep? y if both are, n if neither is",
+                                             ("y", "n")) == "y" else "both_unacceptable")
     guess = None
     if specs["a"]["spec"] != specs["b"]["spec"]:
         guess = con.pick(f"Which side do you think got B ({specs['b']['spec']})? 1 or 2, or Enter to skip",
                          ("1", "2", ""), "") or None
     return {"by": "you", "winner": "tie" if pick == "t" else sides[pick], "sides": sides, "pick": pick,
-            "guess": guess}
+            "guess": guess, "tie": tie}
+
+
+def _fidelity(specs, prompts, out, con) -> dict | None:
+    """Your review of each brief against what you asked, after the pick so it can't sway it. Returns {side:
+    {added, dropped, changed}}, each True, False or None when skipped, or None when no arm got a brief."""
+    review = {}
+    for s in "ab":
+        if specs[s]["kind"] != "skill" or (s == "b" and specs["b"]["spec"] == specs["a"]["spec"]):
+            continue                                 # in a noise check, both arms got the same brief
+        con.say(f"\nNow check the brief that arm {s.upper()} got ({specs[s]['spec']}) against what you asked. It is "
+                f"also in {out / f'{s}.prompt.md'}. Answer y or n, or press Enter to skip a question.\n")
+        con.say("  " + prompts[s].rstrip().replace("\n", "\n  ") + "\n")
+        review[s] = {key: {"y": True, "n": False, "": None}[con.pick(question, ("y", "n", ""), "")]
+                     for key, question in FIDELITY}
+    return review or None
 
 
 def _judge_allowed(exp, root, settings, con, environ) -> bool:
@@ -412,18 +589,25 @@ def _judge(exp, pair, goal, arms, sides, out, environ, con) -> dict:
                                   runner.tail(out / f"{s}.check.log", 40), arms[s]["protected_changed"])
                 for n, s in sides.items()}
     (out / "judge").mkdir(exist_ok=True)
-    schema = out / "judge" / "schema.json"
+    # Each call runs in its own empty folder outside the trial: a CLI that can read files must find neither the
+    # prompts, the briefs nor its own verdict in the other order nearby.
+    work = Path(tempfile.mkdtemp(prefix="briefbench-judge-"))
+    schema = work / "schema.json"
     schema.write_text(json.dumps(judge.SCHEMA))
     calls = []
 
     def call(prompt):
         calls.append(prompt)
-        return _call(pair, "judge", "judge", exp["judge"]["model"], prompt, out / "judge", out / "judge",
-                     f"order-{len(calls)}", environ, schema=str(schema), schema_json=json.dumps(judge.SCHEMA)).text
+        cwd = work / f"order-{len(calls)}"
+        cwd.mkdir()
+        return _call(pair, "judge", "judge", exp["judge"]["model"], prompt, cwd, out / "judge", f"order-{len(calls)}",
+                     environ, schema=str(schema), schema_json=json.dumps(judge.SCHEMA)).text
     try:
         ruling = judge.rule(goal, material, call)
     except (BriefbenchError, OSError, ValueError) as e:
         ruling = {"orders": [], "winner": None, "error": str(e)}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     winner = ruling["winner"]
     return {"agent": exp["judge"]["agent"], "model": exp["judge"]["model"], **ruling,
             "winner": sides.get(winner, winner)}
@@ -434,11 +618,15 @@ def _report(trial, specs, root, out, con, environ) -> None:
     con.say(f"\nSide 1 was {sides['1'].upper()} ({specs[sides['1']]['spec']}); side 2 was "
             f"{sides['2'].upper()} ({specs[sides['2']]['spec']}).")
     winner = decision["winner"]
-    con.say(f"Result: {'a tie' if winner == 'tie' else f'{winner.upper()} wins'}, decided by "
+    tie = {"both_acceptable": " (both good enough)", "both_unacceptable": " (neither good enough)"}.get(
+        decision.get("tie"), "")
+    con.say(f"Result: {f'a tie{tie}' if winner == 'tie' else f'{winner.upper()} wins'}, decided by "
             f"{'the check' if decision['by'] == 'check' else 'you'}.")
     if verdict := trial["judge"]:
         con.say("The judge: " + (f"failed ({verdict['error']}); the trial is yours alone." if verdict.get("error")
                                  else f"skipped ({verdict['skipped']})." if verdict.get("skipped")
+                                 else "a tie in both orders." if verdict["winner"] == "tie"
+                                 and all(o["verdict"] == "[[A=B]]" for o in verdict["orders"])
                                  else "a tie: its verdict changed with the order." if verdict["winner"] == "tie"
                                  else f"{verdict['winner'].upper()} wins, in both orders."))
     for s in "ab":
@@ -460,7 +648,9 @@ def _report(trial, specs, root, out, con, environ) -> None:
 def cmd_score(args, con, environ, cwd, secrets) -> int:
     exp = experiment.load(args.name, environ)
     path = data_dir(environ) / "log.jsonl"
-    text = score.report(exp, read_entries(path) if path.exists() else [])
+    entries = read_entries(path) if path.exists() else []
+    text = (json.dumps(score.summary(exp, entries), indent=2, ensure_ascii=False) if args.json
+            else score.report(exp, entries))
     con.stdout.write(strip_controls(scrub(text, secrets)) + "\n")
     return 0
 
@@ -468,15 +658,18 @@ def cmd_score(args, con, environ, cwd, secrets) -> int:
 def cmd_clean(args, con, environ, cwd, secrets) -> int:
     removed = 0
     for meta in sorted((data_dir(environ) / "trials").glob("*/output/meta.json")):
-        info, folder = json.loads(meta.read_text()), meta.parent.parent
+        info = json.loads(meta.read_text())
         if info.get("pid") and _alive(info["pid"]):
             continue                                         # a trial still running
+        folder = Path(info.get("worktrees") or meta.parent.parent)   # older trials kept them beside the output
         for side in ("a", "b"):
             if (folder / side).exists():
                 if Path(info["root"]).is_dir():
                     runner.git(info["root"], "worktree", "remove", "--force", str(folder / side), check=False)
                 shutil.rmtree(folder / side, ignore_errors=True)
                 removed += 1
+        if info.get("worktrees") and folder.is_dir() and not any(folder.iterdir()):
+            folder.rmdir()
         if Path(info["root"]).is_dir():
             runner.git(info["root"], "worktree", "prune", check=False)
     con.say(f"Removed {removed} worktree{'s' if removed != 1 else ''}. Each trial's diffs, prompts and logs stay in "

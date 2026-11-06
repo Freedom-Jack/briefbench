@@ -1,5 +1,6 @@
 """A stand-in agent CLI for offline tests, put on PATH as `claude` and `codex`. FAKE_* variables choose what it does;
-each call appends its role, argv and API key variable names to $FAKE_CALLS."""
+each call appends its role, argv and API key variable names to $FAKE_CALLS. Its role is worked out from its flags
+and prompt: the asker lists the skill's questions, the rewriter writes the brief, the worker edits files."""
 import json
 import os
 import sys
@@ -36,13 +37,26 @@ if args == ["--version"]:
     sys.exit(0)
 
 prompt = args[args.index("--") + 1]
-role = ("judge" if "--json-schema" in args or "--output-schema" in args
+schema = "--json-schema" in args or "--output-schema" in args
+role = ("asker" if schema and "<skill>" in prompt else "judge" if schema
         else "worker" if "acceptEdits" in args or "workspace-write" in args else "rewriter")
 with open(env["FAKE_CALLS"], "a") as calls:
     calls.write(json.dumps({"name": name, "role": role, "argv": args, "cwd": os.getcwd(),
                             "keys": sorted(k for k in env if k.endswith(("_API_KEY", "_BASE_URL")))}) + "\n")
 
-if role == "rewriter":
+if role == "asker":
+    mode = env.get("FAKE_ASKER", "one")
+    if mode == "fail":
+        print("asker crashed", file=sys.stderr)
+        sys.exit(1)
+    if mode == "write":
+        Path("stray.txt").write_text("x\n")
+    if mode == "bad":
+        say("I would ask about the purpose.", 30)
+    else:
+        found = {"none": [], "many": [f"Question {i}?" for i in range(1, 6)]}.get(mode, ["What is the result for?"])
+        say("", 30, {"questions": found})
+elif role == "rewriter":
     mode = env.get("FAKE_REWRITER", "ok")
     if mode == "fail":
         print("rewriter crashed", file=sys.stderr)

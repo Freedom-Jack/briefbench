@@ -1,7 +1,8 @@
 """Vendor-specific settings: the only module that names vendors, their agent CLIs, the folders those CLIs use or
 their key variables. The rest of briefbench runs an agent CLI through an `Agent`, without knowing which one.
 
-Flags were checked on 2026-11-03 against Claude Code 2.1.309 and Codex 0.166 (docs/design.md, "Sources").
+Flags were checked on 2026-11-03 against Claude Code 2.1.309 and Codex 0.166 (docs/design.md, "Sources"). The
+asker role, added on 2026-11-05, reuses the rewriter's read-only tools and the judge's schema flags.
 """
 from __future__ import annotations
 
@@ -60,7 +61,7 @@ class Agent:
     login: tuple[str, ...]                    # arguments that report the login
     on_plan: Callable[[str], bool]            # that report -> logged in with a subscription
     login_fix: str
-    roles: Mapping[str, tuple[str, ...]]      # worker, rewriter, judge
+    roles: Mapping[str, tuple[str, ...]]      # worker, rewriter, asker (the skill's questions), judge
     parse: Callable[[str], Reply]             # stdout -> Reply
     default_model: str = ""                   # "" leaves the model to the CLI
 
@@ -147,6 +148,9 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
                       "--", "{prompt}"),
            "rewriter": ("-p", "--output-format", "json", "--tools", "Read,Grep,Glob", "--permission-prompts", "none",
                         "--disable-slash-commands", "--no-session-persistence", "?--model={model}", "--", "{prompt}"),
+           "asker": ("-p", "--output-format", "json", "--tools", "Read,Grep,Glob", "--json-schema", "{schema_json}",
+                     "--permission-prompts", "none", "--disable-slash-commands", "--no-session-persistence",
+                     "?--model={model}", "--", "{prompt}"),
            "judge": ("-p", "--output-format", "json", "--tools", "", "--json-schema", "{schema_json}",
                      "--disable-slash-commands", "--no-session-persistence", "?--model={model}", "--", "{prompt}")},
           _claude_reply, default_model="claude-opus-5-5"),
@@ -156,6 +160,8 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
           "Open the ChatGPT app, or run `codex login`, and sign in with ChatGPT rather than an API key.",
           {"worker": ("exec", "--json", "--ephemeral", "-s", "workspace-write", "?--model={model}", "--", "{prompt}"),
            "rewriter": ("exec", "--json", "--ephemeral", "-s", "read-only", "?--model={model}", "--", "{prompt}"),
+           "asker": ("exec", "--json", "--ephemeral", "-s", "read-only", "--output-schema", "{schema}",
+                     "?--model={model}", "--", "{prompt}"),
            "judge": ("exec", "--json", "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "--output-schema",
                      "{schema}", "?--model={model}", "--", "{prompt}")},
           _codex_reply),

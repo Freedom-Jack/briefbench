@@ -1,4 +1,5 @@
-"""The exact sign test, the Clopper-Pearson interval and the two-step rule, in plain Python. Vendor-neutral."""
+"""The exact sign test, Clopper-Pearson intervals, the net-preference interval and the two decision rules, in plain
+Python. Vendor-neutral."""
 from __future__ import annotations
 
 from math import comb
@@ -32,10 +33,23 @@ def interval(wins: int, n: int, level: float = 0.95) -> tuple[float, float]:
     return lower, upper
 
 
+def net_interval(wins: int, losses: int, trials: int, level: float = 0.95) -> tuple[float, float]:
+    """A conservative interval for the net preference (wins - losses) / trials, where a tie counts zero
+    (docs/experiment-protocol.md, section 8). It takes exact intervals, each at half the error, for the share of
+    trials that were decided and for the win rate among them, then the extremes of share * (2 * rate - 1) over the
+    four corners. By the union bound it covers at least `level`; with nothing decided the rate spans 0 to 1."""
+    if trials == 0:
+        return -1.0, 1.0
+    each = 1 - (1 - level) / 2
+    shares, rates = interval(wins + losses, trials, each), interval(wins, wins + losses, each)
+    corners = [q * (2 * p - 1) for q in shares for p in rates]
+    return min(corners), max(corners)
+
+
 def decide(winners: list[str], trials: int, rule: dict) -> tuple[str, int, int]:
-    """The two-step rule on B's wins (docs/design.md, "Protocol"). winners: "a" or "b" for each decided pair, in the
-    order they were run; trials counts ties too. Returns (state, B's wins, pairs) for the pairs the rule looked at.
-    state is adopt, stop, continue, collecting or no-difference."""
+    """The two-step rule on B's wins (docs/design.md, "Decision rules"). winners: "a" or "b" for each decided pair,
+    in the order they were run; trials counts ties too. Returns (state, B's wins, pairs) for the pairs the rule
+    looked at. state is adopt, stop, continue, collecting or no-difference."""
     first, second = winners[:rule["first"]], winners[:rule["second"]]
     if len(first) < rule["first"]:
         state = "no-difference" if trials >= rule["max_trials"] else "collecting"
@@ -47,3 +61,17 @@ def decide(winners: list[str], trials: int, rule: dict) -> tuple[str, int, int]:
         return "continue", winners.count("b"), len(winners)
     wins = second.count("b")
     return ("adopt" if wins >= rule["adopt_second"] else "stop"), wins, len(second)
+
+
+def decide_fixed(wins: int, losses: int, trials: int, rule: dict) -> str:
+    """The fixed-sample rule: one two-sided sign test once exactly rule["trials"] trials are in, never before
+    (docs/design.md, "Decision rules"). The caller passes the counts of the first rule["trials"] trials only.
+    Returns collecting, benefit, below-threshold (B is significantly better, but its net preference is under the
+    frozen threshold), harm or no-difference."""
+    if trials < rule["trials"]:
+        return "collecting"
+    if sign_test(wins, losses) > rule["alpha"]:
+        return "no-difference"
+    if losses > wins:
+        return "harm"
+    return "benefit" if (wins - losses) / trials >= rule["net_min"] else "below-threshold"

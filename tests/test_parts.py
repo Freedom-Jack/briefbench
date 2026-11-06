@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from briefbench import runner, treatments
-from briefbench.errors import AgentError, ConfigError
+from briefbench.errors import AgentError, ConfigError, UsageError
 from briefbench.presets import AGENTS, agent_env
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "brief"
@@ -59,18 +59,89 @@ def test_login_reports():
 ])
 def test_the_brief_is_the_first_fenced_block(reply, brief, tmp_path):
     skill = treatments.parse(f"skill:{SKILL}", {}, tmp_path)
-    assert treatments.render(skill, "p", {}, lambda request: reply) == brief
+    assert treatments.render(skill, "p", [], lambda request: reply) == brief
 
 
 def test_skill_request_carries_the_skill_prompt_and_answers(tmp_path):
     seen = []
     skill = treatments.parse(f"skill:{SKILL}", {}, tmp_path)
-    treatments.render(skill, "Fix it", {"why": "CI is red", "check": "make test"},
+    treatments.render(skill, "Fix it", [{"q": "What is it for?", "a": "CI is red"}, {"q": "Which tests?", "a": ""}],
                       lambda request: seen.append(request) or "```\nok\n```")
     assert "name: brief" in seen[0] and "<prompt>\nFix it\n</prompt>" in seen[0]
-    assert "- Why do you want this? CI is red" in seen[0] and "stretch result look like? (skipped)" in seen[0]
+    assert "- What is it for?\n  Answer: CI is red" in seen[0] and "- Which tests?\n  Answer: (skipped)" in seen[0]
+    treatments.render(skill, "Fix it", [], lambda request: seen.append(request) or "```\nok\n```")
+    assert "<answers>\nThe skill asked no questions.\n</answers>" in seen[1]
     with pytest.raises(AgentError):
-        treatments.render(skill, "Fix it", {}, lambda request: "no fence")
+        treatments.render(skill, "Fix it", [], lambda request: "no fence")
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ('{"questions": ["Why?", "  ", "Who reads it?"]}', (["Why?", "Who reads it?"], 2)),
+    ('{"questions": []}', ([], 0)),
+    ('{"questions": ["1?", "2?", "3?", "4?"]}', (["1?", "2?", "3?"], 4)),        # at most three are asked
+])
+def test_the_skills_questions_are_read_from_json(reply, expected, tmp_path):
+    seen = []
+    skill = treatments.parse(f"skill:{SKILL}", {}, tmp_path)
+    assert treatments.questions(skill, "Fix it", lambda request: seen.append(request) or reply) == expected
+    assert "name: brief" in seen[0] and "<prompt>\nFix it\n</prompt>" in seen[0] and '{"questions": []}' in seen[0]
+
+
+@pytest.mark.parametrize("reply", ["Why do you want it?", '{"questions": "Why?"}', '{"asks": []}', "[]",
+                                   '{"questions": [1, 2]}'])
+def test_a_reply_that_isnt_the_questions_json_fails(reply, tmp_path):
+    skill = treatments.parse(f"skill:{SKILL}", {}, tmp_path)
+    with pytest.raises(AgentError):
+        treatments.questions(skill, "Fix it", lambda request: reply)
+
+
+def test_clarified_appends_the_questions_and_answers_word_for_word(tmp_path):
+    """A skipped question is listed as not answered: the brief's rewriter sees it too, so both arms get the same."""
+    clarified = treatments.parse("clarified", {}, tmp_path)
+    qa = [{"q": "What is it for?", "a": "CI is red"}, {"q": "Which tests?", "a": " "}]
+    assert treatments.render(clarified, "Fix it", qa, None) == (
+        "Fix it\n\nClarifying questions about this request, with my answers:\nQ: What is it for?\nA: CI is red\n"
+        "Q: Which tests?\nA: (not answered)\n")
+    assert treatments.render(clarified, "Fix it", [], None) == "Fix it"     # the skill asked nothing
+    treatments.check_unchanged(clarified)                         # nothing on disk to change
+    with pytest.raises(UsageError):
+        treatments.check_pair(clarified, treatments.parse("original", {}, tmp_path))
+    treatments.check_pair(clarified, treatments.parse(f"skill:{SKILL}", {}, tmp_path))
+
+
+def test_the_template_hash_covers_everything_that_shapes_an_arms_prompt(monkeypatch):
+    before = treatments.templates_sha256()
+    for name, value in (("MAX_QUESTIONS", 2), ("NOT_ANSWERED", "(left open)"),
+                        ("QUESTIONS_SCHEMA", {"type": "object", "properties": {}})):
+        original = getattr(treatments, name)
+        monkeypatch.setattr(treatments, name, value)
+        assert treatments.templates_sha256() != before, name
+        monkeypatch.setattr(treatments, name, original)
+    assert treatments.templates_sha256() == before
+
+
+def test_the_asker_reads_only_and_holds_its_reply_to_a_schema():
+    claude = AGENTS["claude-code"].argv("claude", "asker", prompt="P", model="", schema_json="{}")
+    assert claude[claude.index("--tools") + 1] == "Read,Grep,Glob" and "--json-schema" in claude
+    codex = AGENTS["codex"].argv("codex", "asker", prompt="P", model="", schema="/s.json")
+    assert codex[codex.index("-s") + 1] == "read-only" and codex[codex.index("--output-schema") + 1] == "/s.json"
+
+
+def test_a_skill_hashes_the_same_wherever_its_folder_is(tmp_path):
+    """Skipped names count only inside the folder: a skill kept under a folder called __pycache__ or .git still
+    hashes by its own files. The hash of the released skill is the one the bench recorded on 2026-11-05."""
+    import shutil
+    for parent in ("plain", "__pycache__", ".git/inside"):
+        copy = tmp_path / parent / "brief"
+        shutil.copytree(SKILL, copy)
+        (copy / "__pycache__").mkdir()
+        (copy / "__pycache__" / "x.pyc").write_bytes(b"cache")            # skipped inside the folder
+        assert treatments.folder_sha256(copy) == treatments.folder_sha256(SKILL)
+    nested = tmp_path / "n"
+    (nested / "a").mkdir(parents=True)
+    (nested / "a" / "b").write_text("1")
+    (nested / "a-c").write_text("2")
+    assert treatments.folder_sha256(nested) == treatments.hashlib.sha256(b"a/b\x001\x00a-c\x002\x00").hexdigest()
 
 
 def test_treatments_are_frozen_by_content(tmp_path):

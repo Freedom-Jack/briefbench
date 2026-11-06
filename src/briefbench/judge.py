@@ -1,6 +1,7 @@
 """The pairwise judge: one agent CLI call per order, blind to which treatment made which change. Vendor-neutral."""
 from __future__ import annotations
 
+import hashlib
 import json
 from importlib import resources
 from typing import Callable
@@ -17,13 +18,19 @@ def template() -> str:
     return text.split("\n---\n", 1)[1]
 
 
+def prompt_sha256() -> str:
+    """The judge's prompt and its reply schema, frozen by `init` like the judge's command."""
+    return hashlib.sha256((template() + "\0" + json.dumps(SCHEMA, sort_keys=True)).encode()).hexdigest()
+
+
 def material(diff: str, check: dict | None, check_log: str, protected_changed: bool) -> str:
     """One side as the judge sees it: the check's result and output, then the diff. Never the prompt or the
     agent's own summary."""
-    if check is None:
+    if protected_changed:
+        result = ("This change edited files the requester protected, which were put back"
+                  + (", so the check fails." if check is not None else ". There is no check for this task."))
+    elif check is None:
         result = "There is no check for this task."
-    elif protected_changed:
-        result = "The check fails: this change edited files the requester protected, which were put back."
     else:
         result = f"The check {'passed' if check['passed'] else 'failed'} (exit {check['exit_code']}). Its output:\n" \
                  + (check_log.strip() or "(none)")

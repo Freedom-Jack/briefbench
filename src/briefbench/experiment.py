@@ -11,10 +11,29 @@ from .errors import ConfigError, UsageError
 from .log import data_dir
 
 FORMAT = 1
-# The two-step rule, fixed in advance (docs/design.md, "Protocol"): B is adopted at 16 or more wins of the first 20
-# decided pairs, stopped at 10 or fewer, and otherwise judged at 40 decided pairs, needing 27. If 40 trials leave
-# fewer than 20 decided, the verdict is "no practical difference".
-RULE = {"first": 20, "adopt_first": 16, "stop_first": 10, "second": 40, "adopt_second": 27, "max_trials": 40}
+# The two decision rules, one frozen per experiment (docs/design.md, "Decision rules").
+# Two-step, the default: B is adopted at 16 or more wins of the first 20 decided pairs, stopped at 10 or fewer, and
+# otherwise judged at 40 decided pairs, needing 27. If 40 trials leave fewer than 20 decided, the verdict is "no
+# practical difference". An experiment frozen before rules had a kind has this rule.
+RULE = {"kind": "two-step", "first": 20, "adopt_first": 16, "stop_first": 10, "second": 40, "adopt_second": 27,
+        "max_trials": 40}
+FIXED_TRIALS = (10, 1000)          # the planned number of trials a fixed rule may have
+
+
+def fixed_rule(trials: int) -> dict:
+    """Fixed sample: one two-sided exact sign test at the 5% level after exactly `trials` trials, ties included in
+    the count; B also needs a net preference of at least 0.15, which is 15 more wins than losses per 100 trials."""
+    return {"kind": "fixed", "trials": trials, "alpha": 0.05, "net_min": 0.15}
+
+
+def rule_kind(rule: dict) -> str:
+    return rule.get("kind", "two-step")
+
+
+# How a skill treatment becomes a prompt. skill-questions/1: the rewriter first lists the questions the skill would
+# ask, `ab` puts them to you, and the rewriter then writes the brief from your answers. Experiments frozen before it
+# have no render, and their skill treatments used three fixed questions; `ab` no longer runs those.
+RENDER = "skill-questions/1"
 TASK_TYPES = ("code", "writing", "research", "analysis", "other")
 _NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 
