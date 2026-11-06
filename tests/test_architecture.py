@@ -10,9 +10,9 @@ SRC = Path(briefbench.__file__).parent
 ROOT = Path(__file__).resolve().parent.parent
 # Letter-only lookarounds, not \b: "_" is a word character, so \bxai\b misses XAI_API_KEY
 VENDOR = re.compile(r"anthropic|claude|gemini|gemma|google|gpt-|o[1-9]-(?:mini|pro)|deepseek|mistral|mixtral|"
-                    r"codestral|llama|qwen|ollama|lm.?studio|groq|grok|(?<![a-z])xai(?![a-z])|"
+                    r"codestral|llama|qwen|ollama|lm.?studio|groq|grok|(?<![a-z])xai(?![a-z])|codex|chatgpt|"
                     r"(?<![a-z])x\.ai(?![a-z])|openrouter|openai(?!_compat|-compatible|compat)|localhost:\d", re.I)
-CORE = ("errors", "redact", "provider", "questions", "playbook", "rewrite", "report", "log")
+CORE = ("errors", "redact", "log")
 MODULES = {p.stem for p in SRC.glob("*.py")} - {"__init__"}
 
 
@@ -42,7 +42,8 @@ def test_core_is_vendor_neutral():
 
 
 def test_vendor_pattern_catches_names_inside_identifiers():
-    for text in ("XAI_API_KEY", "api.x.ai", "gemma3:12b", "llama3.1", "qwen2.5", "o4-mini", "OPENAI_API_KEY"):
+    for text in ("XAI_API_KEY", "api.x.ai", "gemma3:12b", "llama3.1", "qwen2.5", "o4-mini", "OPENAI_API_KEY",
+                 "codex exec", "ChatGPT.app"):
         assert VENDOR.search(text), text
     for text in ("relaxation", "maxai", "openai_compat", "OpenAI-compatible"):
         assert not VENDOR.search(text), text
@@ -50,13 +51,8 @@ def test_vendor_pattern_catches_names_inside_identifiers():
 
 def test_import_direction():
     for path in SRC.glob("*.py"):
-        imported = local_imports(path)
         if path.stem in CORE:
-            assert not imported & {"presets", "openai_compat", "selection", "cli"}, path.name
-        if path.stem != "selection":
-            assert "presets" not in imported, path.name
-    assert local_imports(SRC / "openai_compat.py") <= {"errors", "provider", "redact"}
-    assert not local_imports(SRC / "cli.py") & {"presets", "openai_compat"}
+            assert not local_imports(path) & {"presets", "cli"}, path.name
 
 
 def test_tls_never_disabled_and_input_never_called():
@@ -69,9 +65,9 @@ def test_tls_never_disabled_and_input_never_called():
         assert not calls, path.name
 
 
-def test_single_runtime_dependency():
+def test_no_runtime_dependency():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    assert project["dependencies"] == ["truststore>=0.10"]
+    assert project["dependencies"] == []
 
 
 def test_version_matches_metadata():

@@ -10,12 +10,8 @@ from pathlib import Path
 from typing import Mapping
 
 from . import __version__
-from .errors import ConfigError, ProviderError
-from .playbook import Playbook
-from .provider import Completion, ProviderInfo
-from .questions import Answer
+from .errors import ConfigError
 from .redact import scrub
-from .rewrite import MAX_OUTPUT_TOKENS, RewriteResult, rewriter_sha256
 
 SCHEMA = 1
 LOG_NAME = "log.jsonl"
@@ -68,6 +64,11 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def header(kind: str) -> dict:
+    """The fields every log line starts with (docs/data-formats.md)."""
+    return {"schema": SCHEMA, "kind": kind, "id": new_id(), "ts": utc_now(), "briefbench_version": __version__}
+
+
 def append(path: Path, entry: dict, secrets) -> None:
     """One line per entry, written with a single O_APPEND write; never rewrites or truncates, and never
     follows a symbolic link. After a line cut short (a crash or a full disk), the entry starts on a new
@@ -98,62 +99,3 @@ def read_entries(path: Path) -> list[dict]:
             except ValueError:
                 continue
     return entries
-
-
-def rewrite_entry(*, entry_id: str, ts: str, prompt: str, prompt_via: str, answers: Mapping[str, Answer],
-                  playbook: Playbook, info: ProviderInfo, result: RewriteResult | None = None,
-                  error: Exception | None = None, interrupted: bool = False,
-                  latency_ms: int | None = None) -> dict:
-    completion: Completion | None = result.completion if result else getattr(error, "completion", None)
-    results = {s.technique.id: s for s in result.sections} if result else {}
-    if interrupted:
-        outcome, err = "interrupted", None
-    elif error is not None:
-        outcome = "error"
-        err = {"kind": getattr(error, "kind", "internal"), "message": str(error),
-               "status": getattr(error, "status", None)}
-    else:
-        outcome, err = "ok", None
-    if completion is not None:
-        timing = {"latency_ms": completion.latency_ms, "attempts": completion.attempts}
-    elif isinstance(error, ProviderError):
-        timing = {"latency_ms": error.latency_ms, "attempts": error.attempts}
-    else:
-        timing = {"latency_ms": latency_ms, "attempts": None}
-    u = completion.usage if completion else None
-    return {
-        "schema": SCHEMA,
-        "kind": "rewrite",
-        "id": entry_id,
-        "ts": ts,
-        "briefbench_version": __version__,
-        "outcome": outcome,
-        "error": err,
-        "prompt": prompt,
-        "prompt_via": prompt_via,
-        "answers": {k: {"text": a.text, "source": a.source} for k, a in answers.items()},
-        "rewriter": {"sha256": rewriter_sha256()},
-        "playbook": {"source": playbook.source, "sha256": playbook.sha256},
-        "techniques": [{"id": t.id, "status": t.status, "sha256": t.sha256,
-                        "result": results[t.id].result if t.id in results else None,
-                        "text": results[t.id].text if t.id in results else None}
-                       for t in playbook.active()],
-        "brief": result.brief if result else None,
-        "sizes": None if result is None else {
-            "prompt_chars": len(prompt), "prompt_words": len(prompt.split()),
-            "brief_chars": len(result.brief), "brief_words": len(result.brief.split())},
-        "provider": {"name": info.name, "vendor": info.vendor, "base_url": info.base_url,
-                     "key_env": info.key_env, "chosen_by": info.chosen_by},
-        "model": {"requested": info.model,
-                  "reported": completion.model_reported if completion else None,
-                  "system_fingerprint": completion.system_fingerprint if completion else None},
-        "request": {"token_param": info.token_param, "max_output_tokens": MAX_OUTPUT_TOKENS,
-                    "params": dict(info.params), "timeout_s": info.timeout_s},
-        "response": None if completion is None else {
-            "id": completion.response_id, "finish_reason": completion.finish_reason,
-            "raw_output": completion.text, "warnings": list(result.warnings) if result else []},
-        "usage": None if u is None else {"input_tokens": u.input_tokens, "output_tokens": u.output_tokens,
-                                         "reasoning_tokens": u.reasoning_tokens,
-                                         "raw": dict(u.raw) if u.raw is not None else None},
-        "timing": timing,
-    }

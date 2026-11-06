@@ -1,0 +1,5 @@
+interface:
+  display_name: "Brief"
+  short_description: "Clarify prompts while leaving solutions open"
+policy:
+  allow_implicit_invocation: false

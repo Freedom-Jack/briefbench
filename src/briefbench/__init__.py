@@ -1,4 +1,4 @@
-"""briefbench: rewrite rough prompts into briefs, and log every rewrite."""
+"""briefbench: blind paired trials of prompt treatments, such as the brief skill, on your own tasks."""
 from importlib.metadata import PackageNotFoundError, version
 
 try:

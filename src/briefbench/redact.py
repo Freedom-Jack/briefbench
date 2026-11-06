@@ -1,12 +1,9 @@
-"""Keep API keys out of everything briefbench prints or logs. Vendor-neutral."""
+"""Keep key values and terminal control characters out of everything briefbench prints or logs. Vendor-neutral."""
 import json
 import re
 
 REDACTED = "[redacted]"
-MIN_SECRET = 8      # shorter values (placeholders for local servers) are not treated as secrets
-MIN_FRAGMENT = 4
-MASKED = r"[A-Za-z0-9_-]{0,64}\*{3,}[A-Za-z0-9_-]{0,64}"     # sk-bbFAK***9876, ****9876, xa***XX; bounded, so linear
-_RUNS = re.compile(r"(?:\[redacted\]){2,}")
+MIN_SECRET = 8      # shorter values (placeholders) are not treated as secrets
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")   # C0 and C1 controls except \t and \n
 
 
@@ -24,18 +21,6 @@ def scrub(text, secrets):
     return text
 
 
-def redact_error(text, secrets):
-    """Aggressive, for text from an endpoint or an exception: masked echoes, the full key,
-    and any prefix or suffix of 4+ characters, in one pass so replacements are never re-scanned."""
-    fragments = set()
-    for s in usable(secrets):
-        for n in range(MIN_FRAGMENT, len(s) + 1):
-            fragments.update((s[:n], s[-n:]))
-    alternatives = [MASKED] + [re.escape(f) for f in sorted(fragments, key=len, reverse=True)]
-    text = re.sub("|".join(alternatives), REDACTED, text)
-    return _RUNS.sub(REDACTED, text)
-
-
 def strip_controls(text):
-    """Remove terminal control characters (ESC included) from model-written text."""
+    """Remove terminal control characters (ESC included) from text that a model or an agent wrote."""
     return _CONTROL.sub("", text)
