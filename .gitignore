@@ -10,3 +10,7 @@ __pycache__/
 dist/
 build/
 .briefbench/
+
+# Local-only research run outputs; see docs/research/README.md
+docs/research/*/raw/
+docs/research/LOCAL.md

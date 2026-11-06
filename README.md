@@ -2,71 +2,69 @@
 
 A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** a first working version of the redesign of 2026-11-02. The `brief` skill (stage 1), paired runs (stage 2) and the judge and `score` (stage 3) are built, and have run for real through Codex on a ChatGPT plan. Two checks with you are still owed: the skill on 5 of your real prompts, and one real task on your Claude plan. See the roadmap below, and "Next steps" in [docs/design.md](docs/design.md).
+> **Status:** the `brief` skill (0.2.0) and the bench (`init`, `ab`, `score`, `clean`, an optional judge) are built. The judge and the skill's headless calls pass live tests through Claude Code and Codex on subscription plans, and `ab` has run live through Codex, but not yet on a real task since this revision. Still owed: the skill's acceptance on real prompts in two hosts, a real trial on each plan, and any experiment. Nothing here shows yet that the brief improves results. See the [build plan](docs/build-plan.md).
 
 ## Why
 
-Most prompts handed to AI agents are thin. Advice on writing better ones is everywhere, but little of it is tested, and independent tests found that several popular tricks do nothing reliable.
+People post prompting tricks all the time, and little of the advice is tested. Independent tests, mostly on 2025 models, found that several popular tricks, such as expert personas or "think step by step" on reasoning models, gave no reliable gain, and small 2026 tests point the same way. Stating what you want, why, and what done looks like helped in the studies that tested it, including on 2026 models ([research](docs/research/README.md)).
 
-briefbench started with one question about Felix Rieseberg's essay ["How to be more ambitious: A tutorial for humans with models"](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/): is its advice really useful? It treats every prompting tip as a hypothesis, to be measured on your own tasks before you trust it.
+briefbench started with one question about Felix Rieseberg's essay ["How to be more ambitious: A tutorial for humans with models"](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/): is its advice really useful? It treats every prompting tip as a hypothesis: write the claim down, test it on your own tasks, keep what helps and leave the rest out of the skill.
 
-## How it works
+## Two ways in
 
-Two separate parts. The skill works without the bench.
+1. **Use the skill.** It makes your request clearer before an agent works on it. No setup beyond installing a folder.
+2. **Check the evidence.** Read the [claim cards](claims/README.md): each prompting claim, its outside evidence, and why the skill does or doesn't carry it. Run the bench on your own tasks, or [contribute](CONTRIBUTING.md) a claim, a counterexample or a replication.
 
-1. **`brief`, an Agent Skill.** Write your prompt, then type `/brief`. It reads what the prompt points to, asks up to three questions only where the answer would change the brief, and returns one rewritten brief: clearer, with your details kept and the method left to the agent. It runs only when you call it, and that is all it does: it saves nothing and keeps no records. It runs inside your agent or chat, with that host's own model and context: Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot, the Claude apps, ChatGPT and others.
-2. **`briefbench`, a small CLI.** Give it a task's prompt. It asks the skill's three questions itself, runs the skill headless to write the brief, then runs the task twice from the same commit, each arm in its own git worktree: once with your original prompt and once with the brief. Your check decides when exactly one arm passes it; otherwise you pick the better result blind. An optional judge from a third vendor rules alongside. After 20 to 40 decided pairs, a sign test with its rule fixed in advance says whether the brief helps. You keep the better result either way.
+## The skill
 
-The bench calls models only through agent CLIs logged in with your own plans: Claude Code on a Claude plan, and Codex, which comes with the ChatGPT desktop app, on a ChatGPT plan. It needs no API key and adds no per-token charges; a trial uses one extra agent run of your plan's usage. Keep pay-as-you-go extra usage off in your account, so a trial that reaches your plan's limit stops instead of billing you.
+Write your prompt, then type `/brief` (`$brief` in Codex, `@brief` in ChatGPT). It reads what the prompt points to, asks up to three questions only where the answer would change the brief, and returns one brief: clearer, with your details kept word for word and the method left to the agent. A prompt that needs no change comes back unchanged. It uses your host's own model and context, and saves nothing. In Claude Code and Codex it runs only when you call it; other hosts may ignore that setting. [Examples](examples/README.md) are three labelled demonstrations, run headless through the bench on prompts written for the purpose.
 
-Any other prompt treatment can be compared the same way: two versions of the skill, or a tip someone claims works, added as a snippet.
+| Host | Install | Checked |
+|---|---|---|
+| Claude Code | Link `skills/brief/` as `~/.claude/skills/brief`, or copy it there | Headless runs only; native install and `/brief` not yet checked |
+| Codex, and the ChatGPT desktop app | Link or copy it to `~/.agents/skills/brief`, or to `.agents/skills/brief/` in a project | `$brief` runs it and it doesn't start on its own (2026-11-04); real-use acceptance owed |
+| Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy it to `.agents/skills/brief/` in a project, or run `npx skills add Freedom-Jack/briefbench` | Not tested |
+| Claude apps | Upload the ZIP that `uv run python scripts/package_skill.py` builds; it may not run there, since it is meant to start only when called | Not tested |
+| Anything else | Paste `SKILL.md`, or keep it in a Project, GPT or Gem | Not tested |
 
-## Use it
-
-### The skill
-
-| Host | Install |
-|---|---|
-| Claude Code | Link `skills/brief/` as `~/.claude/skills/brief`, or copy it there |
-| Codex, and the ChatGPT desktop app | Link or copy it to `~/.agents/skills/brief`, or to `.agents/skills/brief/` in a project |
-| Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy it to `.agents/skills/brief/` in a project, or run `npx skills add Freedom-Jack/briefbench` |
-| Claude apps | Upload it as a ZIP; it may not run there, since it never starts on its own |
-| Anything else | Paste `SKILL.md`, or keep it in a Project, GPT or Gem |
-
-For example, from a clone:
+From a clone:
 
 ```bash
 ln -s "$PWD/skills/brief" ~/.claude/skills/brief
 ln -s "$PWD/skills/brief" ~/.agents/skills/brief
 ```
 
-A link keeps the skill up to date: Claude Code and Codex both pick up changes to the folder without a reinstall. Then type `/brief` after your prompt (`$brief` in Codex, `@brief` in ChatGPT). It never starts on its own.
+A link keeps the skill current: Claude Code and Codex pick up changes without a reinstall.
 
-### The bench
+## The bench
 
-You need Python 3.11 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code or Codex logged in with your plan. briefbench finds each CLI on your PATH, or else the copy inside the Claude or ChatGPT desktop app. From a clone, `uv tool install --editable .` puts `briefbench` on your PATH. Then, in the repo where you work:
+Give it a task's prompt, in the repo where you work. It asks how the result will be judged (a goal and a check command, which neither agent's prompt contains), then the questions the skill itself would ask. It writes the brief headless, runs the task twice from the same commit, each arm in its own git worktree, once with your original prompt and once with the brief, and runs your check. The check decides when exactly one arm passes; otherwise you pick the better result blind. Then you check the brief against what you asked. After enough trials, a test with its rule fixed in advance says whether the brief helps. You keep the better result either way.
+
+The bench calls models only through agent CLIs logged in with your own plans: Claude Code on a Claude plan, and Codex, which comes with the ChatGPT desktop app, on a ChatGPT plan. It needs no API key and adds no per-token charges. Keep pay-as-you-go extra usage off in your account, so a trial that reaches your plan's limit stops instead of billing you.
+
+You need Python 3.11 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code or Codex logged in with your plan. briefbench finds each CLI on your PATH, or else the copy inside the Claude or ChatGPT desktop app. From a clone, `uv tool install --editable .` puts `briefbench` on your PATH.
 
 | Command | What it does |
 |---|---|
-| `briefbench init <name>` | Freezes an experiment: the two treatments (default: your original prompt against the brief), the agent CLIs that do the work, write the brief and judge, and your cost cap |
-| `briefbench ab "<prompt>"` | Runs one trial: the skill's questions, the headless brief, both arms, your check, your blind pick, and the command that applies the winner's diff |
-| `briefbench score` | Wins, losses and ties, the significance verdict, and the extra time and tokens |
+| `briefbench init <name>` | Freezes an experiment: two treatments (default: your original prompt against the brief), the agent CLIs that do the work, write the brief and judge, your cost cap, and the decision rule |
+| `briefbench ab "<prompt>"` | Runs one trial and prints the command that applies the winner's diff |
+| `briefbench score [--json]` | Wins, losses and ties, the net preference, the test's verdict, fidelity failures and the extra time and tokens |
 | `briefbench clean` | Removes finished trial worktrees |
 
-For example, to compare your original prompts with the brief, Codex doing the work and writing the brief:
+For example, with Codex doing the work and writing the brief:
 
 ```bash
 briefbench init first --worker codex --rewriter codex
 briefbench ab "mean() in stats.py crashes on an empty list. Make it return 0.0 instead."
 ```
 
-`init` asks for anything you leave out, such as the models, the judge and your cost cap, and shows the exact commands before freezing them. A judge must come from a third vendor, so with Codex doing the work it is Claude Code (`--judge claude-code`), and with Claude Code doing the work it is Codex. It rules only after your blind pick, and only in repos where you allow it. To compare two versions of the skill instead, use `--a skill:<folder> --b skill:<other folder>`. `ab` asks whether the task is one you'd hand off whole, its type, and the skill's three questions; on a repo's first trial it also asks for its setup command and protected paths. Then it writes the brief headless, runs both arms in their own worktrees, runs your check, and asks for your blind pick when the check can't decide. A long prompt can come from a file (`--file prompt.md`) or be pasted (`-`).
+`init` asks for anything you leave out and shows the exact commands before freezing them. Treatments: `original`, `brief` (your installed skill), `skill:<folder>` (another version), `snippet:<file>` (your prompt plus a claimed tip), and `clarified` (your prompt plus the skill's questions and your answers, unrewritten, which separates the information from the rewriting). The default rule is two-step, which stops early when the answer is clear; `--rule fixed:50` runs exactly 50 trials and tests once, for a claim you want to publish. An optional judge from a third vendor (`--judge claude-code` when Codex does the work) rules after your pick, only in repos where you allow it, and never decides. Run `briefbench ab --aa` on a few tasks first: the same treatment in both arms shows how noisy your setup is.
 
-On a tiny task, a Codex arm used about 80,000 to 100,000 tokens of plan usage, the headless rewrite about 40,000, and each judge call about 20,000.
+On a tiny task, a Codex arm used about 80,000 to 100,000 tokens of plan usage, each headless call to the rewriter about 20,000 to 40,000, and each judge call about 20,000.
 
 ### Your data
 
-Everything stays under `~/.briefbench/`; set `BRIEFBENCH_HOME` to move it. briefbench handles no API keys: each agent CLI uses your own login, and briefbench removes any API key variables from its environment, so nothing is billed to an API account. The judge sends diffs and check output to its vendor, so it is off unless you allow it for a repo.
+Everything stays under `~/.briefbench/`, a private folder; set `BRIEFBENCH_HOME` to move it. briefbench handles no API keys: each agent CLI uses your own login, and briefbench removes API key variables from its environment, so nothing is billed to an API account. The worker and rewriter CLIs send your prompt, your answers and the repo content they read to their own vendors, as in normal use. The judge sends diffs and check output to its vendor, so it is off unless you allow it for a repo. briefbench itself uploads and publishes nothing.
 
 ## Develop
 
@@ -77,12 +75,20 @@ uv run --isolated --python 3.14 pytest   # the same tests on Python 3.14
 uv run pytest -m live -v -rA             # real agent CLI calls on your plans; skips a CLI that isn't logged in
 ```
 
+Read [AGENTS.md](AGENTS.md) and [docs/design.md](docs/design.md) before changing code. [CONTRIBUTING.md](CONTRIBUTING.md) explains the contribution routes; [SECURITY.md](SECURITY.md) how to report a vulnerability.
+
 ## Roadmap
 
-| Stage | What you get | Status |
+| Phase | What you get | Status |
 |---|---|---|
-| 0. Trim | The first plan's stage 1 cut to its log; docs for the redesign | Done |
-| 1. Skill | `/brief` in your agent or chat | Built; your check on 5 real prompts pending |
-| 2. Paired runs | `briefbench init`, `ab` and `clean`, with four treatments | Built, and run end to end through Codex; your run on a real task pending |
-| 3. Judge and score | An optional blind judge, and `briefbench score` with the sign test | Done: the judge's live test passed through Codex, and `score` matches a hand-computed fixture |
-| Later | A standing bench for prompting claims, a richer front end, routing by task type | Not planned yet |
+| Built | `/brief`; `init`, `ab`, `score`, `clean`; the judge; the skill's own questions, `clarified`, fidelity reviews, two decision rules | Done; live tests of the judge and headless calls pass through Claude Code and Codex |
+| P0 Readiness | The skill accepted on real prompts in two hosts; a real trial on each plan, Claude Code and Codex as the worker; public release basics | In progress: acceptance and trials need your real prompts and tasks |
+| P1 Pilot | Five noise checks and about ten real trials | Not started |
+| P2 Small additions | Only what the pilot shows is missing, such as replaying logged tasks | Not started |
+| P3 First study | Your original prompts against the brief, under a frozen rule | Not started |
+| P4 Claim to release | One claim taken through a variant to a recorded decision | Not started |
+| P5 Replication | An outside reproduction, and rerunning tasks after a model change | Not started |
+
+## License
+
+MIT, for the code, the skill and the docs. The judge prompt is adapted from Arena-Hard-Auto, under the Apache License 2.0, which ships beside it.
