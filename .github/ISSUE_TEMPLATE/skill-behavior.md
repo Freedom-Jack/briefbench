@@ -15,7 +15,7 @@ Never paste private prompts, briefs, outputs or keys.
 - Skill version (`metadata.version` in SKILL.md):
 - Host and its version, or "unknown":
 - Model, or "unknown":
-- How you installed it (link, copy, ZIP upload, pasted text):
+- How you installed it (plugin in Claude Code or Codex, link, copy, or pasted text):
 
 ## Kind of problem
 

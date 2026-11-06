@@ -81,7 +81,7 @@ Success has separate measures. Product: people use the skill, come back to it, a
 **Why a skill.** Agent Skills is an open standard (published by Anthropic in December 2025 and given to the Linux Foundation's Agentic AI Foundation on 22 Oct 2026), supported natively by Claude Code, the Claude apps, Codex and ChatGPT, Gemini CLI, Antigravity, Cursor, GitHub Copilot, Devin Desktop and Zed. It uses the host's model, files and question tool, with no API key, and its body still works as a pasted prompt anywhere else.
 
 **What you do.** Version 0.2.0, your rewrite of 2026-11-04:
-1. Write your prompt, then type `/brief` (Codex: `$brief`; ChatGPT: `@brief`), or `/brief <prompt>`. In Claude Code and Codex it runs only when you call it (checked in Codex on 2026-11-04); other hosts may ignore that setting and start it on their own, and a host that only picks skills by itself, such as the Claude apps, may not run it at all.
+1. Write your prompt, then type `/brief` (as a Claude Code plugin: `/brief:brief`; Codex: `$brief`), or `/brief <prompt>`. In Claude Code and Codex it runs only when you call it (checked in Codex on 2026-11-04); other hosts may ignore that setting and start it on their own, and a host that only picks skills by itself, such as the Claude apps, may not run it at all.
 2. It reads what the prompt points to, only as far as needed to understand your intent. It doesn't start investigating the task.
 3. It asks up to three focused questions, together, only when the answers would change the brief: the purpose, the deliverable, a constraint that matters, or what success means. It never asks you to choose methods or tools the agent can choose, asks about a stretch target only if you said one matters, asks nothing when you say so, and leaves a skipped question open rather than guessed.
 4. It returns one brief in a copyable block, sometimes with a one-line note, and stops. A prompt that needs no change comes back unchanged.
@@ -92,17 +92,15 @@ Success has separate measures. Product: people use the skill, come back to it, a
 
 **What may change it.** A candidate improvement changes how the skill clarifies or expresses your request. It must not smuggle domain methods in: making a stated decision purpose easier to find fits; prescribing a regression model for every analysis does not. An instruction is not added because it looks professional, appears in winning examples or matches a popular post. Each adopted instruction keeps a short rationale outside the model-visible text. Conditional behaviour is allowed only when its condition is visible before execution and the conditional version has been tested. Per-vendor or per-model forks need demonstrated need; the research says the useful part is vendor-neutral specification.
 
-**Files and install.** The source is `skills/brief/`; installed copies are never edited.
+**Files and install.** The source is `skills/brief/`; installed copies are never edited. The repo root is also a plugin in the open Agent Plugins format: `plugin.json` names it, `skills/brief/` is its one skill, and a one-entry marketplace file, `.claude-plugin/marketplace.json`, lists it, so Claude Code and Codex install it straight from GitHub. Those two hosts are the only ones maintained for now (decided 2026-11-06). The README gives the commands and how updates reach people; [design-research.md](design-research.md), section 9, has the dated sources, including how other hosts install skills.
 
-| Host | Install |
-| --- | --- |
-| Claude Code | Link or copy the folder to `~/.claude/skills/brief/` |
-| Codex, and the ChatGPT desktop app | Link or copy it to `~/.agents/skills/brief/`, or `.agents/skills/brief/` in a project |
-| Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy to `.agents/skills/brief/` in a project, or `npx skills add Freedom-Jack/briefbench` |
-| Claude apps | Upload the ZIP from `scripts/package_skill.py`; it may not run there, since it is meant to start only when called |
-| Anything else | Paste `SKILL.md`, or keep it in a Project, GPT or Gem |
+| Host | Install | How updates arrive |
+| --- | --- | --- |
+| Claude Code | Plugin: `/plugin marketplace add Freedom-Jack/briefbench`, then `/plugin install brief@briefbench`; it is called `/brief:brief`. Or link the folder to `~/.claude/skills/brief/` | Plugin: when the user updates, or after they turn on auto-update for the marketplace. Link: live |
+| Codex, and the ChatGPT desktop app | Plugin: `codex plugin marketplace add Freedom-Jack/briefbench`, then `codex plugin add brief@briefbench`. Or link it to `~/.agents/skills/brief/` | Plugin: the Codex CLI updates at each start, from `main`; not documented for the desktop app. Link: live |
+| Other hosts | Not maintained. The folder is a standard Agent Skill, so a host that reads one may run it, untested | — |
 
-`agents/openai.yaml` tells Codex, and `disable-model-invocation: true` tells Claude Code, to run the skill only when called; other hosts ignore both. `metadata.version` names the version for people; the bench tells versions apart by content. `scripts/package_skill.py` builds a reproducible ZIP and prints the hash the bench records for that folder, so a release can be tied to experiments.
+`agents/openai.yaml` tells Codex, and `disable-model-invocation: true` tells Claude Code, to run the skill only when called. `metadata.version` names the version for people and for Claude Code: `plugin.json` repeats it, a test keeps the two equal, and the bench tells versions apart by content. A release is the tag `brief--v<version>`. `scripts/package_skill.py` builds a reproducible ZIP and prints the hash the bench records for that folder, so a release can be tied to experiments. The bench's `brief` treatment reads a linked or copied install (`~/.claude/skills/brief`, then `~/.agents/skills/brief`), never a plugin's cached copy.
 
 ## From claim to release
 
@@ -238,6 +236,10 @@ Everything stays under `~/.briefbench/`, created at mode 0700, which keeps every
 **Repo layout.**
 
 ```text
+plugin.json                 the repo root as an Agent Plugin: name, the skill's version, description
+.claude-plugin/marketplace.json
+                            a one-entry marketplace that Claude Code and Codex install from
+CHANGELOG.md                the skill's versions; the release notes come from here
 skills/brief/
   SKILL.md                  steps, rules, lenses; at most 150 lines
   agents/openai.yaml        Codex: run only when called
@@ -254,6 +256,7 @@ src/briefbench/
   cli.py                    init, ab, score, clean
 claims/                     claim cards, public
 scripts/package_skill.py    reproducible skill ZIP, with the bench's hash of the folder
+.github/workflows/          offline tests on every pull request; a draft release when a brief--v<version> tag is pushed
 tests/                      offline tests use fake agent CLIs; live tests run the real ones
 ```
 
@@ -315,6 +318,9 @@ The [build plan](build-plan.md) gives the work packages and checks. No experimen
 
 ## Decisions
 
+Changed on 2026-11-06:
+- **The repository is the install source.** Its root is an Agent Plugins plugin whose one skill is `skills/brief/`, with a one-entry marketplace file that Claude Code and Codex read; nothing was added inside the skill. Only those two hosts are maintained for now. The skill's version is copied into `plugin.json`, and a test checks that the two agree and that the changelog records the folder's hash. A release is a `brief--v<version>` tag, which drafts a GitHub release with the ZIP, and one root `CHANGELOG.md` records the versions. Reasons and dated sources: [design-research.md](design-research.md), section 9.
+
 Changed on 2026-11-05, reconciling the built redesign with the 2026-11-04 design ([design-review.md](design-review.md)):
 - **The built bench is the base.** The API rewrite command stays retired, and its live check is replaced by the bench's live tests through both subscription CLIs.
 - **The public-project direction is adopted:** claim cards, scoped findings, fidelity as a requirement, honest statistics, community files, MIT.
@@ -341,7 +347,7 @@ Made while building stages 0–3, on 2026-11-02 to 2026-11-04, still holding:
 - `brief` means your installed skill; any other folder is `skill:<folder>`.
 - The judge rules only on trials you picked, is skipped without a goal or when a side is over 60,000 characters, and replies with the five Arena-Hard-Auto labels.
 - The cost cap applies to both medians, extra time and extra tokens, as a percentage of A's.
-- Your rewrite of the skill is version 0.2.0; it runs only when called. Installs are links to a folder you keep current, so experiments freeze a copy with `skill:<folder>`.
+- Your rewrite of the skill is version 0.2.0; it runs only when called. The bench reads a linked or copied install, which you keep current, so experiments freeze a copy with `skill:<folder>`.
 - Python 3.11+, standard library only, managed with uv; data under `~/.briefbench/`.
 
 ## Deferred
@@ -357,6 +363,7 @@ If the first study is inconclusive and the bench burdensome, keep the skill expe
 - The essay: Felix Rieseberg, ["How to be more ambitious: A tutorial for humans with models"](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/), 13 Oct 2026.
 - Research snapshots: [Prompt optimizer landscape](research/prompt-optimizer-landscape/report.md), [Prompting technique benchmarks](research/prompting-technique-benchmarks/report.md), [Value of prompting techniques](research/value-of-prompting/report.md); primary-source checks in [design-research.md](design-research.md).
 - Skills: [Agent Skills specification](https://agentskills.io/specification), [donation to the Agentic AI Foundation](https://www.anthropic.com/news/donating-agent-skills-to-the-agentic-ai-foundation), [Claude Code](https://code.claude.com/docs/en/skills), [Codex and ChatGPT](https://learn.chatgpt.com/docs/build-skills), [Gemini CLI](https://geminicli.com/docs/cli/skills/), [Cursor](https://cursor.com/docs/skills), [Copilot](https://code.visualstudio.com/docs/copilot/customization/agent-skills), [Vercel skills installer](https://vercel.com/docs/agent-resources/skills).
+- Distribution and updates, checked 2026-11-06 (dated sources for every host in [design-research.md](design-research.md), section 9): [Agent Plugins 1.0.0](https://agent-plugins.org/specification), [Claude Code marketplaces](https://code.claude.com/docs/en/plugins/host-marketplace), [Codex plugins](https://learn.chatgpt.com/docs/plugins).
 - Judging: [MT-Bench paper](https://arxiv.org/abs/2306.05685), [Arena-Hard-Auto](https://github.com/lmarena/arena-hard-auto), [skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator), [Anthropic: evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents).
 - Prompt-skill ideas: [ECC prompt-optimizer](https://github.com/affaan-m/ECC/tree/main/skills/prompt-optimizer), [claude-code-prompt-improver](https://github.com/severity1/claude-code-prompt-improver).
 - Running agent CLIs on a plan, checked 2026-11-03 against Claude Code 2.1.309 and Codex 0.166. On 2026-11-05 Codex's flags were rechecked against 0.166.0-alpha.6, and the rewriter, asker and judge roles ran live through Claude Code 2.1.317 and Codex; the worker role last ran live through Codex on 2026-11-03: Claude Code [headless mode](https://code.claude.com/docs/en/headless), [authentication](https://code.claude.com/docs/en/authentication), [legal and compliance](https://code.claude.com/docs/en/legal-and-compliance), [usage limits](https://support.claude.com/en/articles/11145838); Codex [non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [approvals and security](https://learn.chatgpt.com/docs/agent-approvals-security), [pricing and limits](https://learn.chatgpt.com/docs/pricing); [Gemini CLI's move to Antigravity CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli), 19 May 2026.

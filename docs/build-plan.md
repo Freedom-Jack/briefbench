@@ -25,6 +25,7 @@ Finish a phase's useful output before its optional extras. Claim cards, document
 | `init`, `ab`, `clean`, judge, `score` | Built 2026-11-03 | Offline tests with fake agent CLIs; one real trial through Codex; the judge live through both CLIs |
 | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions per trial, `--rule fixed:N`, `score --json` | Built 2026-11-05 | Offline tests on Python 3.11 and 3.14; the two headless calls live through Claude Code 2.1.317 and Codex 0.166.0-alpha.6 |
 | Claim cards, community files, CI, skill packaging | Drafted 2026-11-05 | Offline validators; your review before publishing |
+| Plugin install from the repo for Claude Code and Codex (`plugin.json`, the marketplace file), `CHANGELOG.md`, the release workflow | Drafted 2026-11-06 | Offline tests (`tests/test_distribution.py`); installed from a local copy in Claude Code 2.1.317 and Codex 0.167.0-alpha.3.2. Installing from GitHub owed (P0.3); the release workflow has not run |
 
 The baseline for any code change:
 
@@ -58,7 +59,10 @@ Run one real task with `briefbench ab` with Claude Code as the worker, and one w
 - Review the drafted `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue and PR templates and CI workflow. Add a private contact for conduct reports, and turn on private vulnerability reporting in the repository settings.
 - Adopt the narrow public-fixture exception in AGENTS.md (done in this revision): deliberately written public examples and properly licensed fixtures may be committed after review; private prompts, answers and outputs never.
 - README: two paths, use the skill or check the evidence, with built and planned parts kept apart.
-- Build the release ZIP with `uv run python scripts/package_skill.py` and check that its printed bench hash matches the folder you tested. Decide how the ZIP carries its license: it holds only `skills/brief/`, so it ships without the MIT notice unless `SKILL.md` gets a `license: MIT` field or the folder gets a LICENSE file. Either changes the skill's hash and needs a version bump, so decide before the acceptance checks.
+- Build the release ZIP with `uv run python scripts/package_skill.py` and check that its printed bench hash matches the folder you tested. Decide how the ZIP carries its license: it holds only `skills/brief/`, so it ships without the MIT notice unless `SKILL.md` gets a `license: MIT` field or the folder gets a LICENSE file. Either changes the skill's hash and needs a version bump, so decide before the acceptance checks. (A plugin install copies the whole repository, LICENSE included.)
+- Install once from GitHub through each plugin route the README lists for Claude Code and Codex, and call the skill in an interactive session: as a plugin it is `/brief:brief` in Claude Code, and listed as `brief:brief` in Codex. Mark each route checked in the README only after that.
+- Protect `main` in the repository settings (changes through pull requests only): Codex installs whatever is on `main`, so a change there reaches its users at their next start.
+- Release: push the tag `brief--v<version>` for the version that passed acceptance. The release workflow drafts a GitHub release with the ZIP and its hashes; check them, then publish it.
 - Create the issue labels the templates use (`claim`, `skill`, `experiment`, `result`); GitHub applies only labels that exist.
 - Two or three deliberately public examples of the skill: a clear prompt left unchanged, a useful clarification, and a required method kept. Label them as demonstrations, with the date, host and version that produced them. Drafted in [examples/](../examples/README.md) on 2026-11-05 from live headless runs; review before publishing.
 

@@ -2,7 +2,7 @@
 
 A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** the `brief` skill (0.2.0) and the bench (`init`, `ab`, `score`, `clean`, an optional judge) are built. The judge and the skill's headless calls pass live tests through Claude Code and Codex on subscription plans, and `ab` has run live through Codex, but not yet on a real task since this revision. Still owed: the skill's acceptance on real prompts in two hosts, a real trial on each plan, and any experiment. Nothing here shows yet that the brief improves results. See the [build plan](docs/build-plan.md).
+> **Status:** the `brief` skill (0.2.0) and the bench (`init`, `ab`, `score`, `clean`, an optional judge) are built. The skill installs as a plugin straight from this repository in Claude Code and Codex, the two hosts maintained for now; that has been checked from a local copy, not yet from GitHub, and no release is published. The judge and the skill's headless calls pass live tests through Claude Code and Codex on subscription plans, and `ab` has run live through Codex, but not yet on a real task since this revision. Still owed: the skill's acceptance on real prompts in two hosts, a real trial on each plan, and any experiment. Nothing here shows yet that the brief improves results. See the [build plan](docs/build-plan.md).
 
 ## Why
 
@@ -12,29 +12,38 @@ briefbench started with one question about Felix Rieseberg's essay ["How to be m
 
 ## Two ways in
 
-1. **Use the skill.** It makes your request clearer before an agent works on it. No setup beyond installing a folder.
+1. **Use the skill.** It makes your request clearer before an agent works on it. No setup beyond installing it as a plugin, or linking a folder.
 2. **Check the evidence.** Read the [claim cards](claims/README.md): each prompting claim, its outside evidence, and why the skill does or doesn't carry it. Run the bench on your own tasks, or [contribute](CONTRIBUTING.md) a claim, a counterexample or a replication.
 
 ## The skill
 
-Write your prompt, then type `/brief` (`$brief` in Codex, `@brief` in ChatGPT). It reads what the prompt points to, asks up to three questions only where the answer would change the brief, and returns one brief: clearer, with your details kept word for word and the method left to the agent. A prompt that needs no change comes back unchanged. It uses your host's own model and context, and saves nothing. In Claude Code and Codex it runs only when you call it; other hosts may ignore that setting. [Examples](examples/README.md) are three labelled demonstrations, run headless through the bench on prompts written for the purpose.
+Write your prompt, then call the skill: `/brief` in Claude Code (`/brief:brief` when installed as a plugin), or type `$` and pick brief in Codex. It reads what the prompt points to, asks up to three questions only where the answer would change the brief, and returns one brief: clearer, with your details kept word for word and the method left to the agent. A prompt that needs no change comes back unchanged. It uses your host's own model and context, and saves nothing. It runs only when you call it: `disable-model-invocation` in `SKILL.md` tells Claude Code, and `agents/openai.yaml` tells Codex. [Examples](examples/README.md) are three labelled demonstrations, run headless through the bench on prompts written for the purpose.
 
-| Host | Install | Checked |
-|---|---|---|
-| Claude Code | Link `skills/brief/` as `~/.claude/skills/brief`, or copy it there | Headless runs only; native install and `/brief` not yet checked |
-| Codex, and the ChatGPT desktop app | Link or copy it to `~/.agents/skills/brief`, or to `.agents/skills/brief/` in a project | `$brief` runs it and it doesn't start on its own (2026-11-04); real-use acceptance owed |
-| Cursor, Copilot, Gemini CLI, Antigravity, Devin Desktop | Copy it to `.agents/skills/brief/` in a project, or run `npx skills add Freedom-Jack/briefbench` | Not tested |
-| Claude apps | Upload the ZIP that `uv run python scripts/package_skill.py` builds; it may not run there, since it is meant to start only when called | Not tested |
-| Anything else | Paste `SKILL.md`, or keep it in a Project, GPT or Gem | Not tested |
+### Install
 
-From a clone:
+Two hosts are maintained for now: Claude Code, and Codex, including the Codex built into the ChatGPT desktop app. This repository is the install source. Its root is a plugin in the open [Agent Plugins](https://agent-plugins.org) format, and its one skill is `skills/brief/`. Install it one way per host: a plugin and a linked folder together give you two copies.
+
+| Host | Install | How updates reach you | Checked |
+|---|---|---|---|
+| Claude Code | `/plugin marketplace add Freedom-Jack/briefbench`, then `/plugin install brief@briefbench`. Call it with `/brief:brief`, since Claude Code has a `/brief` command of its own | Only after you turn on auto-update for `briefbench` (`/plugin` → Marketplaces), or when you run `claude plugin update brief@briefbench`. Then run `/reload-plugins` | Installed from a local copy with 2.1.317; not yet from GitHub |
+| Codex, and the ChatGPT desktop app | `codex plugin marketplace add Freedom-Jack/briefbench`, then `codex plugin add brief@briefbench` | On their own in the Codex CLI, which checks at each start and installs what is on `main`. Not documented for the desktop app | Installed from a local copy with 0.167; not yet from GitHub |
+
+Other hosts aren't maintained. The skill is a standard Agent Skills folder, so a host that reads one may run it, untested; [design-research.md](docs/design-research.md), section 9, records how the other hosts install and update skills, with dated sources.
+
+### From a clone, always current
 
 ```bash
-ln -s "$PWD/skills/brief" ~/.claude/skills/brief
-ln -s "$PWD/skills/brief" ~/.agents/skills/brief
+git clone https://github.com/Freedom-Jack/briefbench && cd briefbench
+mkdir -p ~/.claude/skills ~/.agents/skills
+ln -sfn "$PWD/skills/brief" ~/.claude/skills/brief    # Claude Code
+ln -sfn "$PWD/skills/brief" ~/.agents/skills/brief    # Codex and the ChatGPT desktop app
 ```
 
-A link keeps the skill current: Claude Code and Codex pick up changes without a reinstall.
+Remove an older copied folder first, or `ln` puts the link inside it. A link follows the clone: after `git pull`, both hosts read the new version without a reinstall. Linked into Claude Code, it answers to `/brief`; in Codex, `$brief` runs it and it doesn't start on its own (checked 2026-11-04). The bench's `brief` treatment reads only these links or copies, never a plugin: with the plugin installed, run the bench with `skill:skills/brief` from the clone instead.
+
+### Versions
+
+The skill's version is `metadata.version` in `SKILL.md`, now 0.2.0, separate from the bench's. `plugin.json` repeats it, because Claude Code compares it to offer an update. Each change to the skill gets a new version and an entry in the [changelog](CHANGELOG.md). A release is the tag `brief--v<version>` and a GitHub release that carries the reproducible ZIP, its sha256 and the hash the bench records for the folder. None has been published yet. Once one is, you can pin it: add `#brief--v0.2.0` after the repository in Claude Code, or `--ref brief--v0.2.0` in Codex.
 
 ## The bench
 
