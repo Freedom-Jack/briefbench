@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from briefbench import cli, judge, treatments
+from briefbench.errors import AgentError
 from briefbench.log import read_entries
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "brief"
@@ -285,6 +286,48 @@ def test_protected_paths_are_put_back_and_fail_the_check(agents, repo, monkeypat
     assert t["decision"]["tie"] == "both_unacceptable" and "neither good enough" in err
 
 
+def test_a_protected_path_missing_from_the_commit_does_not_stop_the_others(agents, repo, monkeypatch):
+    monkeypatch.setenv("FAKE_WORKER", "edit-tests-and-new")
+    init(repo)
+    typed = "\n".join(["", "", "", "code", "", "tests/, fixtures", "why", "true", ""]) + "\nt\nn\n\nn\nn\nn\n"
+    code, err = bench(["ab", PROMPT], typed, cwd=repo)
+    assert code == 0, err
+    [t] = entries()
+    assert t["settings"]["protected"] == ["tests", "fixtures"]
+    assert all(t["arms"][s]["protected_changed"] and not t["arms"][s]["check"]["passed"] for s in "ab")
+    diff = Path(t["output"], "a.diff").read_text()
+    assert "test_x.py" not in diff and "golden.txt" not in diff
+
+
+def test_protected_paths_that_cannot_be_put_back_fail_the_trial(repo, monkeypatch):
+    from briefbench import runner
+    (repo / "tests" / "test_x.py").write_text("# weakened\n")
+    monkeypatch.setattr(runner, "changed", lambda worktree, paths=(): True)     # as if git left them changed
+    commit = runner.head(repo)
+    with pytest.raises(AgentError, match="could not be put back"):
+        runner.restore_protected(repo, commit, ["tests"])
+
+
+def test_setup_and_check_run_without_api_keys(agents, repo, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-0123456789")
+    init(repo)
+    code, err = bench(["ab", PROMPT], answers(check='test -z "$ANTHROPIC_API_KEY" && grep -q brief result.txt'),
+                      cwd=repo)
+    assert code == 0, err
+    [t] = entries()
+    assert t["decision"] == t["decision"] | {"by": "check", "winner": "b"}
+
+
+def test_worktrees_live_outside_the_data_folder(agents, repo):
+    init(repo)
+    assert bench(["ab", PROMPT], ANSWERS, cwd=repo)[0] == 0
+    [t] = entries()
+    folder = Path(json.loads(Path(t["output"], "meta.json").read_text())["worktrees"])
+    home = Path(os.environ["BRIEFBENCH_HOME"])
+    assert (folder / "a" / "result.txt").exists() and home not in folder.parents
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o700
+
+
 def test_a_changed_skill_is_refused(agents, repo, tmp_path):
     skill = tmp_path / "skill"
     shutil.copytree(SKILL, skill)
@@ -364,7 +407,7 @@ def test_clean_removes_worktrees_and_keeps_the_output(agents, repo):
     init(repo)
     bench(["ab", PROMPT], ANSWERS, cwd=repo)
     [t] = entries()
-    folder = Path(os.environ["BRIEFBENCH_HOME"]) / "worktrees" / t["id"]
+    folder = Path(json.loads(Path(t["output"], "meta.json").read_text())["worktrees"])
     assert (folder / "a" / "result.txt").exists()
     code, err = bench(["clean"])
     assert code == 0 and "Removed 2 worktrees" in err
@@ -405,6 +448,17 @@ def test_the_judge_rules_after_your_pick_in_both_orders(agents, repo, monkeypatc
         assert not Path(c["cwd"]).exists()               # removed afterwards
     assert sorted(p.name for p in (output / "judge").iterdir()) == ["order-1.err", "order-1.out", "order-2.err",
                                                                     "order-2.out"]
+
+
+def test_key_values_in_the_check_output_never_reach_the_judge(agents, repo, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-0123456789")
+    assert init_judged(repo)[0] == 0
+    code, err = bench(["ab", PROMPT], answers(check="echo config sk-ant-test-0123456789; test -f result.txt", skill="",
+                                              after="1\n\ny\nn\nn\nn\n"), cwd=repo)
+    assert code == 0, err
+    judged = [c for c in agents() if c["role"] == "judge"]
+    assert len(judged) == 2 and all("sk-ant-test-0123456789" not in " ".join(c["argv"]) for c in judged)
+    assert all("config [redacted]" in c["argv"][-1] for c in judged)
 
 
 def test_score_prints_the_report(agents, repo):
@@ -454,8 +508,7 @@ def test_trial_folders_are_private(agents, repo):
     assert bench(["ab", PROMPT], ANSWERS, cwd=repo)[0] == 0
     [t] = entries()
     home = Path(os.environ["BRIEFBENCH_HOME"])
-    for folder in (home / "trials", home / "trials" / t["id"], Path(t["output"]), home / "worktrees",
-                   home / "worktrees" / t["id"]):
+    for folder in (home / "trials", home / "trials" / t["id"], Path(t["output"])):
         assert stat.S_IMODE(folder.stat().st_mode) == 0o700, folder
 
 
