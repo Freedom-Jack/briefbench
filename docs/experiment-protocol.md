@@ -121,7 +121,7 @@ Keep the old experiment, and explain the change in the study note. A change made
 ## 5. Execution and resources
 
 **How a trial runs.** One run per arm:
-1. Two git worktrees of the current commit, side by side in the trial's folder.
+1. Two git worktrees of the current commit, side by side in a private temporary folder outside the data folder.
 2. The rewriter's two headless calls, in arm A's worktree, which it may only read (section 3).
 3. Your setup command in both worktrees.
 4. Both arms at once, with the same worker CLI, model and settings, each under the per-arm timeout. Each CLI starts with stdin closed and without API key variables or base-URL overrides. The worker runs in the least permissive mode that lets it edit and run your check; the rewriter and the judge only read.
@@ -136,7 +136,7 @@ Keep the old experiment, and explain the change in the study note. A change made
 
 The blind sides are drawn at random for each trial and stored in `decision.sides`. Arm order doesn't arise, since both arms run together. That removes time drift between the arms, but they share your plan's usage limits and your machine.
 
-**Isolation has limits.** Worktrees separate tracked files, not memory, home configuration, processes, ports or services. A task that binds a fixed port or a shared service can make the arms collide: avoid such tasks, or note them. The evaluation is hidden by leaving it out of the prompts, not by access control. A worker whose sandbox lets it read outside its worktree could reach the other arm's files, the trial's output folder or `~/.briefbench/`. Since 2026-11-05 the worktrees live in `worktrees/<id>/`, apart from `trials/<id>/output/`, each arm's prompt is written there only after both arms finish, and each judge call runs in an empty folder of its own, so none of these sits in an agent's folder or its parent. If a diff or a log shows that an agent read outside its worktree, record a protocol violation.
+**Isolation has limits.** Worktrees separate tracked files, not memory, home configuration, processes, ports or services. A task that binds a fixed port or a shared service can make the arms collide: avoid such tasks, or note them. The evaluation is hidden by leaving it out of the prompts, not by access control. A worker whose sandbox lets it read outside its worktree could reach the other arm's files, the trial's output folder or `~/.briefbench/`. Since 2026-11-06 the worktrees live in a private temporary folder outside `~/.briefbench/`, each arm's prompt is written there only after both arms finish, and each judge call runs in an empty folder of its own, so none of these sits in an agent's folder or its parent. If a diff or a log shows that an agent read outside its worktree, record a protocol violation.
 
 **Failed trials.** If the headless list of questions fails, the headless rewrite fails or returns no brief, the rewriter changes a file, or setup fails, the trial stops before the arms are compared. `ab` logs it as `failed`, with the reason, and exits with code 4. Rerun the task once, as a new trial; both lines stay in the log. Never pick the best of several attempts. A failed headless step can be a property of the treatment: the skill wrote no brief, or its questions came back in a form the bench can't read. If one step keeps failing on some kind of task, that is a finding about B, and the report says so.
 

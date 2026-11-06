@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .errors import ConfigError
+from .errors import AgentError, ConfigError
 
 
 def git(cwd, *args: str, check: bool = True, binary: bool = False):
@@ -104,12 +104,23 @@ def changed(worktree: Path, paths=()) -> bool:
 
 
 def restore_protected(worktree: Path, commit: str, paths: list[str]) -> bool:
-    """Put the protected paths back as they are in the commit. True if the agent had changed them."""
+    """Put the protected paths back as they are in the commit. True if the agent had changed them. A path the commit
+    lacks is only cleared of new files: one such path must not stop the others from being put back. Raises
+    AgentError if a path still differs afterwards, so the trial fails instead of judging edited tests."""
     if not paths or not changed(worktree, paths):
         return False
-    git(worktree, "checkout", commit, "--", *paths, check=False)
-    git(worktree, "clean", "-fdq", "--", *paths, check=False)
+    if known := [p for p in paths if _exists(worktree, commit, p)]:
+        git(worktree, "checkout", commit, "--", *known)
+    git(worktree, "clean", "-fdq", "--", *paths)
+    if changed(worktree, paths):
+        raise AgentError(f"the protected paths could not be put back in {worktree}")
     return True
+
+
+def _exists(worktree: Path, commit: str, path: str) -> bool:
+    done = subprocess.run(["git", "cat-file", "-e", f"{commit}:{'' if path == '.' else path}"], cwd=worktree,
+                          capture_output=True, stdin=subprocess.DEVNULL)
+    return done.returncode == 0
 
 
 def save_diff(worktree: Path, commit: str, path: Path) -> dict:

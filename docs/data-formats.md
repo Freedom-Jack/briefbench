@@ -64,7 +64,7 @@ Both are JSON files, readable only by you, written whole.
 
 ## Where trial files live
 
-Each trial's output is in `trials/<id>/output/`: `meta.json`, each arm's prompt (written once both arms are done), diff, agent output and check log, the headless requests and replies, and the judge's replies under `judge/`. Since 2026-11-05 the two worktrees are in `worktrees/<id>/a` and `b`, apart from the output, so an agent looking around its folder can't find the other arm's prompt or your answers; earlier trials kept them in `trials/<id>/a` and `b`. `meta.json` names the worktrees folder, and `clean` removes either layout.
+Each trial's output is in `trials/<id>/output/`: `meta.json`, each arm's prompt (written once both arms are done), diff, agent output and check log, the headless requests and replies, and the judge's replies under `judge/`. Since 2026-11-06 the two worktrees are in a private temporary folder outside the data folder (`briefbench-<id>-…/a` and `b`), so an agent looking around, even a few folders up, finds neither the trial's output nor the saved check. From 2026-11-05 they were in `worktrees/<id>/`, and before that in `trials/<id>/a` and `b`. `meta.json` names the worktrees folder, and `clean` removes every layout.
 
 ## Never logged
 
