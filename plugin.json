@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "brief",
+  "version": "0.2.0",
+  "description": "Turns your draft prompt into a clearer brief for another AI. It keeps your details, leaves the method to the agent, and runs only when you call it.",
+  "author": {
+    "name": "Jack Xu"
+  },
+  "homepage": "https://github.com/Freedom-Jack/briefbench",
+  "repository": "https://github.com/Freedom-Jack/briefbench",
+  "license": "MIT",
+  "keywords": ["prompt", "brief", "agent-skills"]
+}

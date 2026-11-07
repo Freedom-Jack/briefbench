@@ -31,6 +31,6 @@ AI-assisted work is welcome. You are accountable for it, so explain it and check
 ## Checklist
 
 - [ ] Offline tests pass on Python 3.11 (`uv run pytest`) and 3.14 (`uv run --isolated --python 3.14 pytest`)
-- [ ] If `skills/brief/` changed: `metadata.version` is bumped, and this pull request says it starts a new experiment
+- [ ] If `skills/brief/` changed: `metadata.version` is bumped, `plugin.json` carries the same version, `CHANGELOG.md` has an entry with the new bench hash, and this pull request says it starts a new experiment
 - [ ] No private prompts, outputs, keys or personal data
 - [ ] Docs updated if behavior changed

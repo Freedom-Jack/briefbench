@@ -353,8 +353,7 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     if scoring == "check" and not answers["check"]:
         raise UsageError(f"experiment {exp['name']} is scored by the check alone, so every trial needs a check.")
     trial = header("aa" if args.aa else "trial") | base
-    for folder in ("trials", "worktrees"):                  # private, like the data folder they are in
-        (data_dir(environ) / folder).mkdir(mode=0o700, exist_ok=True)
+    (data_dir(environ) / "trials").mkdir(mode=0o700, exist_ok=True)    # private, like the data folder it is in
     out = data_dir(environ) / "trials" / trial["id"] / "output"
     out.parent.mkdir(mode=0o700)
     out.mkdir(mode=0o700)
@@ -365,10 +364,9 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
         meta = {"root": str(root), "commit": commit, "clones": {s: str(p) for s, p in worktrees.items()}}
         experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
     else:
-        # The worktrees live apart from the output, so an agent looking around its folder can't find the other
-        # arm's prompt, the brief or your answers.
-        place = data_dir(environ) / "worktrees" / trial["id"]
-        place.mkdir(mode=0o700)
+        # The worktrees live in a private temporary folder outside the data folder, so an agent looking around,
+        # even a few folders up, finds neither the trial's output (the brief, your answers) nor the saved check.
+        place = Path(tempfile.mkdtemp(prefix=f"briefbench-{trial['id']}-"))
         meta = {"root": str(root), "commit": commit, "worktrees": str(place)}
         experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
         worktrees = runner.add_worktrees(root, commit, place)
@@ -584,7 +582,7 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
     touch, and arms.<side>.looked_outside records a hit."""
     if settings["setup"]:
         con.say("Running the setup command in both worktrees...")
-        done = runner.wait([runner.start(settings["setup"], worktrees[s], environ, out / f"{s}.setup.log")
+        done = runner.wait([runner.start(settings["setup"], worktrees[s], agent_env(environ), out / f"{s}.setup.log")
                             for s in "ab"], TIMEOUT_S["setup"])
         if any(d.code != 0 for d in done):
             raise AgentError(f"the setup command failed; see {display_path(out, environ)}/a.setup.log and b.setup.log")
@@ -606,11 +604,12 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
             arms[s]["looked_outside"] = str(data_dir(environ)) in seen
     if check:
         con.say("Running your check in both worktrees...")
+        env = agent_env(environ)      # the check runs, like the agents, without API key variables
         if audit:                     # one after the other, so two checks can't collide on a shared file or port
-            done = [runner.wait([runner.start(check, worktrees[s], environ, out / f"{s}.check.log")],
+            done = [runner.wait([runner.start(check, worktrees[s], env, out / f"{s}.check.log")],
                                 TIMEOUT_S["check"])[0] for s in "ab"]
         else:
-            done = runner.wait([runner.start(check, worktrees[s], environ, out / f"{s}.check.log") for s in "ab"],
+            done = runner.wait([runner.start(check, worktrees[s], env, out / f"{s}.check.log") for s in "ab"],
                                TIMEOUT_S["check"])
         for s, d in zip("ab", done):
             arms[s]["check"] = {"exit_code": d.code, "seconds": d.seconds,
@@ -692,6 +691,7 @@ def _judge(exp, pair, goal, arms, sides, out, environ, con) -> dict:
     calls = []
 
     def call(prompt):
+        prompt = scrub(prompt, secret_values(environ))   # the check's output goes to another vendor: no key values
         calls.append(prompt)
         cwd = work / f"order-{len(calls)}"
         cwd.mkdir()

@@ -1,0 +1,16 @@
+{
+  "name": "briefbench",
+  "owner": {
+    "name": "Jack Xu"
+  },
+  "metadata": {
+    "description": "The brief skill from briefbench: a clearer brief from your draft prompt, with the method left to the agent."
+  },
+  "plugins": [
+    {
+      "name": "brief",
+      "source": "./",
+      "description": "Turns your draft prompt into a clearer brief for another AI. It keeps your details, leaves the method to the agent, and runs only when you call it."
+    }
+  ]
+}

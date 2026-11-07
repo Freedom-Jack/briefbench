@@ -78,8 +78,11 @@ elif role == "worker":
     if mode == "peek":                          # an arm that went looking in the data folder
         print(f"ls {env.get('BRIEFBENCH_HOME', '')}/keys", file=sys.stderr)
     Path("result.txt").write_text("brief\n" if "BRIEF" in prompt else "original\n")
-    if mode == "edit-tests":
+    if mode in ("edit-tests", "edit-tests-and-new"):
         Path("tests/test_x.py").write_text("# weakened\n")
+    if mode == "edit-tests-and-new":                  # a protected path the commit doesn't have
+        Path("fixtures").mkdir()
+        Path("fixtures/golden.txt").write_text("x\n")
     say("Done: I changed result.txt.", 1000 + len(prompt))
 else:
     verdict = env.get("FAKE_JUDGE", "[[A>B]]")

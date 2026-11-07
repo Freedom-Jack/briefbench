@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,8 @@ def pytest_sessionfinish(session, exitstatus):
 @pytest.fixture(autouse=True)
 def hermetic(request, monkeypatch, tmp_path):
     monkeypatch.setenv("BRIEFBENCH_HOME", str(tmp_path / "bbhome"))
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))   # trial worktrees and judge folders go here
     if request.node.get_closest_marker("live") is None:       # live tests keep HOME: the agent CLIs' logins live there
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
         for name in KEY_ENVS:

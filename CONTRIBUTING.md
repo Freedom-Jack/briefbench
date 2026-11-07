@@ -45,7 +45,7 @@ Then nobody spends time or plan usage on work the project can't review or suppor
 
 The files in `skills/brief/` are what the experiments measure.
 
-- A pull request that changes any file in `skills/brief/` must bump `metadata.version` in `SKILL.md`.
+- A pull request that changes any file in `skills/brief/` must bump `metadata.version` in `SKILL.md`, give `plugin.json` the same version, and add an entry at the top of `CHANGELOG.md` with the folder's new bench hash. The offline tests fail until these agree, and print the hash. Codex installs what is on `main`, so its users get the change as soon as it merges.
 - A changed skill starts a new experiment. `briefbench init` records a hash of the skill's folder, and `briefbench ab` refuses to run after the folder changes. Results for the old version don't transfer to the new one. Say this in the pull request.
 - Keep the skill's boundary. It improves a prompt and stops. It doesn't do the task, choose methods, write files or manage evidence.
 - Keep each change small. Name the failure it fixes, or link the evidence behind it.

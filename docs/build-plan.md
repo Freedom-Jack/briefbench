@@ -25,6 +25,7 @@ Claim cards, documentation and public-readiness work can go on alongside any pha
 | `init`, `ab`, `clean`, judge, `score` | Built 2026-11-03 | Offline tests with fake agent CLIs; one real trial through Codex; the judge live through both CLIs |
 | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions per trial, `--rule fixed:N`, `score --json` | Built 2026-11-05 | Offline tests on Python 3.11 and 3.14; the two headless calls live through Claude Code 2.1.317 and Codex 0.166.0-alpha.6 |
 | Claim cards, community files, CI, skill packaging | Drafted 2026-11-05; four cards from recent sources added 2026-11-06 | Offline validators; your review before publishing |
+| Plugin install from the repo for Claude Code and Codex (`plugin.json`, the marketplace file), `CHANGELOG.md`, the release workflow | Drafted 2026-11-06 | Offline tests (`tests/test_distribution.py`); installed from a local copy in Claude Code 2.1.317 and Codex 0.167.0-alpha.3.2. Installing from GitHub owed (P0.3); the release workflow has not run |
 
 The baseline for any code change:
 
@@ -57,7 +58,9 @@ Run one real task with `briefbench ab` with Claude Code as the worker, and one w
 - LICENSE (MIT) exists. Confirm ownership; third-party material keeps its own notices (the judge prompt's Apache-2.0 license ships beside it).
 - Review the drafted `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue and PR templates and CI workflow. Add a private contact for conduct reports, and turn on private vulnerability reporting in the repository settings.
 - README: two paths, use the skill or check the evidence, with built and planned parts kept apart.
-- Decide how the release ZIP carries its license: it holds only the skill's folder, so it ships without the MIT notice unless `SKILL.md` gets a `license: MIT` field or the folder gets a LICENSE file. Either changes the folder's hash, so decide before the growth rounds freeze a skill.
+- Decide how the release ZIP carries its license: it holds only the skill's folder, so it ships without the MIT notice unless `SKILL.md` gets a `license: MIT` field or the folder gets a LICENSE file. Either changes the folder's hash, so decide before the growth rounds freeze a skill. A plugin install copies the whole repository, LICENSE included.
+- Install once from GitHub through each plugin route the README lists for Claude Code and Codex, and call the skill in an interactive session: as a plugin it is `/brief:brief` in Claude Code, and listed as `brief:brief` in Codex. Mark each route checked in the README only after that.
+- Protect `main` in the repository settings (changes through pull requests only): Codex installs whatever is on `main`, so a change there reaches its users at their next start.
 - Create the issue labels the templates use (`claim`, `skill`, `experiment`, `result`); GitHub applies only labels that exist.
 - Two or three deliberately public examples of the skill, labelled as demonstrations, drafted in [examples/](../examples/README.md); review before publishing.
 
@@ -115,7 +118,7 @@ Each round ends in your decision; an adopted change bumps `metadata.version`, is
 
 ## 7. P4 First public release
 
-After P2's first results and P3's first rounds. It ships the grown skill if a round has adopted anything. If nothing has been adopted, you decide whether 0.2.0 ships as experimental, with the results stated. The release needs P0's checklist, the package hash equal to the hash the last round froze, every card's current result, and the board: the claims table in [claims/README.md](../claims/README.md) with How tested, Result and Decision columns. Results on the board show wins, losses and ties with their kinds, and failed and voided trials, and say which materials and models they hold for.
+After P2's first results and P3's first rounds. It ships the grown skill if a round has adopted anything. If nothing has been adopted, you decide whether 0.2.0 ships as experimental, with the results stated. The release needs P0's checklist, the package hash equal to the hash the last round froze (`uv run python scripts/package_skill.py` prints it), every card's current result, and the board: the claims table in [claims/README.md](../claims/README.md) with How tested, Result and Decision columns. Results on the board show wins, losses and ties with their kinds, and failed and voided trials, and say which materials and models they hold for. To release, push the tag `brief--v<version>` for the version that passed: the release workflow drafts a GitHub release with the ZIP and its hashes; check them, then publish it.
 
 ## 8. P5 Replication and upgrade checks
 
