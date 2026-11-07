@@ -13,7 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import __version__, experiment, judge, runner, score, treatments
+from . import __version__, experiment, judge, runner, score, tasks, treatments
 from .errors import AgentError, BriefbenchError, ConfigError, UsageError
 from .log import append, data_dir, display_path, header, prepare, read_entries, utc_now
 from .presets import AGENTS, agent_env, secret_values
@@ -65,10 +65,19 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     i.add_argument("--timeout", type=_number, default=30.0, metavar="MINUTES", help="per arm (default: 30)")
     i.add_argument("--rule", type=_rule, default="two-step", metavar="RULE",
                    help="two-step (the default), or fixed:N for one test after exactly N trials")
+    i.add_argument("--net-min", type=_fraction, metavar="X",
+                   help="with a fixed rule: the net preference B needs (default 0.15)")
+    i.add_argument("--alpha", type=_fraction, metavar="P",
+                   help="with a fixed rule: the two-sided level of its sign test (default 0.05)")
+    i.add_argument("--scoring", choices=experiment.SCORINGS, default="pick",
+                   help="pick: the check decides, otherwise your blind pick (the default); check: the check alone, "
+                        "for materials with an answer key")
     i.add_argument("-y", "--yes", action="store_true", help="freeze without asking to confirm the commands")
     a = commands.add_parser("ab", allow_abbrev=False, help="run one trial in the current repo")
     a.add_argument("prompt", nargs="?", help="the task's prompt, in quotes, or - to paste it")
     a.add_argument("--file", type=Path, help="read the prompt from this file")
+    a.add_argument("--task", type=Path, metavar="FILE",
+                   help="run the task in this task file, with no questions (materials with an answer key)")
     a.add_argument("--aa", action="store_true", help="noise check: treatment A in both arms")
     a.add_argument("--experiment", metavar="NAME", help="default: the newest experiment")
     s = commands.add_parser("score", allow_abbrev=False, help="the report on an experiment")
@@ -97,6 +106,16 @@ def _number(value: str) -> float:
         raise argparse.ArgumentTypeError("must be a number") from None
     if not 0 <= number <= 100000:
         raise argparse.ArgumentTypeError("must be between 0 and 100000")
+    return number
+
+
+def _fraction(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a number from 0 to 1") from None
+    if not 0 <= number <= 1:
+        raise argparse.ArgumentTypeError("must be a number from 0 to 1")
     return number
 
 
@@ -159,6 +178,20 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     sides = {s: treatments.parse(spec, environ, cwd) for s, spec in (("a", args.a), ("b", args.b))}
     treatments.check_pair(sides["a"], sides["b"])
     rule = args.rule if isinstance(args.rule, dict) else _rule(args.rule)
+    if args.net_min is not None or args.alpha is not None:
+        if experiment.rule_kind(rule) != "fixed":
+            raise UsageError("--net-min and --alpha set a fixed rule's test, so use them with --rule fixed:N.")
+        if args.alpha is not None and not 0 < args.alpha <= 0.5:
+            raise UsageError("--alpha is the two-sided level of the sign test, above 0 and at most 0.5.")
+        rule = experiment.fixed_rule(rule["trials"], alpha=rule["alpha"] if args.alpha is None else args.alpha,
+                                     net_min=rule["net_min"] if args.net_min is None else args.net_min)
+    if args.scoring == "check" and args.net_min is None:
+        raise UsageError("with --scoring check, declare --net-min: the default 0.15 would demand a 15-point gain in "
+                         "pass rate. 0.05 is the planning value (docs/design.md, \"When most trials tie\").")
+    if args.scoring == "check" and experiment.rule_kind(rule) != "fixed":
+        raise UsageError("with --scoring check most trials tie, and the two-step rule then ends in \"no practical "
+                         "difference\" almost every time. Use --rule fixed:N, with --net-min (docs/design.md, \"When "
+                         "most trials tie\").")
     names = sorted(AGENTS)
     roles = {"worker": _agent_settings(args.worker or con.pick("Worker: the agent CLI that does the task", names,
                                                                names[0]), "worker", args.worker_model, con, environ)}
@@ -180,11 +213,13 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         "Cost cap: the most extra time and tokens B may use, as a median % of A's (for example 50)"))
     frozen = {"format": experiment.FORMAT, "name": args.name, "created": utc_now(), "briefbench_version": __version__,
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
-              "rule": rule, "render": experiment.RENDER if roles["rewriter"] else None,
+              "rule": rule, "scoring": args.scoring, "render": experiment.RENDER if roles["rewriter"] else None,
               "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
                             "judge": judge.prompt_sha256() if roles["judge"] else None}}
     con.say(f"\nExperiment {args.name}: A is {args.a}, B is {args.b}. {_rule_text(rule)} B is adopted only if it also "
-            f"passes your fidelity reviews and its median extra time and tokens stay within {cap:g}% of A's.")
+            f"passes your fidelity reviews and its median extra time and tokens stay within {cap:g}% of A's."
+            + (" Scored by the check alone: both arms passing or both failing is a tie, and no pick is asked."
+               if args.scoring == "check" else ""))
     for role, settings in roles.items():
         if settings:
             con.say(f"{ROLE_LABELS[role]} command:\n  {shlex.join(settings['argv'])}")
@@ -194,8 +229,10 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         return 0
     prepare(environ)                                         # the data folder, private, before anything goes in it
     path = experiment.save(frozen, environ)
-    con.say(f"Frozen in {display_path(path, environ)}. In the repo of a task you'd hand off whole, run: "
-            "briefbench ab \"<prompt>\"")
+    con.say(f"Frozen in {display_path(path, environ)}. "
+            + ("Run a task file with: briefbench ab --task <file>, or a list of them with scripts/run_tasks.py"
+               if args.scoring == "check" else
+               "In the repo of a task you'd hand off whole, run: briefbench ab \"<prompt>\""))
     return 0
 
 
@@ -277,9 +314,10 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
                                   "perhaps after an update of briefbench. Start a new experiment.")
             agents[role] = (agent, executable)
             versions[role] = _version(executable, environ)
-    root = runner.repo_root(cwd)
-    commit = runner.head(root)
-    prompt = _read_prompt(args, con)
+    task_file = _task_file(args, exp)
+    root = runner.repo_root(Path(task_file["repo"]) if task_file else cwd)
+    commit = runner.commit(root, task_file["commit"]) if task_file and task_file["commit"] else runner.head(root)
+    prompt = task_file["prompt"] if task_file else _read_prompt(args, con)
     log_path = prepare(environ)
     specs = {"a": exp["a"], "b": exp["a"] if args.aa else exp["b"]}
     base = {"experiment": exp["name"], "experiment_created": exp.get("created"),
@@ -288,36 +326,55 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
             + (" (noise check: A in both arms)." if args.aa else "."))
     if runner.dirty(root):
         con.say(f"Uncommitted changes are left out: both arms start from commit {commit[:12]}.")
-    excluded = [key for key, question in ELIGIBILITY if con.pick(question, ("y", "n"), "n") == "y"]
-    if excluded:
-        append(log_path, header("excluded") | base | {"reasons": excluded, "task": {"prompt": prompt}}, secrets)
-        con.say("Not a trial: it needs a task you hand off whole. Logged as an exclusion; run the task as usual.")
-        return 0
-    task_type = con.pick("Task type", experiment.TASK_TYPES)
-    settings = _repo_settings(root, con, environ)
-    con.say("How the results will be judged. Neither agent sees these answers.")
-    saved = settings["check"]
-    goal = con.ask("Goal: what should the result achieve? (Enter to skip)")
-    typed = con.ask("Check: a command run in each worktree once the agents finish "
-                    + ("(Enter keeps it; none for no check this time)" if saved else "(Enter for none)"), saved)
-    answers = {"why": goal, "check": "" if typed.strip().lower() == "none" else typed, "stretch": ""}
-    if answers["check"] and answers["check"] != saved:
-        settings["check"] = answers["check"]
-        experiment.save_repo_settings(root, settings, environ)
+    if task_file:          # materials are chosen for one-shot handoffs, so the file stands in for the questions
+        con.say(f"Task {task_file['id']}, from {task_file['file']}: the task file answers the questions.")
+        task_type = task_file["type"]
+        settings = {"setup": task_file["setup"], "check": task_file["check"],
+                    "protected": _protected(root, task_file["protected"]), "judge_allowed": False}
+        answers = {"why": task_file["goal"], "check": task_file["check"], "stretch": ""}
+    else:
+        excluded = [key for key, question in ELIGIBILITY if con.pick(question, ("y", "n"), "n") == "y"]
+        if excluded:
+            append(log_path, header("excluded") | base | {"reasons": excluded, "task": {"prompt": prompt}}, secrets)
+            con.say("Not a trial: it needs a task you hand off whole. Logged as an exclusion; run the task as usual.")
+            return 0
+        task_type = con.pick("Task type", experiment.TASK_TYPES)
+        settings = _repo_settings(root, con, environ)
+        con.say("How the results will be judged. Neither agent sees these answers.")
+        saved = settings["check"]
+        goal = con.ask("Goal: what should the result achieve? (Enter to skip)")
+        typed = con.ask("Check: a command run in each worktree once the agents finish "
+                        + ("(Enter keeps it; none for no check this time)" if saved else "(Enter for none)"), saved)
+        answers = {"why": goal, "check": "" if typed.strip().lower() == "none" else typed, "stretch": ""}
+        if answers["check"] and answers["check"] != saved:
+            settings["check"] = answers["check"]
+            experiment.save_repo_settings(root, settings, environ)
+    scoring = exp.get("scoring", "pick")
+    if scoring == "check" and not answers["check"]:
+        raise UsageError(f"experiment {exp['name']} is scored by the check alone, so every trial needs a check.")
     trial = header("aa" if args.aa else "trial") | base
     for folder in ("trials", "worktrees"):                  # private, like the data folder they are in
         (data_dir(environ) / folder).mkdir(mode=0o700, exist_ok=True)
     out = data_dir(environ) / "trials" / trial["id"] / "output"
     out.parent.mkdir(mode=0o700)
     out.mkdir(mode=0o700)
-    # The worktrees live apart from the output, so an agent looking around its folder can't find the other arm's
-    # prompt, the brief or your answers.
-    place = data_dir(environ) / "worktrees" / trial["id"]
-    place.mkdir(mode=0o700)
-    meta = {"root": str(root), "commit": commit, "worktrees": str(place)}
-    experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
-    worktrees = runner.add_worktrees(root, commit, place)
+    if task_file:
+        # Materials with an answer key: each arm gets its own clone in an unrelated temporary folder, outside the
+        # data folder, so no git link, sibling folder or parent leads to the key, the other arm or the records.
+        worktrees = runner.add_clones(root, commit)
+        meta = {"root": str(root), "commit": commit, "clones": {s: str(p) for s, p in worktrees.items()}}
+        experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
+    else:
+        # The worktrees live apart from the output, so an agent looking around its folder can't find the other
+        # arm's prompt, the brief or your answers.
+        place = data_dir(environ) / "worktrees" / trial["id"]
+        place.mkdir(mode=0o700)
+        meta = {"root": str(root), "commit": commit, "worktrees": str(place)}
+        experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
+        worktrees = runner.add_worktrees(root, commit, place)
     task = {"type": task_type, "prompt": prompt, "answers": answers, "questions": [], "listed": {}, "headless": []}
+    if task_file:
+        task["source"] = {key: task_file[key] for key in ("id", "set", "file", "sha256")}
     stage = "questions"
     try:
         try:
@@ -326,7 +383,11 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
             prompts = _render(specs, task, agents, exp, worktrees["a"], out, environ, con)
             stage = "run"
             arms = _run_arms(prompts, agents["worker"], exp, settings, answers["check"], worktrees, commit, out,
-                             environ, con)
+                             environ, con, worker_check="" if scoring == "check" else None, audit=bool(task_file))
+            if scoring == "check" and (hit := [s for s in "ab" if arms[s]["error"]]):
+                raise AgentError(f"arm {hit[0].upper()} reported an error ({arms[hit[0]]['error']}). With the check "
+                                 "alone deciding, that measures the service, not the prompt, so the trial is logged "
+                                 "as failed: rerun its task once.")
         except (AgentError, ConfigError) as e:   # kept, so a step that keeps failing on some tasks shows in score
             append(log_path, header("failed") | base | {"aa": args.aa, "stage": stage, "task": task, "error": str(e),
                                                        "treatments": {s: specs[s]["spec"] for s in "ab"},
@@ -336,7 +397,7 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
             (out / f"{side}.prompt.md").write_text(prompts[side])
             arms[side]["brief"] = _briefing(specs[side], exp, task["headless"])
         sides = dict(zip(("1", "2"), random.sample(("a", "b"), 2)))
-        decision = _decide(arms, sides, answers["check"], specs, out, con)
+        decision = _decide(arms, sides, answers["check"], specs, out, con, scoring)
         verdict = None
         if "judge" in agents and decision["by"] == "you" and _judge_allowed(exp, root, settings, con, environ):
             verdict = _judge(exp, agents["judge"], answers["why"], arms, sides, out, environ, con)
@@ -352,6 +413,22 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     append(log_path, trial, secrets)
     _report(trial, specs, root, out, con, environ)
     return 0
+
+
+def _task_file(args, exp) -> dict | None:
+    """The task in `ab --task FILE`, or None without one. A skill treatment's questions need someone to answer them,
+    so for now a task file runs only original and snippet treatments (docs/design.md, "Unattended trials")."""
+    if not args.task:
+        return None
+    if args.prompt or args.file:
+        raise UsageError("give the task's prompt, or a task file with --task, not both.")
+    if exp.get("scoring", "pick") != "check":
+        raise UsageError(f"experiment {exp['name']} is scored by your pick, which a task file can't give. Run task "
+                         "files under an experiment frozen with --scoring check.")
+    if any(exp[side]["kind"] in ("skill", "clarified") for side in "ab"):
+        raise UsageError(f"experiment {exp['name']} has a skill treatment, whose questions need someone to answer "
+                         "them, so a task file can't run it yet; task files run original and snippet treatments.")
+    return tasks.load(args.task)
 
 
 def _read_prompt(args, con) -> str:
@@ -389,11 +466,12 @@ def _repo_settings(root: Path, con, environ) -> dict:
     return settings
 
 
-def _protected(root: Path, text: str) -> list[str]:
+def _protected(root: Path, text) -> list[str]:
     """Protected paths as paths inside the repo, relative to its root, which is what git needs in each worktree.
-    An absolute path inside the repo is made relative; a path outside it is refused."""
+    `text` is what you typed, comma-separated, or a task file's list. An absolute path inside the repo is made
+    relative; a path outside it is refused."""
     top, paths = Path(os.path.realpath(root)), []
-    for given in (p.strip() for p in text.split(",")):
+    for given in (p.strip() for p in (text.split(",") if isinstance(text, str) else text)):
         if given:
             full = Path(os.path.realpath(Path(top, os.path.expanduser(given))))
             try:
@@ -498,7 +576,12 @@ def _briefing(t, exp, headless) -> dict | None:
             "tokens": None if any(x is None for x in tokens) else sum(tokens)}
 
 
-def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, environ, con) -> dict:
+def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, environ, con, worker_check=None,
+              audit=False) -> dict:
+    """Both arms at once, then the check in each. worker_check is the command the worker may run itself (default:
+    the check); with the check alone deciding it is "", so the worker can't run the hidden check. With audit, each
+    arm's output is searched for the data folder's path, which an arm working in its own clone has no reason to
+    touch, and arms.<side>.looked_outside records a hit."""
     if settings["setup"]:
         con.say("Running the setup command in both worktrees...")
         done = runner.wait([runner.start(settings["setup"], worktrees[s], environ, out / f"{s}.setup.log")
@@ -508,7 +591,8 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
     agent, executable = worker
     con.say(f"Running both arms with {exp['worker']['agent']} (at most {exp['timeout_s'] / 60:g} minutes)...")
     procs = [runner.start(agent.argv(executable, "worker", prompt=prompts[s], model=exp["worker"]["model"] or "",
-                                     check=check), worktrees[s], agent_env(environ), out / f"{s}.out", out / f"{s}.err")
+                                     check=check if worker_check is None else worker_check), worktrees[s],
+                         agent_env(environ), out / f"{s}.out", out / f"{s}.err")
              for s in "ab"]
     arms = {}
     for s, done in zip("ab", runner.wait(procs, exp["timeout_s"])):
@@ -517,20 +601,31 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
                    "tokens": reply.tokens, "model": reply.model, "error": reply.error,
                    "protected_changed": runner.restore_protected(worktrees[s], commit, settings["protected"]),
                    "diff": runner.save_diff(worktrees[s], commit, out / f"{s}.diff"), "check": None}
+        if audit:
+            seen = (out / f"{s}.out").read_text(errors="replace") + (out / f"{s}.err").read_text(errors="replace")
+            arms[s]["looked_outside"] = str(data_dir(environ)) in seen
     if check:
         con.say("Running your check in both worktrees...")
-        done = runner.wait([runner.start(check, worktrees[s], environ, out / f"{s}.check.log") for s in "ab"],
-                           TIMEOUT_S["check"])
+        if audit:                     # one after the other, so two checks can't collide on a shared file or port
+            done = [runner.wait([runner.start(check, worktrees[s], environ, out / f"{s}.check.log")],
+                                TIMEOUT_S["check"])[0] for s in "ab"]
+        else:
+            done = runner.wait([runner.start(check, worktrees[s], environ, out / f"{s}.check.log") for s in "ab"],
+                               TIMEOUT_S["check"])
         for s, d in zip("ab", done):
             arms[s]["check"] = {"exit_code": d.code, "seconds": d.seconds,
                                 "passed": d.code == 0 and not arms[s]["protected_changed"]}
     return arms
 
 
-def _decide(arms, sides, check, specs, out, con) -> dict:
+def _decide(arms, sides, check, specs, out, con, scoring="pick") -> dict:
     if check and arms["a"]["check"]["passed"] != arms["b"]["check"]["passed"]:
         return {"by": "check", "winner": "a" if arms["a"]["check"]["passed"] else "b", "sides": sides,
                 "pick": None, "guess": None, "tie": None}
+    if scoring == "check":            # the check alone: both passing or both failing is a tie, and nobody picks.
+        # tie stays null, as it is whenever nobody picked; check_tie records what the check found.
+        return {"by": "check", "winner": "tie", "sides": sides, "pick": None, "guess": None, "tie": None,
+                "check_tie": "both_passed" if arms["a"]["check"]["passed"] else "both_failed"}
     con.say("\nYour blind pick. The sides are in random order; look at the diffs, not at the agents' own words.")
     for n, s in sides.items():
         arm, d = arms[s], arms[s]["diff"]
@@ -618,8 +713,9 @@ def _report(trial, specs, root, out, con, environ) -> None:
     con.say(f"\nSide 1 was {sides['1'].upper()} ({specs[sides['1']]['spec']}); side 2 was "
             f"{sides['2'].upper()} ({specs[sides['2']]['spec']}).")
     winner = decision["winner"]
-    tie = {"both_acceptable": " (both good enough)", "both_unacceptable": " (neither good enough)"}.get(
-        decision.get("tie"), "")
+    tie = {"both_acceptable": " (both good enough)", "both_unacceptable": " (neither good enough)",
+           "both_passed": " (both passed the check)", "both_failed": " (both failed the check)"}.get(
+        decision.get("check_tie") or decision.get("tie"), "")
     con.say(f"Result: {f'a tie{tie}' if winner == 'tie' else f'{winner.upper()} wins'}, decided by "
             f"{'the check' if decision['by'] == 'check' else 'you'}.")
     if verdict := trial["judge"]:
@@ -661,6 +757,12 @@ def cmd_clean(args, con, environ, cwd, secrets) -> int:
         info = json.loads(meta.read_text())
         if info.get("pid") and _alive(info["pid"]):
             continue                                         # a trial still running
+        for clone in (info.get("clones") or {}).values():    # a task file's arms: a clone each, in its own folder
+            if Path(clone).exists():
+                shutil.rmtree(Path(clone).parent, ignore_errors=True)
+                removed += 1
+        if info.get("clones"):
+            continue
         folder = Path(info.get("worktrees") or meta.parent.parent)   # older trials kept them beside the output
         for side in ("a", "b"):
             if (folder / side).exists():

@@ -18,12 +18,17 @@ FORMAT = 1
 RULE = {"kind": "two-step", "first": 20, "adopt_first": 16, "stop_first": 10, "second": 40, "adopt_second": 27,
         "max_trials": 40}
 FIXED_TRIALS = (10, 1000)          # the planned number of trials a fixed rule may have
+# How a trial is scored. pick: the check decides when exactly one arm passes, otherwise your blind pick. check: the
+# check alone, for materials with an answer key; both arms passing or both failing is a tie (docs/design.md,
+# "Unattended trials"). Experiments frozen before 2026-11-06 have no scoring, which means pick.
+SCORINGS = ("pick", "check")
 
 
-def fixed_rule(trials: int) -> dict:
-    """Fixed sample: one two-sided exact sign test at the 5% level after exactly `trials` trials, ties included in
-    the count; B also needs a net preference of at least 0.15, which is 15 more wins than losses per 100 trials."""
-    return {"kind": "fixed", "trials": trials, "alpha": 0.05, "net_min": 0.15}
+def fixed_rule(trials: int, alpha: float = 0.05, net_min: float = 0.15) -> dict:
+    """Fixed sample: one two-sided exact sign test at level `alpha` after exactly `trials` trials, ties included in
+    the count; B also needs a net preference of at least `net_min`. The defaults, 5% and 0.15 (15 more wins than
+    losses per 100 trials), suit picks; check-scored materials, where most trials tie, declare a lower net_min."""
+    return {"kind": "fixed", "trials": trials, "alpha": alpha, "net_min": net_min}
 
 
 def rule_kind(rule: dict) -> str:

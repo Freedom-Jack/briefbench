@@ -69,6 +69,14 @@ elif role == "worker":
     mode = env.get("FAKE_WORKER", "good")
     if mode == "sleep":
         time.sleep(60)
+    if mode == "limit":                         # stopped by the plan's usage limit: the CLI reports a failed turn
+        if name == "claude":
+            print(json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": ""}))
+        else:
+            print(json.dumps({"type": "turn.failed", "error": {"message": "You've hit your usage limit."}}))
+        sys.exit(1)
+    if mode == "peek":                          # an arm that went looking in the data folder
+        print(f"ls {env.get('BRIEFBENCH_HOME', '')}/keys", file=sys.stderr)
     Path("result.txt").write_text("brief\n" if "BRIEF" in prompt else "original\n")
     if mode == "edit-tests":
         Path("tests/test_x.py").write_text("# weakened\n")

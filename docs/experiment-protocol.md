@@ -1,6 +1,6 @@
 # Experiment protocol
 
-Status: specification, revised 2026-11-05 to match the built bench and [design.md](design.md). No experiment has run, and nothing here claims that the `brief` skill improves results. It replaces the 2026-11-04 proposal, which was written without knowing the bench existed; [design-review.md](design-review.md) says what changed and why. The exact file formats are in [data-formats.md](data-formats.md), and the phases are in [build-plan.md](build-plan.md).
+Status: specification, revised 2026-11-05 to match the built bench and [design.md](design.md), and on 2026-11-06 for check-only scoring on generated materials. No experiment has run, and nothing here claims that the `brief` skill improves results. It replaces the 2026-11-04 proposal, which was written without knowing the bench existed; [design-review.md](design-review.md) says what changed and why. The exact file formats are in [data-formats.md](data-formats.md), and the phases are in [build-plan.md](build-plan.md).
 
 This protocol says how to run, judge and report experiments with `briefbench init`, `ab` and `score`. The first question is whether a brief, written by the skill from your answers to its own questions, gives a better result than your original prompt on your own repo tasks, at an acceptable cost. The bench judges results, not how polished a brief looks. Later experiments test candidate changes against the released skill. The skill only clarifies your request: it doesn't choose methods or do the task.
 
@@ -10,11 +10,12 @@ This protocol says how to run, judge and report experiments with `briefbench ini
 | --- | --- | --- | --- |
 | Behavioural acceptance | P0 | The skill in two hosts, by hand ([skill-acceptance.md](skill-acceptance.md)) | The tested skill followed its contract in these cases |
 | Noise check | P1, and before each experiment | `ab --aa`: treatment A in both arms | Whether noise is grossly high; never that a brief helps |
-| Feasibility pilot | P1 | Five noise checks and about ten trials through `ab` | The measurement works on your tasks, or needs changing |
-| Workflow study | P3 | `original` against `brief`, under a frozen rule | Scoped evidence about the one-shot handoff in this configuration |
-| Equal-information control | After a workflow result | `clarified` against `brief` | Scoped evidence about the rewrite, apart from the answers it carries |
-| Candidate development | P4 | A `skill:<folder>` variant on a few tasks | Exploratory: it can motivate a confirmation |
-| Fresh candidate confirmation | P4 | The released skill against a frozen variant, on fresh tasks | Scoped evidence for a reviewed release decision |
+| Feasibility pilot | P1 | About ten trials on generated materials, unattended, plus noise checks | The measurement works on those materials, or needs changing |
+| Trick test | P2 | A recent post's trick as an add-on (`snippet:`) against your plain prompt, on materials that fit it, scored by the check alone | Scoped evidence about that advice, on those materials, with that worker |
+| Workflow study | P3, as the first growth round | `original` against the skill's first instruction, letting the agent interview you, under a frozen rule | Scoped evidence about the one-shot handoff in this configuration |
+| Equal-information control | After a workflow result | `clarified` against the same skill | Scoped evidence about the rewrite, apart from the answers it carries |
+| Candidate development | P3 | A `skill:<folder>` variant on a few tasks | Exploratory: it can motivate a confirmation |
+| Growth round | P3 | The grown skill against itself plus one candidate, on fresh materials | Scoped evidence for adding one instruction to the skill |
 | Replication | P5 | Someone else, from the frozen settings | Reproduction, or transfer, within the tested scope |
 | Upgrade check | P5 | Logged tasks rerun after a model or CLI change | A large regression, or none seen; never an old benefit carried over |
 | Native-host study | Optional | By hand (section 3) | Scoped evidence about briefing against an agent that may ask |
@@ -161,6 +162,8 @@ The bench measures only part of this. Each arm's worker time and tokens are logg
 - A tie records its kind. `both_acceptable`: both are good enough to keep, with no material difference. `both_unacceptable`: neither is. Don't reward the more polished failure.
 - Your goal is the authority. A brief never redefines success.
 
+**Scoring by the check alone** (added 2026-11-06). Materials with an answer key, such as hidden tests or data with a planted answer, are scored by the check alone: `init --scoring check`, frozen with the experiment. Exactly one arm passing wins. Both passing or both failing is a tie, recorded as `both_passed` or `both_failed`, and nobody picks. These materials run from task files (`ab --task`), unattended. A result holds for its materials: it says nothing about tasks the check can't judge. Choose the materials before the treatment ([design.md](design.md), "Tricks need matching materials"). Generate fresh tasks for each experiment from a published generator and a new seed. A set that anyone has inspected is development data.
+
 For research and design deliverables, weigh fidelity to the request, grounding in the sources, the handling of consequential uncertainty and alternatives, usefulness for the decision, and clarity. These guide the pick; the bench records no scores. It records whether each arm was acceptable only through the check and the tie kinds.
 
 **What you see, and what you don't.** The sides come in random order. For each, `ab` shows its check result with the last lines of the check's output, the files changed and the lines added and removed, and whether it hit the timeout, with paths to `side-1.diff` and `side-2.diff`. You see no prompt, brief, time or tokens until you've picked, and never the agents' summaries. The trial folder also holds files named `a.*` and `b.*`, which unblind; open only the `side-` files before you pick.
@@ -251,6 +254,12 @@ Ties don't raise these rates; a high tie rate lowers them, through the 40-trial 
 | 100 | 25% | 65% | 71% |
 
 With no effect, 50 trials and 25% ties, it also reports harm wrongly 1.7% of the time. Set N from the pilot's tie rate, before the first trial.
+
+*When most trials tie* (added 2026-11-06). Under check-only scoring, a trial is decided only when exactly one arm passes, so ties dominate, and the net preference equals B's pass rate minus A's. Two consequences, checked by exact calculation and by simulation with `stats.py` on 2026-11-06:
+- The two-step rule can't be used. It returns no practical difference whenever 40 trials leave fewer than 20 decided: 96% of the time with 35% of trials decided, almost always below that. `init` refuses it with check scoring.
+- The fixed rule's default threshold of 0.15 would demand a 15-point gain in pass rate. A check-scored experiment declares its own with `--net-min`; 0.05 is the planning default. At 100 trials or more, significance at 5% already implies about +0.07, so this threshold rarely binds and the sign test decides.
+
+Trials for an 80% chance to find a real gain, two-sided 5%: +15 points needs 75, 115 or 150 trials when 20%, 30% or 40% of trials are decided; +10 points needs 170, 250 or 330; +5 points is out of reach. At a campaign slot's 2.5%: +15 needs 85, 135 or 175; +10 needs 200, 300 or 395. At 150 trials, a real 10-point loss is found 45–75% of the time and a 5-point loss 13–21%. So a passed test shows that no large regression was found, not that nothing got worse. Set N from the pilot's decided share, taking the upper end of its range.
 
 Under either rule, B is not adopted if its median extra time or tokens exceed the cap, if any of its briefs failed the fidelity review, or if a failed trial wasn't rerun on the same task; `score` lists each in `verdict.blocked_by`. Not adopting means no large effect was found, not that there is none.
 

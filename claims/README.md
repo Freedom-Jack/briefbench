@@ -12,7 +12,9 @@ Cards live in this folder, one file per claim, named `<id>.md`. They are public.
 
 ## The cards
 
-The seed cards come from the project's research, read on 4 Nov 2026: the [value of prompting report](../docs/research/value-of-prompting/report.md), with its case study of Felix Rieseberg's essay and its five practitioner cases, and the [prompting technique benchmarks report](../docs/research/prompting-technique-benchmarks/report.md). A card's numbers are the report's; check the report before reusing one. Where a card gives no model era for a study, the report gives none.
+The seed cards come from the project's research, read on 4 Nov 2026: the [value of prompting report](../docs/research/value-of-prompting/report.md), with its case study of Felix Rieseberg's essay and its five practitioner cases, and the [prompting technique benchmarks report](../docs/research/prompting-technique-benchmarks/report.md). A card's numbers are the report's; check the report before reusing one. Where a card gives no model era for a study, the report gives none. Cards added on 6 Nov 2026 come from recent posts and guides, read that day.
+
+**Recent sources only.** Models change every few months, and advice written for older ones often stops holding. So the posts under test are recent: published within about three months, and about the models in use now ([design](../docs/design.md), "Posts under test"). An older card stays as a record. Its claim is tested only when a recent source repeats it, and the card then cites that source.
 
 | Card | From | Kind | Skill fit | Status |
 | --- | --- | --- | --- | --- |
@@ -29,6 +31,10 @@ The seed cards come from the project's research, read on 4 Nov 2026: the [value 
 | [A goal, scope and done brief instead of steps](goal-brief-over-steps.md) | Cherny's talk | specification | conditional | candidate |
 | [Open with an expert persona](expert-persona.md) | Common advice | wording | no | deferred |
 | [Emphasize rules with capitals and CRITICAL](caps-emphasis.md) | Common advice | wording | no | deferred |
+| [Test your belief against the raw data](test-your-belief.md) | Rieseberg's essay | specification | conditional | candidate |
+| [Let the agent interview you before it starts](ask-questions-first.md) | Claude Code's docs | specification | yes | candidate |
+| [Tell Claude to explore broadly before settling](explore-broadly.md) | Anthropic's Opus 5.5 guide | wording | no | deferred |
+| [Make the model write in controlled language](controlled-language.md) | LinkedIn post | wording | conditional | deferred |
 
 `tests/test_claims.py` checks that this table matches each card's front matter.
 

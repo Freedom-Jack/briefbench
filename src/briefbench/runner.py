@@ -6,6 +6,7 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,14 @@ def head(root: Path) -> str:
         raise ConfigError("the repo has no commit yet; trials start from a commit.") from None
 
 
+def commit(root: Path, rev: str) -> str:
+    """The full id of the commit `rev` names, which must exist in the repo."""
+    try:
+        return git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").strip()
+    except ConfigError:
+        raise ConfigError(f"the repo {root} has no commit {rev}.") from None
+
+
 def dirty(root: Path) -> bool:
     return bool(git(root, "status", "--porcelain", "--untracked-files=no").strip())
 
@@ -46,6 +55,20 @@ def add_worktrees(root: Path, commit: str, trial_dir: Path) -> dict[str, Path]:
     paths = {side: trial_dir / side for side in ("a", "b")}
     for path in paths.values():
         git(root, "worktree", "add", "--detach", "--quiet", str(path), commit)
+    return paths
+
+
+def add_clones(root: Path, commit: str) -> dict[str, Path]:
+    """For materials with an answer key: a clone of the task repo for each arm, each in a temporary folder of its
+    own, outside the data folder. Unlike worktrees, a clone holds no link back to the task's folder, and the arms
+    share nothing, so neither can find the other or the answer key by looking around."""
+    paths = {}
+    for side in ("a", "b"):
+        path = Path(tempfile.mkdtemp(prefix="briefbench-")) / "work"
+        git(Path(path.parent), "clone", "--quiet", "--no-hardlinks", "--no-checkout", str(root), str(path))
+        git(path, "checkout", "--quiet", "--detach", commit)
+        git(path, "remote", "remove", "origin")
+        paths[side] = path
     return paths
 
 

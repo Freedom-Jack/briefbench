@@ -155,7 +155,34 @@ def test_ties_are_shown_by_kind():
     text = score.report(EXPERIMENT, entries)
     assert "Trials: 4. B won 1, A won 0, 3 ties (1 both good enough, 1 neither, 1 not recorded)." in text
     assert score.summary(EXPERIMENT, entries)["ties_by_kind"] == {"both_acceptable": 1, "both_unacceptable": 1,
+                                                                   "both_passed": 0, "both_failed": 0,
                                                                    "not_recorded": 1}
+
+
+def test_check_scored_ties_are_named_by_the_check():
+    """With the check alone nobody judged whether a result was good enough, so ties say what the check found."""
+    exp = EXPERIMENT | {"scoring": "check", "rule": fixed_rule(10, net_min=0.05)}
+    entries = [trial("b", by="check")] * 3 + [trial("tie", by="check") for _ in range(7)]
+    for t, kind in zip(entries[3:], ["both_passed"] * 5 + ["both_failed"] * 2):
+        t["decision"]["tie"] = kind
+    s = score.summary(exp, entries)
+    assert s["scoring"] == "check" and s["decided_by"] == {"check": 10, "you": 0}
+    assert s["ties_by_kind"] == {"both_acceptable": 0, "both_unacceptable": 0, "both_passed": 5, "both_failed": 2,
+                                 "not_recorded": 0}
+    assert s["verdict"]["state"] == "no-difference"           # 3 of 3 decided pairs: p = 0.25
+    text = score.report(exp, entries)
+    assert "Scored by the check alone" in text and "Your guesses" not in text
+    assert "Trials: 10. B won 3, A won 0, 7 ties (5 both passed the check, 2 both failed the check)." in text
+
+
+def test_a_declared_threshold_and_level_reach_the_verdict():
+    """A check-scored experiment may declare a lower net preference: 12 wins and 3 losses in 100 trials is +0.09."""
+    entries = fixed_log(12, 3, 85)
+    strict, lowered = EXPERIMENT | {"rule": fixed_rule(100)}, EXPERIMENT | {"rule": fixed_rule(100, net_min=0.05)}
+    assert score.summary(strict, entries)["verdict"]["state"] == "below-threshold"
+    assert score.summary(lowered, entries)["verdict"]["state"] == "benefit"
+    stricter = EXPERIMENT | {"rule": fixed_rule(100, alpha=0.01, net_min=0.05)}      # p = 0.035 > 0.01
+    assert score.summary(stricter, entries)["verdict"]["state"] == "no-difference"
 
 
 FIXED = EXPERIMENT | {"rule": fixed_rule(50)}

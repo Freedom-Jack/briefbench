@@ -1,6 +1,6 @@
 # briefbench design
 
-Revision: 2026-11-05. It reconciles two lines of work: the redesign built on the branch `redesign` (stages 0–3, 2026-11-03), and the public-project design written on 2026-11-04 from the research. [design-review.md](design-review.md) says what was kept, changed or dropped, and why. The target is a public open-source project, maintained by one person at first and designed for useful outside contributions.
+Revision: 2026-11-06. The 2026-11-05 revision reconciled two lines of work: the redesign built on the branch `redesign` (stages 0–3, 2026-11-03), and the public-project design written on 2026-11-04 from the research. [design-review.md](design-review.md) says what was kept, changed or dropped, and why. This revision adds three decisions of 2026-11-06: each trick is tested on materials that fit it ("Tricks need matching materials"), only recent posts are tested, starting with Rieseberg's essay ("Posts under test"), and the skill grows from empty ("The skill grows from empty"). The target is a public open-source project, maintained by one person at first and designed for useful outside contributions.
 
 briefbench turns prompting advice into scoped experiments and reviewed improvements to a portable prompt-enhancement skill. The skill is the product most people use; the bench supplies evidence for what belongs in it. Findings, including negative and inconclusive ones, are a second public output.
 
@@ -27,18 +27,20 @@ briefbench turns prompting advice into scoped experiments and reviewed improveme
 
 | Question | Decision |
 | --- | --- |
-| What briefbench is | Two separate parts: a prompt improver you use every day, and a small bench that checks whether it helps |
-| Front end | `brief`, an Agent Skill: one `SKILL.md`, no code, version 0.2.0. It only improves prompts: it logs nothing and keeps no records |
-| Back end | `briefbench`, a small CLI that runs blind paired trials on your own repo tasks |
+| What briefbench is | Two separate parts: a prompt improver you use every day, and a small bench that checks whether prompting advice helps |
+| Front end | `brief`, an Agent Skill: one `SKILL.md`, no code. It only improves prompts: it logs nothing and keeps no records. It grows from empty: a released version holds only instructions that won a bench round. Version 0.2.0, your hand-written skill, is the reference and a source of candidates until then |
+| Back end | `briefbench`, a small CLI that runs blind paired trials on your own repo tasks, or unattended on tasks read from files |
 | Interface | None at run time. The bench runs the skill's folder headless, as a black box, and keeps every record itself |
 | Cost | Your subscriptions only. Every model call goes through an agent CLI logged in with your Claude or ChatGPT plan, such as Claude Code or Codex. No API keys and no per-token charges |
-| Default question | The one-shot handoff: does a brief, written by the skill from your answers to its own questions, give a better result than your original prompt? |
+| Questions | Does a trick from a post make Claude Code or Codex do better work? Does a candidate instruction make the skill better? Each is a one-shot handoff, compared on the same task with and without the change |
+| Posts under test | Recent only: published within about three months and about the models in use. On 6 Nov 2026: Felix Rieseberg's essay, Anthropic's Opus 5.5 prompting guide, Claude Code's "let it interview you" advice and a viral controlled-language post |
+| Materials | Each trick is tested on tasks where it has room to act: coding tasks with hidden tests, tasks with a measurable target, data with a planted answer, requests with gaps and a stand-in requester, or open-ended tasks you judge |
 | Controls | `clarified` (your prompt plus the same questions and answers, unrewritten), `snippet:<file>` (a claimed tip, or a placebo), `skill:<folder>` (a skill variant) |
-| Measurement | Same worker, one run per arm. The goal and the check judge both results, and neither agent's prompt contains them. The check decides first, then your blind pick; a fidelity review of the brief follows; an optional judge from a third vendor rules alongside and never decides |
-| Decision rules | Frozen at `init`: two-step (the default, for your own adoption decisions) or `fixed:N` (one test after exactly N trials, for confirmatory or public claims) |
+| Measurement | Same worker, one run per arm. The goal and the check judge both results, and neither agent's prompt contains them. The check decides first, then your blind pick; a fidelity review of the brief follows; an optional judge from a third vendor rules alongside and never decides. Materials with an answer key are scored by the check alone, with no pick |
+| Decision rules | Frozen at `init`: two-step (the default, for your own adoption decisions) or `fixed:N` (one test after exactly N trials, for confirmatory or public claims, and for check-scored materials, where most trials tie) |
 | Evidence | Claim cards in `claims/` (public). Frozen experiments, the trial log and each trial's output under `~/.briefbench/` (private). A finding is the JSON from `briefbench score --json`. Nothing is published automatically |
 | Reuse | Agent Skills for the front end; Claude Code and Codex as runners; Arena-Hard-Auto's judge prompt (Apache-2.0); MT-Bench's both-orders rule; later, evalstats, promptfoo imports, Inspect and GEPA where they remove real work |
-| Size | Skill at most 150 lines (56 now). Bench about 1,800 lines of Python, with no runtime dependency |
+| Size | Skill at most 150 lines (56 now). Bench about 2,000 lines of Python, with no runtime dependency; materials generators and the runner live in `scripts/` |
 
 ## Purpose and intended users
 
@@ -125,9 +127,54 @@ A source, a finding and an adoption decision are different things. Accepting a s
 
 **Treatment.** The smallest change that tests the claim: a snippet appended to the prompt, or a copy of the skill folder with one instruction changed. Development on a few tasks is exploratory; edits made after seeing results are tested only on tasks collected after the edit.
 
-**Experiment and finding.** `briefbench init` freezes the comparison, `ab` runs trials on real tasks as they come, and `score` reports. A finding states its scope: worker CLI and version, model, rewriter, skill hash, task types and dates. First establish whether the whole brief earns its cost against the original prompt; test single changes against the current skill after that.
+**Experiment and finding.** `briefbench init` freezes the comparison, `ab` runs trials on real tasks as they come or on tasks read from files, and `score` reports. A finding states its scope: worker CLI and version, model, rewriter, skill hash, materials, task types and dates. Since 2026-11-06 the skill grows from empty, one tested change at a time ("The skill grows from empty"), so single changes are tested against the current grown skill from the first round on.
 
 **Decision.** A change to the skill needs a small diff, the linked finding, boundary and fidelity checks, the conditions it applies to, and a rollback target. Bump `metadata.version`, record the decision in the claim card and the commit message, rerun the affected acceptance checks, and package the release. Boundary fixes, literal-preservation fixes and packaging repairs can ship on demonstrated correctness without an efficacy claim. A change can be rejected despite a quality gain if it widens authority, changes intent, costs too much or adds maintenance out of proportion. An instruction can be removed for demonstrated harm, scope violations or upkeep; if the reason is simplicity under inconclusive evidence, say so.
+
+## The skill grows from empty
+
+Decided 2026-11-06. The skill should hold only instructions that earned their place on the bench, so it is rebuilt from nothing, one tested change at a time. Anthropic's Opus 5.5 guide gives similar advice for prompts carried over from older models: remove lines the new model no longer needs ([guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)). Boris Cherny said the same of Claude Code's system prompt in July ([value report](research/value-of-prompting/report.md), "Boris Cherny").
+
+- **The baseline is the empty skill.** It returns your prompt unchanged, which is the `original` treatment, so it needs no folder of its own.
+- **One round, one change.** A round compares the current skill, the incumbent, with the incumbent plus one candidate: one instruction, or one section where a single line would be too small to show. It runs on materials that fit the candidate ("Tricks need matching materials"), on fresh tasks, under a rule frozen before its first trial. The candidate is kept only if it wins under that rule, passes the fidelity review within a tolerance declared in advance, stays within the cost cap, and keeps the acceptance behaviour. Otherwise the skill stays as it was, which is a normal result.
+- **The frame isn't a trick.** A skill that rewrites a prompt needs a few rules to be safe: keep the user's details, add nothing they didn't ask for, leave methods to the agent, don't do the task, return one prompt. They come with the first instruction and are checked by the fidelity review and the acceptance cases, as boundary fixes are ("From claim to release"). They make no claim about results.
+- **Candidates, largest expected effect first.** The order is provisional until recent studies confirm it. First, let the agent interview you: up to three questions about consequential gaps. Claude Code's own guide recommends it. On underspecified tasks, a clarification step before the agent runs helped in 2026 studies ([Ask or Assume?](https://arxiv.org/abs/2603.26233); [Ask Early, Ask Late, Ask Right](https://arxiv.org/abs/2605.07937)), as asking did in [Ambig-SWE](https://arxiv.org/abs/2502.13069) on early-2025 models (arXiv Feb 2025). Then state the purpose and the outcome the user gave (Rieseberg's altitude; RealSWE). Then scope and what done means. Then the other recent claims that may enter the skill ("Posts under test"). As before, only specification and wording claims can.
+- **0.2.0 is the reference, not the base.** Your hand-written version stays installed for daily use and supplies candidate instructions. Once the grown skill has had a few rounds, one comparison of the two shows whether the hand-written whole does better than the evidence-built one.
+- **The bench never edits the skill.** A round ends in your decision. An adopted change bumps `metadata.version`, is recorded in its claim card and the commit message, and names a rollback target.
+- **Expect slow growth.** At personal scale only large effects show, so most rounds will end with no change shown, and the grown skill may stay small for a while. That is the point: it holds only what helped, within the scope it was tested in. Each round carries a small chance of a false adoption, about 2% when the change does nothing, so the rounds are counted publicly, and after every few adoptions the whole grown skill is tested again against the empty one.
+
+## Tricks need matching materials
+
+Decided 2026-11-06. A trick can only show an effect on tasks where it has room to act. Fixing a small bug leaves no room to "aim higher", and an open-ended review has no test to pass. So each claim is tested on materials chosen for it, and every result names its materials.
+
+| What the trick changes | Materials that can show it | What decides a trial |
+| --- | --- | --- |
+| How the agent checks its work: an outside judge, tests as feedback | Coding tasks with hidden tests | The hidden tests |
+| How hard the agent pushes: unreasonable goals, slightly harder tasks | Tasks with a measurable target, such as speed, and tests the agent can't edit | A hidden benchmark; cheating counts as its own outcome, never as a tie |
+| How the agent weighs beliefs and evidence: test your belief, validate on unseen data | Analysis tasks on data with a planted answer, where the belief stated in the prompt is right in half the tasks | Whether the report names the planted answer |
+| What the request says: questions first, purpose, outcome, scope, what done means, a goal instead of steps | Requests with real gaps, a stand-in requester who knows the missing facts, and a check that depends on them | The check, or your blind pick |
+| How ambitious or broad the result is: altitude, urgent decisions, redesigning the process, other fields, crews | Open-ended tasks: reviews, decisions, designs | Your blind pick; the judge only as a helper |
+
+- **Choose the materials first.** A card's proposed comparison names its materials before any treatment is written.
+- **Answer keys run unattended.** Materials with hidden tests, a benchmark or a planted answer settle each trial without you: the bench reads the task from a file and scores it by its check alone ("The bench").
+- **Generated materials stay fresh.** Data with a planted answer can be generated anew for each experiment, from a published generator and a seed, so confirmation tasks are always unseen. Public tasks serve development and smoke tests; they aren't a holdout for anyone who has read them.
+- **Real tasks still count.** Your own tasks through `ab` are the closest test of your work, and the only test of open-ended tricks. A result on generated materials holds for those materials.
+- **No pooling.** Results on different materials are separate findings, never one win rate.
+
+## Posts under test
+
+Decided 2026-11-06. **Recent sources only:** models change every few months, and advice written for older ones often stops holding. A post qualifies when it was published within about three months and is about the models in use now. Every result names the worker's model and the date. A claim from an older post is tested only when a recent source repeats it. The five 2026 practitioner posts in the [value report](research/value-of-prompting/report.md) (Cherny, Mollick, Karpathy, Hashimoto and Osmani, January to July 2026) are records, not the list under test. Their main advice, give the agent a real check and a clear goal, comes back in the recent sources below.
+
+The list on 6 Nov 2026, with a claim card for each trick:
+
+| Source | Tricks to test, with their cards | Materials |
+| --- | --- | --- |
+| Felix Rieseberg, ["How to be more ambitious"](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/) (13 Oct 2026) | Test your belief against the raw data ([card](../claims/test-your-belief.md)); ask for the outcome, not the task ([card](../claims/outcome-over-task.md)); an outside judge ([card](../claims/outside-check.md)); unreasonable goals ([card](../claims/unreasonable-goals.md)); a deeper version of the prompt ([card](../claims/depth-rewrite.md)); other fields and crews ([card](../claims/range-other-fields.md)) | Data with a planted answer; requests with gaps, or open-ended tasks; hidden tests; a measurable target; open-ended tasks |
+| Anthropic, ["Prompting Claude Opus 5.5"](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5) (official guide, covered on 28 Sep 2026) | Ask Claude to explore broadly before settling ([card](../claims/explore-broadly.md)). The guide reports Anthropic's own measured effects for this and a few other lines, without numbers | Multi-step tasks with hidden tests or a planted answer, with Claude Code as the worker |
+| Claude Code's [best practices](https://code.claude.com/docs/en/best-practices), repeated in two posts of 6 Nov 2026 | Let the agent interview you before it starts ([card](../claims/ask-questions-first.md)): the skill's first growth round | Requests with gaps and a stand-in requester |
+| Charlie Hills' AI OS, [LinkedIn post](https://www.linkedin.com/posts/charlie-hills_theres-a-weird-prompting-trick-called-asd-ste100-activity-7519399737607876609-HoPa) on ASD-STE100 (about 23 Oct 2026) | Make the model write in controlled language ([card](../claims/controlled-language.md)) | Open-ended tasks with a written deliverable, judged by your pick |
+
+**Order.** Test your belief comes first: its materials are generated, run unattended on Codex and need no stand-in requester, and it is the essay's own churn example. Next is the skill's first growth round, letting the agent interview you, which needs the stand-in requester. Then the rest of Rieseberg's tricks on their materials. Anthropic's lines need Claude Code as the worker, which waits for your OK on the plan it may use. Each trick runs as a prompt add-on (`snippet:`) against your plain prompt, the way you would use the advice yourself. A trick that wins and fits the skill's boundary becomes a candidate for a growth round. The list is checked again before each new test, and a newer post replaces an older one that says the same thing.
 
 ## The bench
 
@@ -166,6 +213,18 @@ A headless brief takes two calls to the rewriter, an agent CLI that can read the
 
 Before an experiment, run `ab --aa` on five tasks: treatment A against itself. A winner there often means high noise, so the experiment will need more pairs. When A is a skill, both arms get the same brief, so the noise check measures the worker and your pick, not the rewriter's own variation.
 
+### Unattended trials
+
+Added 2026-11-06, for materials with an answer key. `init --scoring check --rule fixed:N --net-min X` freezes an experiment that the check alone scores. `ab --task <file>` then reads from a task file everything the questions above would ask: the repo and commit, the prompt, the task type, the goal, and the check, whose hidden material is kept outside the repo. The task file stands in for the eligibility questions, since materials are chosen for one-shot handoffs. Exactly one arm passing wins. Both passing or both failing is a tie, recorded as `both_passed` or `both_failed` in its own field, never as a judgment nobody made. No pick is asked.
+
+The hidden evaluation is protected by where things are kept, and checked after the run:
+- Each arm works in a clone of the task repo, in a temporary folder of its own outside the data folder. No git link, sibling folder or parent leads to the other arm, the answer key or the records. The checks then run one after the other.
+- The worker never gets the check command.
+- An arm whose output names the data folder is flagged (`looked_outside`), and `score` reports it.
+- An arm stopped with an error, such as a usage limit, measured the service, not the prompt. Its trial is logged as failed and its task rerun once.
+
+`scripts/run_tasks.py` runs a list of task files one after another, unattended. It stops at a failed step, at a flagged look and at `--limit`, so that you can look before more plan usage is spent. For now a task file runs only `original` and `snippet:` treatments: a skill treatment's questions need the stand-in requester, which comes with the skill's first growth round.
+
 ### Decision rules
 
 Both are fixed at `init`, use an exact two-sided sign test, and were checked by exact calculation on 2026-11-05.
@@ -173,6 +232,14 @@ Both are fixed at `init`, use an exact two-sided sign test, and were checked by 
 **Two-step**, the default. On decided pairs, in the order they ran: adopt B at 16 or more wins of the first 20; stop at 10 or fewer; otherwise go on to 40 decided pairs and adopt at 27 or more. If 40 trials leave fewer than 20 decided, the verdict is "no practical difference". It wrongly adopts a useless B 2.2% of the time, adopts a true 75% win rate 90% of the time and a 65% rate 45% of the time, and stops at 20 pairs 59% of the time when there is no effect. It suits your own adoption decisions: it stops early when the answer is clear.
 
 **Fixed:** `init --rule fixed:N`, N from 10 to 1,000 trials, ties included. One test, once exactly N trials are in, never before; trials after the Nth are reported but not tested. B is adopted when it wins significantly at the 5% level and its net preference, (wins − losses) / N, is at least 0.15. With N = 50, a 25% tie rate and a true 75% win rate among decided pairs, it finds the effect 86% of the time. It suits confirmatory and public claims, where the sample is fixed in advance.
+
+**When most trials tie.** With check-scored materials, a trial is decided only when exactly one arm passes, so most trials tie. Two consequences, checked by exact calculation and simulation on 2026-11-06. First, the two-step rule can't be used: it ends in "no practical difference" whenever 40 trials leave fewer than 20 decided, which happens almost every time when under 35% of trials are decided, so `init` refuses it with check scoring. Second, under check scoring the net preference is the gain in pass rate, and the frozen threshold of 0.15 would demand a 15-point gain. A check-scored experiment declares its own threshold, such as `--net-min 0.05`. Trials needed for an 80% chance to find a real gain, at the 5% level:
+
+| Gain in pass rate | 20% of trials decided | 30% decided | 40% decided |
+| --- | --- | --- | --- |
+| +15 points | 75 | 115 | 150 |
+| +10 points | 170 | 250 | 330 |
+| +5 points | out of reach | out of reach | out of reach |
 
 Under either rule, B is not adopted if its median extra time or tokens exceed your cap, if any of its briefs failed the fidelity review, or if a failed trial hasn't been rerun. Costs include briefing: each arm's time and tokens add the headless calls its prompt needed. Under a fixed rule, `score` shows no p-value, win rate or interval until all N trials are in, so the numbers can't tempt an early stop; under two-step, trials after the rule's verdict are reported but not part of the test. Not adopting means no large effect was found, not that there is none.
 
@@ -300,20 +367,28 @@ Publish the useful skill and the evidence process before trying to support every
 
 ## Build order and current state
 
-| Phase | Result | State on 2026-11-05 |
+| Phase | Result | State on 2026-11-06 |
 | --- | --- | --- |
 | Built: stages 0–3 | The skill; `init`, `ab`, `score`, `clean`; the judge | Built 2026-11-03; skill 0.2.0 on 2026-11-04 |
-| Built: this revision | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions, both rules, `score --json`; claim cards; community files; skill packaging | Built 2026-11-05: 185 offline tests on Python 3.11 and 3.14. Live tests of the judge and the two headless calls pass through Claude Code 2.1.317 and Codex 0.166.0-alpha.6. One `ab` smoke trial ran live through Codex on a toy repo, before the review fixes; `ab` has not yet run on a real task with this revision |
-| P0 Readiness | Real-use skill acceptance in two hosts; one real trial on each plan, Claude Code and Codex as the worker, each winner kept; public basics | Acceptance and real trials owed (they need your prompts and tasks); public basics drafted |
-| P1 Pilot | Five noise checks and about ten real trials through `ab`, timing your effort | Not started |
-| P2 Small additions | Only what the pilot shows is needed, such as replaying logged tasks | Not started |
-| P3 First study | `original` against `brief` under a frozen rule | Not started |
-| P4 Claim to release | One claim card taken through a variant, a fresh test and a recorded decision | Not started |
-| P5 Replication and upgrade checks | An outside reproduction; rerunning logged tasks after a model change | Not started |
+| Built: the 2026-11-05 revision | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions, both rules, `score --json`; claim cards; community files; skill packaging | Built 2026-11-05: 185 offline tests on Python 3.11 and 3.14. Live tests of the judge and the two headless calls pass through Claude Code 2.1.317 and Codex 0.166.0-alpha.6. `ab` has not yet run on a real task with this revision |
+| P0 Readiness | Real-use skill acceptance in two hosts; one real trial on each plan; public basics. No release at its end | Acceptance and real trials owed (they need your prompts and tasks); public basics drafted |
+| P1 Unattended trials and the first materials | Task files, check-only scoring, a threshold for the fixed rule; data with a planted answer; a pilot of the first trick | In progress from 2026-11-06 |
+| P2 Posts under test | Each trick, one at a time, on its own materials, against the plain prompt | Not started |
+| P3 The skill grows from empty | The stand-in requester; growth rounds, questions first | Not started |
+| P4 First public release | The grown skill, with every round and every trick result published | Not started |
+| P5 Replication and upgrade checks | An outside reproduction; rerunning tasks after a model change | Not started |
 
-The [build plan](build-plan.md) gives the work packages and checks. No experiment has run, so no improvement is claimed. A public skill alpha can ship once its acceptance and public-readiness checks pass; a claim that it improves results needs a finished study.
+The [build plan](build-plan.md) gives the work packages and checks. No experiment has run, so no improvement is claimed. The first public release comes after this evidence, not at the end of P0: it ships the grown skill if a round has adopted anything. If nothing has been adopted yet, you decide whether 0.2.0 ships as experimental, with the results so far stated.
 
 ## Decisions
+
+Changed on 2026-11-06, after you asked for evidence before the first release and for the research's tricks to be tested one at a time:
+- **The skill grows from empty** ("The skill grows from empty"). The released skill holds only instructions that won a round; 0.2.0 is the reference and a source of candidates.
+- **Each trick is tested on materials that fit it** ("Tricks need matching materials").
+- **Only recent posts are tested** ("Posts under test"): published within about three months and about the models in use, starting with Rieseberg's essay. Older posts are records, tested only through a recent source that repeats them.
+- **Unattended trials.** Materials with an answer key run from task files, scored by the check alone. The two-step rule is refused for them, because most trials tie; the fixed rule takes a declared threshold.
+- **The first public release follows the evidence**, instead of a skill alpha at the end of P0.
+- **Considered and set aside: a bank of public GitHub bug fixes as the main material.** Public task sets checked on 2026-11-06 have nothing newer than 2025 and assume Linux Docker. Running many repos' install and test code on this machine needs your consent. And bug fixes leave little room for most of Rieseberg's tricks. Hidden-test coding tasks stay in the table for the tricks they fit: build them small, or with your consent, when those tricks come up.
 
 Changed on 2026-11-05, reconciling the built redesign with the 2026-11-04 design ([design-review.md](design-review.md)):
 - **The built bench is the base.** The API rewrite command stays retired, and its live check is replaced by the bench's live tests through both subscription CLIs.
@@ -340,7 +415,7 @@ Made while building stages 0–3, on 2026-11-02 to 2026-11-04, still holding:
 - `brief` means your installed skill; any other folder is `skill:<folder>`.
 - The judge rules only on trials you picked, is skipped without a goal or when a side is over 60,000 characters, and replies with the five Arena-Hard-Auto labels.
 - The cost cap applies to both medians, extra time and extra tokens, as a percentage of A's.
-- Your rewrite of the skill is version 0.2.0; it runs only when called. Installs are links to a folder you keep current, so experiments freeze a copy with `skill:<folder>`.
+- Your rewrite of the skill is version 0.2.0; it runs only when called. Installs are links to a folder you keep current, so experiments freeze a copy with `skill:<folder>`. Since 2026-11-06 it is the reference, not the base, for the grown skill.
 - Python 3.11+, standard library only, managed with uv; data under `~/.briefbench/`.
 
 ## Deferred

@@ -2,7 +2,7 @@
 
 A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** the `brief` skill (0.2.0) and the bench (`init`, `ab`, `score`, `clean`, an optional judge) are built. The judge and the skill's headless calls pass live tests through Claude Code and Codex on subscription plans, and `ab` has run live through Codex, but not yet on a real task since this revision. Still owed: the skill's acceptance on real prompts in two hosts, a real trial on each plan, and any experiment. Nothing here shows yet that the brief improves results. See the [build plan](docs/build-plan.md).
+> **Status:** the `brief` skill (0.2.0) and the bench (`init`, `ab`, `score`, `clean`, an optional judge) are built. The judge and the skill's headless calls pass live tests through Claude Code and Codex on subscription plans, and `ab` has run live through Codex, but not yet on a real task since this revision. Since 2026-11-06 the bench also runs unattended trials on generated tasks with a planted answer, scored by the check alone, to test tricks from recent prompting posts one at a time; the skill will grow from empty, keeping only instructions that win. Still owed: the skill's acceptance on real prompts in two hosts, a real trial on each plan, and any experiment. Nothing here shows yet that the brief, or any trick, improves results. See the [build plan](docs/build-plan.md).
 
 ## Why
 
@@ -82,11 +82,11 @@ Read [AGENTS.md](AGENTS.md) and [docs/design.md](docs/design.md) before changing
 | Phase | What you get | Status |
 |---|---|---|
 | Built | `/brief`; `init`, `ab`, `score`, `clean`; the judge; the skill's own questions, `clarified`, fidelity reviews, two decision rules | Done; live tests of the judge and headless calls pass through Claude Code and Codex |
-| P0 Readiness | The skill accepted on real prompts in two hosts; a real trial on each plan, Claude Code and Codex as the worker; public release basics | In progress: acceptance and trials need your real prompts and tasks |
-| P1 Pilot | Five noise checks and about ten real trials | Not started |
-| P2 Small additions | Only what the pilot shows is missing, such as replaying logged tasks | Not started |
-| P3 First study | Your original prompts against the brief, under a frozen rule | Not started |
-| P4 Claim to release | One claim taken through a variant to a recorded decision | Not started |
+| P0 Readiness | The skill accepted on real prompts in two hosts; a real trial on each plan, Claude Code and Codex as the worker; public release basics. No release yet | In progress: acceptance and trials need your real prompts and tasks |
+| P1 Unattended trials | Task files, check-only scoring, generated tasks with a planted answer, and a pilot of the first trick | In progress |
+| P2 Posts under test | Each trick from a recent post, one at a time, on materials that fit it | Not started |
+| P3 The skill grows from empty | Growth rounds, starting with letting the agent interview you | Not started |
+| P4 First public release | The grown skill, with every result published | Not started |
 | P5 Replication | An outside reproduction, and rerunning tasks after a model change | Not started |
 
 ## License

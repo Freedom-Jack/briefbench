@@ -8,6 +8,16 @@ from .experiment import rule_kind
 from .stats import decide, decide_fixed, interval, net_interval, sign_test
 
 
+# Tie kinds and how the report names them. Your picks give the first two, in decision.tie; a check-scored experiment
+# gives the last two, in decision.check_tie, since nobody judged whether its results were good enough.
+TIE_KINDS = {"both_acceptable": "both good enough", "both_unacceptable": "neither",
+             "both_passed": "both passed the check", "both_failed": "both failed the check"}
+
+
+def _tie_kind(decision: dict):
+    return decision.get("check_tie") or decision.get("tie")
+
+
 def _cost(arm: dict, field: str):
     """An arm's time or tokens, with the headless calls that wrote its brief included; None when unknown."""
     value, brief = arm[field], arm.get("brief")
@@ -64,7 +74,7 @@ def summary(exp: dict, entries: list[dict]) -> dict:
     interim = kind == "fixed" and len(used) < rule["trials"]       # a fixed rule shows no test before all N are in
     winners = [t["decision"]["winner"] for t in used if t["decision"]["winner"] in ("a", "b")]
     wins, losses = winners.count("b"), winners.count("a")
-    ties = [t["decision"].get("tie") for t in used if t["decision"]["winner"] == "tie"]
+    ties = [_tie_kind(t["decision"]) for t in used if t["decision"]["winner"] == "tie"]
     if kind == "fixed":
         state, rule_wins, rule_pairs = decide_fixed(wins, losses, len(used), rule), wins, wins + losses
     else:
@@ -93,11 +103,11 @@ def summary(exp: dict, entries: list[dict]) -> dict:
                              | {v for v in [(exp.get("worker") or {}).get("version")] if v})
     return {
         "experiment": exp["name"], "a": exp["a"]["spec"], "b": exp["b"]["spec"], "rule": rule,
+        "scoring": exp.get("scoring", "pick"),
         "worker": {k: (exp.get("worker") or {}).get(k) for k in ("agent", "model", "version")},
         "trials": len(used), "beyond_plan": len(trials) - len(used),
         "wins_b": wins, "wins_a": losses, "ties": len(ties),
-        "ties_by_kind": {k: sum(t == k for t in ties) for k in ("both_acceptable", "both_unacceptable")}
-        | {"not_recorded": sum(t is None for t in ties)},
+        "ties_by_kind": {k: sum(t == k for t in ties) for k in TIE_KINDS} | {"not_recorded": sum(t is None for t in ties)},
         "decided_by": {by: sum(t["decision"]["by"] == by for t in used) for by in ("check", "you")},
         "interim": interim,
         "net_preference": (wins - losses) / len(used) if used and not interim else None,
@@ -126,11 +136,25 @@ def summary(exp: dict, entries: list[dict]) -> dict:
                   "rewriter": _settings(exp.get("rewriter")), "judge": _settings(exp.get("judge")),
                   "task_types": {k: sum((t.get("task") or {}).get("type") == k for t in used)
                                  for k in sorted({(t.get("task") or {}).get("type") or "unknown" for t in used})},
+                  "materials": _materials(used),
                   "first_trial": min((t.get("ts") for t in used if t.get("ts")), default=None),
                   "last_trial": max((t.get("ts") for t in used if t.get("ts")), default=None)},
         "trial_ids": [t.get("id") for t in used],
+        "task_ids": [((t.get("task") or {}).get("source") or {}).get("id") for t in used],
+        "looked_outside": sum(any(t["arms"][s].get("looked_outside") for s in "ab") for t in used),
         "briefbench_version": __version__,
     }
+
+
+def _materials(trials) -> dict:
+    """How many trials came from each material set; "interactive" counts trials typed into ab, "unnamed" task files
+    that name no set. A finding holds for its materials, and different materials are never pooled."""
+    counts = {}
+    for t in trials:
+        source = (t.get("task") or {}).get("source")
+        name = "interactive" if not source else source.get("set") or "unnamed"
+        counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 def _settings(role: dict | None) -> dict | None:
@@ -174,10 +198,24 @@ def report(exp: dict, entries: list[dict]) -> str:
     worker = s["worker"]
     lines = [f"Experiment {s['experiment']}: A is {s['a']}, B is {s['b']}; worker {worker['agent']}, model "
              f"{worker['model'] or 'the CLI default'}."]
-    kinds = s["ties_by_kind"]
-    tie_kinds = (f" ({kinds['both_acceptable']} both good enough, {kinds['both_unacceptable']} neither"
-                 + (f", {kinds['not_recorded']} not recorded" if kinds["not_recorded"] else "") + ")"
-                 if kinds["both_acceptable"] + kinds["both_unacceptable"] else "")
+    kinds, check_only = s["ties_by_kind"], s["scoring"] == "check"
+    if check_only:
+        lines.append("Scored by the check alone: an arm wins only when it passes and the other fails.")
+    materials = s["scope"]["materials"]
+    if set(materials) - {"interactive"}:
+        lines.append("Materials: " + ", ".join(f"{name} ({n} trial{'s' if n != 1 else ''})"
+                                                for name, n in sorted(materials.items()))
+                     + (". More than one kind: a finding holds for each apart, never pooled." if len(materials) > 1
+                        else "."))
+    if s["looked_outside"]:
+        lines.append(f"In {s['looked_outside']} trial{'s' if s['looked_outside'] != 1 else ''} an agent's output "
+                     "names the data folder, where the answer keys and records live: check its log, and treat a "
+                     "real look as a protocol violation.")
+    shown = ([f"{kinds[k]} {TIE_KINDS[k]}" for k in ("both_passed", "both_failed")] if check_only and s["ties"]
+             else [f"{kinds[k]} {TIE_KINDS[k]}" for k in ("both_acceptable", "both_unacceptable")]
+             if kinds["both_acceptable"] + kinds["both_unacceptable"] else [])
+    shown += [f"{kinds['not_recorded']} not recorded"] if shown and kinds["not_recorded"] else []
+    tie_kinds = f" ({', '.join(shown)})" if shown else ""
     lines.append(f"Trials: {s['trials']}. B won {s['wins_b']}, A won {s['wins_a']}, {s['ties']} ties{tie_kinds}.")
     if s["beyond_plan"]:
         after = (f"the planned {exp['rule']['trials']}" if rule_kind(exp["rule"]) == "fixed" else "the rule's verdict")
@@ -214,8 +252,9 @@ def report(exp: dict, entries: list[dict]) -> str:
         lines.append("Judge: off.")
     lines.append(f"The longer diff won {_pct(s['longer_diff_won']['won'], s['longer_diff_won']['of'])} decided pairs "
                  "with diffs of different sizes.")
-    lines.append(f"Your guesses of which side got B: {_pct(s['guesses']['right'], s['guesses']['of'])} right; about "
-                 "half means the blinding holds.")
+    if not check_only:                  # with the check alone nobody picks, so nobody guesses
+        lines.append(f"Your guesses of which side got B: {_pct(s['guesses']['right'], s['guesses']['of'])} right; "
+                     "about half means the blinding holds.")
     lines.append(f"Noise checks (A against A): {s['noise_checks']['count']}, with a winner in "
                  f"{s['noise_checks']['with_winner']}; often a winner there means high noise.")
     failed = s["failed"]
