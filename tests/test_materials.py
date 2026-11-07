@@ -1,11 +1,13 @@
 """scripts/materials/planted_cause.py and scripts/run_tasks.py: generated tasks with a planted answer, their checker,
 and the unattended runner, offline. Every file is written under a temporary folder."""
+import contextlib
 import csv
 import importlib.util
 import io
 import json
 import os
 import subprocess
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -64,52 +66,117 @@ def test_a_set_is_a_list_of_task_files_with_a_planted_answer(made):
         assert task["type"] == "analysis" and "Main driver: <column name>" in task["prompt"]
         assert subprocess.run(["git", "status", "--porcelain"], cwd=task["repo"], capture_output=True,
                               text=True).stdout == ""
-        belief = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])["factors"]
-        assert belief[truth["belief"]][3].split(":")[0] in task["prompt"]          # the prompt states the belief
+        domain = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])
+        stated = (domain["sources"][truth["belief"]]["belief"] if truth["belief"] in domain["sources"]
+                  else domain["factors"][truth["belief"]][3])
+        assert stated.split(":")[0] in task["prompt"]                              # the prompt states the belief
+        assert f"data/{domain['file']}" in task["prompt"] and ".csv" not in task["prompt"].replace(domain["file"], "")
+        readme = (Path(task["repo"]) / "README.md").read_text()                     # every file is documented
+        assert all(f"data/{name}" in readme for name in [domain["file"], *(s["file"] for s in domain["sources"].values())])
         key = json.loads((path.parent / "key.json").read_text())
         assert all(len(h) == 64 for h in key["accepted"]) and truth["driver"] not in json.dumps(key["accepted"])
         repo = Path(task["repo"])                   # nothing in the repo names the task, its seed or its key
         assert keys not in repo.parents and "seed" not in "".join(f.read_text() for f in repo.rglob("*.md"))
 
 
-def test_the_checker_takes_the_planted_driver_and_nothing_else(made):
-    """The last `Main driver:` line counts, and its first named column: the column alone, with its level, or the
-    level when it isn't yes or no. Naming the decoy first, or two columns joined by "and", fails."""
+def verdict(task_file, answer, folder):
+    """The checker's verdict in this process, which is quicker than its command: 0 right, 1 wrong."""
+    (folder / "report.md").write_text(f"# Findings\n\nThe numbers.\n\n**Main driver:** `{answer}`\n")
+    with contextlib.redirect_stdout(io.StringIO()):
+        return planted.check(task_file.parent / "key.json", folder / "report.md")
+
+
+def test_the_checker_takes_the_planted_driver_and_nothing_else(made, tmp_path):
+    """The last `Main driver:` line counts, and what its first words name, however it is spelled: the column alone,
+    with its table or its level, the table, the bad level, the belief's own words or a plain phrase. The decoy, the
+    other event table, or the decoy named first, fail."""
     keys, answers = made
     for path in task_files(keys):
         truth = answers[json.loads(path.read_text())["id"]]
+        domain = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])
         driver, decoy = truth["driver"], truth["decoy"]
-        level = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])["factors"][driver][2]
-        assert grade(path, driver) == 0 and grade(path, f"{driver} (by far)") == 0
-        assert grade(path, f"{driver} = {level}") == 0 and grade(path, f"{driver}, then {decoy}") == 0
-        assert grade(path, level) == (1 if level in ("yes", "no") else 0)
-        assert grade(path, decoy) == 1 and grade(path, f"{decoy} and {driver}") == 1
-        assert grade(path, f"{decoy}, {driver}") == 1 and grade(path, None) == 1
+        noise = next(name for name in domain["sources"] if name != driver)
+        source, other = domain["sources"][driver], domain["sources"][noise]
+        stem, other_stem = Path(source["file"]).stem, Path(other["file"]).stem
+        assert grade(path, driver) == 0 and grade(path, decoy) == 1 and grade(path, None) == 1     # the command
+        for answer in (f"{driver} (by far)", f"{driver} = {source['bad']}", f"{driver}, then {decoy}", source["bad"],
+                       source["phrases"][0].replace("_", " "), stem, f"data/{source['file']}", f"{stem}.{driver}",
+                       f"has_{source['phrases'][0]}", source["belief"].split(":")[0], f"the {driver}",
+                       f"{Path(domain['file']).stem} with {source['phrases'][0].replace('_', ' ')}"):
+            assert verdict(path, answer, tmp_path) == 0, answer
+        for answer in (f"the {decoy}", f"{Path(domain['file']).stem}.{decoy}", f"{decoy} and {driver}",
+                       f"{decoy}, {driver}", noise, f"{other_stem}.{noise}", other_stem, other["bad"],
+                       *(p.replace("_", " ") for p in other["phrases"]), other["belief"].split(":")[0],
+                       f"has_{other['phrases'][0]}", domain["outcome"], domain["id"]):
+            assert verdict(path, answer, tmp_path) == 1, answer
+
+
+def rows(repo, name):
+    with (repo / "data" / name).open() as f:
+        return list(csv.DictReader(f))
+
+
+def test_every_event_falls_in_its_rows_span(made):
+    """Events come within 90 days of a signup, 14 days of an order, or on the days a shipment is on the road, which
+    the weather table lists one by one and the scans keep to. Nothing is dated after the export."""
+    keys, answers = made
+    for path in task_files(keys):
+        task = json.loads(path.read_text())
+        repo = Path(task["repo"])
+        domain = next(d for d in planted.DOMAINS if d["name"] == answers[task["id"]]["domain"])
+        own = {r[domain["id"]]: r[domain["date"]] for r in rows(repo, domain["file"])}
+        days = {}
+        for name, source in domain["sources"].items():
+            for r in rows(repo, source["file"]):
+                days.setdefault(name, {}).setdefault(r[domain["id"]], []).append(date.fromisoformat(r[source["date"]]))
+        for name, source in domain["sources"].items():
+            for eid, seen in days[name].items():
+                if domain["date"] == "ship_week":
+                    week = int(own[eid][-2:])
+                    first, last = max(date.fromisocalendar(2026, week, 1), date(2026, 1, 1)), \
+                        date.fromisocalendar(2026, week, 7)
+                else:
+                    first, last = date(2026, int(own[eid][-2:]), 1), date(2026, int(own[eid][-2:]), 28)
+                assert first <= min(seen) and max(seen) <= last + timedelta(days=domain["span"] - 1) < date(2026, 10, 1)
+                assert seen == sorted(seen)
+                if source.get("daily"):
+                    assert seen == [seen[0] + timedelta(days=k) for k in range(len(seen))]
+        if domain["name"] == "delays":
+            assert len(days["weather"]) == len(own)                     # every shipment has its days on the road
+            assert all(set(seen) <= set(days["weather"][eid]) for eid, seen in days["scan_result"].items())
 
 
 def test_the_decoy_only_looks_like_a_cause(made):
-    """In a plain breakdown the decoy's bad level shows more of the outcome; within each side of the real driver
-    it shows almost none, and the real driver's gap is the larger one."""
+    """In the main table the decoy's bad level shows more of the outcome and stands out from the other columns. Joined
+    with its event table, the real driver's gap is the larger one, and within each side of it the decoy shows
+    nothing beyond sampling noise."""
     keys, answers = made
     for path in task_files(keys):
         truth = answers[json.loads(path.read_text())["id"]]
-        [data] = (Path(json.loads(path.read_text())["repo"]) / "data").glob("*.csv")
-        rows = list(csv.DictReader(data.open()))
-        outcome = list(rows[0])[-1]
+        repo = Path(json.loads(path.read_text())["repo"])
         domain = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])
-        bad = {f: domain["factors"][f][2] for f in (truth["driver"], truth["decoy"])}
+        main = list(csv.DictReader((repo / "data" / domain["file"]).open()))
+        source = domain["sources"][truth["driver"]]
+        events = csv.DictReader((repo / "data" / source["file"]).open())
+        hit = {r[domain["id"]] for r in events if r[truth["driver"]] == source["bad"]}
+        outcome, decoy_bad = domain["outcome"], domain["factors"][truth["decoy"]][2]
 
-        def gap(rows, factor):
-            """The outcome rate's gap between the bad level and the rest, and its standard error."""
-            yes = [r[outcome] == "yes" for r in rows if r[factor] == bad[factor]]
-            no = [r[outcome] == "yes" for r in rows if r[factor] != bad[factor]]
+        def gap(rows, inside):
+            """The outcome rate's gap between rows where `inside` holds and the rest, and its standard error."""
+            yes = [r[outcome] == "yes" for r in rows if inside(r)]
+            no = [r[outcome] == "yes" for r in rows if not inside(r)]
             p = (sum(yes) + sum(no)) / (len(yes) + len(no))
             return sum(yes) / len(yes) - sum(no) / len(no), (p * (1 - p) * (1 / len(yes) + 1 / len(no))) ** 0.5
 
-        assert gap(rows, truth["driver"])[0] > gap(rows, truth["decoy"])[0] > 0.04
+        is_decoy = lambda r: r[truth["decoy"]] == decoy_bad
+        driver_gap, decoy_gap = gap(main, lambda r: r[domain["id"]] in hit)[0], gap(main, is_decoy)[0]
+        assert driver_gap > decoy_gap > 0.04
+        for other, (levels, *_rest) in domain["factors"].items():   # the decoy stands out in the main table
+            if other != truth["decoy"]:
+                assert all(gap(main, lambda r: r[other] == level)[0] < decoy_gap for level in levels)
         for side in (True, False):
-            split = [r for r in rows if (r[truth["driver"]] == bad[truth["driver"]]) == side]
-            difference, error = gap(split, truth["decoy"])
+            split = [r for r in main if (r[domain["id"]] in hit) == side]
+            difference, error = gap(split, is_decoy)
             assert abs(difference) < 3 * error             # no effect of its own, up to sampling noise
 
 
@@ -136,7 +203,7 @@ def test_make_never_writes_into_an_existing_set(made, tmp_path):
 def freeze(repo, tmp_path):
     tip = tmp_path / "tip.md"
     tip.write_text("Treat my belief as a hypothesis.\n")
-    return cli.run(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "codex", "--worker-model",
+    return cli.run(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "claude-code", "--worker-model",
                     "", "--judge", "none", "--cap", "50", "--rule", "fixed:10", "--net-min", "0.05", "--scoring",
                     "check", "-y"], stdin=io.StringIO(""), stderr=io.StringIO(), cwd=repo)
 
@@ -186,6 +253,7 @@ def test_the_runner_stops_when_an_arm_names_the_data_folder(agents, made, repo, 
     keys, _ = made
     freeze(repo, tmp_path)
     monkeypatch.setenv("FAKE_WORKER", "peek")
+    monkeypatch.setenv("FAKE_PEEK", f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
     assert runner.main([str(keys / "tasks.txt"), "--experiment", "exp"]) == 1
     assert len(log()) == 1 and log()[0]["arms"]["a"]["looked_outside"]
 

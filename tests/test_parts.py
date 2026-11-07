@@ -36,6 +36,11 @@ def test_replies_are_parsed_from_each_cli():
     assert structured.text == '{"verdict": "[[A=B]]"}'
     assert AGENTS["claude-code"].parse('{"is_error":true,"subtype":"error_max_turns"}').error == "error_max_turns"
     assert AGENTS["claude-code"].parse("not json").error
+    cut = '{"type":"system","subtype":"init"}\n{"type":"assistant","message":{"content":[]}}\n'    # no result line
+    assert AGENTS["claude-code"].parse(cut).error == "no JSON result on stdout"
+    streamed = AGENTS["claude-code"].parse('{"type":"system","subtype":"init"}\n{"type":"result","is_error":false,'
+                                           '"result":"done","usage":{"output_tokens":2}}\n')
+    assert (streamed.text, streamed.tokens, streamed.error) == ("done", 2, None)
     codex = AGENTS["codex"].parse(
         '{"type":"item.completed","item":{"type":"agent_message","text":"one"}}\nnoise\n'
         '{"type":"item.completed","item":{"type":"agent_message","text":"two"}}\n'

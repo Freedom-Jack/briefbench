@@ -42,7 +42,8 @@ role = ("asker" if schema and "<skill>" in prompt else "judge" if schema
         else "worker" if "acceptEdits" in args or "workspace-write" in args else "rewriter")
 with open(env["FAKE_CALLS"], "a") as calls:
     calls.write(json.dumps({"name": name, "role": role, "argv": args, "cwd": os.getcwd(),
-                            "keys": sorted(k for k in env if k.endswith(("_API_KEY", "_BASE_URL")))}) + "\n")
+                            "keys": sorted(k for k in env if k.endswith(("_API_KEY", "_BASE_URL"))),
+                            "data_home": "BRIEFBENCH_HOME" in env}) + "\n")
 
 if role == "asker":
     mode = env.get("FAKE_ASKER", "one")
@@ -75,8 +76,12 @@ elif role == "worker":
         else:
             print(json.dumps({"type": "turn.failed", "error": {"message": "You've hit your usage limit."}}))
         sys.exit(1)
-    if mode == "peek":                          # an arm that went looking in the data folder
-        print(f"ls {env.get('BRIEFBENCH_HOME', '')}/keys", file=sys.stderr)
+    if mode == "peek":                          # an arm that ran a command looking somewhere: $FAKE_PEEK says what
+        print(env.get("FAKE_PEEK", ""), file=sys.stderr)
+    if mode == "cutoff":                        # stopped before its result line, as a timeout or a crash leaves it
+        if name == "claude":
+            print(json.dumps({"type": "system", "subtype": "init"}))
+            sys.exit(1)
     Path("result.txt").write_text("brief\n" if "BRIEF" in prompt else "original\n")
     if mode in ("edit-tests", "edit-tests-and-new"):
         Path("tests/test_x.py").write_text("# weakened\n")

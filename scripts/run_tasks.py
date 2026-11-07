@@ -11,7 +11,7 @@ It stops, so that you can look before more plan usage is spent:
 - after --limit trials;
 - when a trial step fails, including an arm stopped by a usage limit or an outage. `ab` logs the trial as failed,
   and the next run retries that task once, as the protocol asks; a task that failed twice is a missing outcome;
-- when an arm's output names the data folder, where the answer keys and records live;
+- when an arm's output names a folder it must not read: the data folder, the answer keys or the other arm;
 - at any other error, or when you cancel.
 After each trial it runs `briefbench clean`. Standard library and briefbench only.
 """
@@ -82,8 +82,8 @@ def main(argv=None) -> int:
         ran += 1
         newest = lines(exp)[-1]
         if any(newest["arms"][side].get("looked_outside") for side in "ab"):
-            print(f"Stopped: an arm's output in task {task['id']}'s trial names the data folder. Read its log in "
-                  f"{newest['output']} before going on.", file=sys.stderr)
+            print(f"Stopped: an arm's output in task {task['id']}'s trial names a folder it must not read. Read its "
+                  f"log in {newest['output']} before going on.", file=sys.stderr)
             return 1
         if args.limit and ran >= args.limit:
             break

@@ -35,7 +35,7 @@ def tip(tmp_path):
 
 
 def init(cwd, b, *extra):
-    return bench(["init", "exp", "--a", "original", "--b", b, "--worker", "codex", "--worker-model", "",
+    return bench(["init", "exp", "--a", "original", "--b", b, "--worker", "claude-code", "--worker-model", "",
                   "--judge", "none", "--cap", "50", "-y", *extra], cwd=cwd)
 
 
@@ -111,7 +111,7 @@ def test_a_task_file_can_pin_its_commit(agents, repo, tip, tmp_path):
 
 @pytest.mark.parametrize("a", ["original", "clarified"])
 def test_a_task_file_does_not_run_a_skill_treatment_yet(agents, repo, tmp_path, a):
-    assert bench(["init", "exp", "--a", a, "--b", f"skill:{SKILL}", "--worker", "codex", "--worker-model",
+    assert bench(["init", "exp", "--a", a, "--b", f"skill:{SKILL}", "--worker", "claude-code", "--worker-model",
                   "", "--rewriter", "codex", "--rewriter-model", "", "--judge", "none", "--cap", "50", "--rule",
                   "fixed:10", "--net-min", "0.05", "--scoring", "check", "-y"], cwd=repo)[0] == 0
     code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)
@@ -146,6 +146,7 @@ def test_each_arm_gets_its_own_clone_outside_the_data_folder(agents, repo, tip, 
 
 def test_an_arm_that_names_the_data_folder_is_flagged(agents, repo, tip, tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_WORKER", "peek")
+    monkeypatch.setenv("FAKE_PEEK", f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
     init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
     assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
     [t] = entries()
@@ -153,7 +154,18 @@ def test_an_arm_that_names_the_data_folder_is_flagged(agents, repo, tip, tmp_pat
     from briefbench import experiment, score
     exp = experiment.load("exp", os.environ)
     assert score.summary(exp, entries())["looked_outside"] == 1
-    assert "names the data folder" in score.report(exp, entries())
+    assert "names a folder it must not read" in score.report(exp, entries())
+
+
+def test_a_path_that_only_starts_like_the_data_folder_is_not_flagged(agents, repo, tip, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_WORKER", "peek")
+    monkeypatch.setenv("FAKE_PEEK", f"ls {os.environ['BRIEFBENCH_HOME']}-elsewhere/x")
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    assert t["arms"]["a"]["looked_outside"] is False and t["arms"]["b"]["looked_outside"] is False
+    meta = json.loads(Path(t["output"], "meta.json").read_text())
+    assert all(not path.startswith(os.environ["BRIEFBENCH_HOME"]) for path in meta["clones"].values())
 
 
 def test_an_arm_stopped_by_the_service_fails_the_trial_instead_of_losing_it(agents, repo, tip, tmp_path, monkeypatch):
@@ -162,17 +174,44 @@ def test_an_arm_stopped_by_the_service_fails_the_trial_instead_of_losing_it(agen
     code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)
     assert code == 4 and "measures the service" in err
     [f] = entries()
-    assert f["kind"] == "failed" and f["stage"] == "run" and "usage limit" in f["error"]
+    assert f["kind"] == "failed" and f["stage"] == "run" and "reported an error" in f["error"]
 
 
-def test_the_worker_never_gets_the_hidden_check(agents, repo, tip, tmp_path):
-    """A Claude Code worker may run exactly the check command in pick-scored experiments; never the hidden one."""
+def test_the_worker_never_gets_the_hidden_check_and_works_sandboxed(agents, repo, tip, tmp_path):
+    """Scored by the check alone, a Claude Code worker gets no check command, may run any shell command inside
+    its sandbox, and is barred from the data folder and from the other arm's folder."""
     assert bench(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "claude-code",
                   "--worker-model", "", "--judge", "none", "--cap", "50", "--rule", "fixed:10", "--net-min", "0.05",
                   "--scoring", "check", "-y"], cwd=repo)[0] == 0
+    assert "--settings" in json.loads((Path(os.environ["BRIEFBENCH_HOME"]) / "experiments" / "exp.json")
+                                      .read_text())["worker"]["argv"]                    # frozen with the experiment
     assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    clones = json.loads(Path(t["output"], "meta.json").read_text())["clones"]
     workers = [c for c in agents() if c["role"] == "worker"]
-    assert workers and not any("grep -q brief" in arg for c in workers for arg in c["argv"])
+    assert len(workers) == 2
+    for call in workers:
+        argv = call["argv"]
+        assert not any("grep -q brief" in arg or arg.startswith("--allowedTools") for arg in argv)
+        assert argv[argv.index("--output-format") + 1] == "stream-json"
+        settings = json.loads(argv[argv.index("--settings") + 1])
+        assert settings["sandbox"]["enabled"] and settings["sandbox"]["failIfUnavailable"]
+        mine = next(side for side, path in clones.items() if Path(path).resolve() == Path(call["cwd"]).resolve())
+        theirs = str(Path(clones["b" if mine == "a" else "a"]).parent)
+        assert settings["sandbox"]["filesystem"]["denyRead"] == [os.environ["BRIEFBENCH_HOME"], theirs]
+        assert settings["permissions"]["deny"] == [f"Read(/{os.environ['BRIEFBENCH_HOME']}/**)", f"Read(/{theirs}/**)"]
+        assert settings["permissions"]["allow"] == ["Bash"] and not settings["sandbox"]["allowUnsandboxedCommands"]
+
+
+def test_a_pick_scored_worker_keeps_its_one_allowed_command(agents, repo, tip):
+    """Outside check scoring nothing changes: a Claude Code worker may run exactly your check, and no sandbox."""
+    assert bench(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "claude-code",
+                  "--worker-model", "", "--judge", "none", "--cap", "50", "-y"], cwd=repo)[0] == 0
+    typed = "\n".join(["", "", "", "code", "", "", "goal", "grep -q brief result.txt"]) + "\n" + "n\n"
+    assert bench(["ab", "Make result.txt say what it is"], typed, cwd=repo)[0] == 0
+    workers = [c for c in agents() if c["role"] == "worker"]
+    assert all("--allowedTools=Bash(grep -q brief result.txt:*)" in c["argv"] and "--settings" not in c["argv"]
+               for c in workers)
 
 
 @pytest.mark.parametrize("change,words", [
@@ -197,13 +236,6 @@ def test_a_task_file_and_a_prompt_are_one_or_the_other(agents, repo, tip, tmp_pa
     assert code == 2 and "not both" in err
 
 
-def test_a_check_scored_trial_needs_a_check(agents, repo, tip):
-    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
-    typed = "\n".join(["", "", "", "code", "", "", "goal", "none"]) + "\n"
-    code, err = bench(["ab", "Make result.txt say what it is"], typed, cwd=repo)
-    assert code == 2 and "needs a check" in err and entries() == [] and agents() == []
-
-
 def test_task_file_protected_paths_are_a_list(agents, repo, tip, tmp_path, monkeypatch):
     """Paths come as a list, so a comma in a path is just a comma; a protected change fails that arm's check."""
     (repo / "tests" / "a,b.py").write_text("x = 1\n")
@@ -216,3 +248,79 @@ def test_task_file_protected_paths_are_a_list(agents, repo, tip, tmp_path, monke
     [t] = entries()
     assert t["settings"]["protected"] == ["tests/test_x.py", "tests/a,b.py"]
     assert t["arms"]["a"]["protected_changed"] and t["decision"]["check_tie"] == "both_failed"
+
+
+def test_a_worker_that_cant_be_confined_doesnt_run_check_scored_experiments(agents, repo, tip):
+    code, err = bench(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "codex", "--worker-model",
+                       "", "--judge", "none", "--cap", "50", "--rule", "fixed:10", "--net-min", "0.05", "--scoring",
+                       "check", "-y"], cwd=repo)
+    assert code == 2 and "can't yet be kept from reading other folders" in err
+
+
+def test_check_scoring_runs_task_files_only(agents, repo, tip):
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    code, err = bench(["ab", "Make result.txt say what it is"], "", cwd=repo)
+    assert code == 2 and "--task" in err and entries() == [] and agents() == []
+
+
+def test_each_arm_is_kept_from_the_keys_and_from_leftover_clones(agents, repo, tip, tmp_path):
+    """The deny list covers the data folder, the folder of task files and keys, the other arm and any earlier
+    trial's leftover clone; never a folder the arm itself works in. The arm gets no BRIEFBENCH_HOME, and its clone
+    keeps no reflog naming the task's folder."""
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    keys = tmp_path / "keys" / "t-001"
+    keys.mkdir(parents=True)
+    path = task_file(keys, repo)
+    runs = Path(os.environ["HOME"], ".cache", "briefbench-runs")
+    (runs / "briefbench-leftover" / "work").mkdir(parents=True)
+    assert bench(["ab", "--task", str(path)], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    clones = json.loads(Path(t["output"], "meta.json").read_text())["clones"]
+    for call in [c for c in agents() if c["role"] == "worker"]:
+        argv = call["argv"]
+        denied = json.loads(argv[argv.index("--settings") + 1])["sandbox"]["filesystem"]["denyRead"]
+        mine = Path(call["cwd"]).resolve().parent
+        assert os.environ["BRIEFBENCH_HOME"] in denied and str(tmp_path / "keys") in denied
+        assert str(runs / "briefbench-leftover") in denied
+        assert not any(mine == Path(d).resolve() or Path(d).resolve() in mine.parents for d in denied)
+        assert call["data_home"] is False
+    for clone in clones.values():
+        logs = cli.runner.git(Path(clone), "reflog", "--all")
+        assert str(repo) not in logs and not (Path(clone) / ".git" / "logs").exists()
+
+
+def test_a_look_spelt_from_the_home_folder_is_flagged(agents, repo, tip, tmp_path, monkeypatch):
+    monkeypatch.setenv("BRIEFBENCH_HOME", os.path.join(os.environ["HOME"], ".bbdata"))
+    monkeypatch.setenv("FAKE_WORKER", "peek")
+    monkeypatch.setenv("FAKE_PEEK", "cat ~/.bbdata/keys/x")
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    assert t["arms"]["a"]["looked_outside"] and t["arms"]["b"]["looked_outside"]
+
+
+def test_a_data_folder_that_clashes_with_the_runs_folder_is_refused(agents, repo, tip, tmp_path, monkeypatch):
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    clash = os.path.join(os.environ["HOME"], ".cache", "briefbench")
+    import shutil
+    shutil.copytree(os.environ["BRIEFBENCH_HOME"], clash)
+    monkeypatch.setenv("BRIEFBENCH_HOME", clash)
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)
+    assert code == 3 and "start alike" in err
+
+
+def test_a_run_cut_off_before_its_result_fails_the_trial(agents, repo, tip, tmp_path, monkeypatch):
+    """No result line means the service or the sandbox failed: the trial is logged as failed, to be rerun."""
+    monkeypatch.setenv("FAKE_WORKER", "cutoff")
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)
+    assert code == 4 and "no JSON result" in err
+    assert entries()[0]["kind"] == "failed"
+
+
+def test_an_arm_stopped_at_the_timeout_is_an_outcome(agents, repo, tip, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_WORKER", "sleep")
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check", "--timeout", "0.02")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo, check="true"))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    assert t["kind"] == "trial" and t["arms"]["a"]["timed_out"] and t["arms"]["a"]["error"]

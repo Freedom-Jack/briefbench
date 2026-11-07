@@ -2,7 +2,10 @@
 their key variables. The rest of briefbench runs an agent CLI through an `Agent`, without knowing which one.
 
 Flags were checked on 2026-11-03 against Claude Code 2.1.309 and Codex 0.166 (docs/design.md, "Sources"). The
-asker role, added on 2026-11-05, reuses the rewriter's read-only tools and the judge's schema flags.
+asker role, added on 2026-11-05, reuses the rewriter's read-only tools and the judge's schema flags. On 2026-11-06 a task-worker
+role was added, checked against Claude Code 2.1.317: the worker of experiments scored by the check alone, confined so
+it can't read the answer key, the records or the other arm. Its stream-json output ends with the same result object
+that json prints, so one parser reads both.
 """
 from __future__ import annotations
 
@@ -25,6 +28,14 @@ KEY_ENVS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CODEX_API_KEY", "GEMIN
 _ROUTING = ("ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "CLAUDECODE")
 _KEEP = ("CLAUDE_CODE_OAUTH_TOKEN",)
 SKILL_DIRS = ("~/.claude/skills/brief", "~/.agents/skills/brief")    # where `brief` looks, in order
+# Claude Code's sandbox for the task-worker, checked against 2.1.317 on 2026-11-06: every shell command is allowed and
+# runs inside an OS sandbox that confines writes to the working folder and temp, and blocks reads of the {deny} folders
+# (the data folder and the other arm's folder), for the Read tool as well. It fails closed if the sandbox can't start.
+# Allowing Bash outright matters: without it, commands Claude Code can't analyse, such as `cat > $TMPDIR/x <<EOF`, still
+# asked for approval, which nobody can give in a headless run, and were denied.
+_SANDBOX = ('{"sandbox": {"enabled": true, "autoAllowBashIfSandboxed": true, "failIfUnavailable": true, '
+            '"allowUnsandboxedCommands": false, "filesystem": {"denyRead": {deny}}}, '
+            '"permissions": {"allow": ["Bash"], "deny": {deny_rules}}}')
 _SLOT = re.compile(r"\{(\w+)\}")
 
 
@@ -51,8 +62,10 @@ class Reply:
 @dataclass(frozen=True)
 class Agent:
     """One agent CLI. Role templates are arguments after the executable, with {prompt}, {model}, {check},
-    {schema} (a JSON Schema file) and {schema_json} (its text) slots. An argument that starts with "?" is left
-    out unless every slot in it has a value. There is no shell, so nothing needs quoting."""
+    {schema} (a JSON Schema file), {schema_json} (its text), {deny} (a JSON list of folders the worker may not read)
+    and {deny_rules} (the same as permission rules) slots. An argument that starts with "?" is left out unless every
+    slot in it has a value. There is no shell, so nothing needs quoting. confines_reads says whether its task-worker
+    can be kept from reading the {deny} folders; one that can't doesn't run experiments scored by the check alone."""
 
     name: str
     vendor: str
@@ -61,9 +74,10 @@ class Agent:
     login: tuple[str, ...]                    # arguments that report the login
     on_plan: Callable[[str], bool]            # that report -> logged in with a subscription
     login_fix: str
-    roles: Mapping[str, tuple[str, ...]]      # worker, rewriter, asker (the skill's questions), judge
+    roles: Mapping[str, tuple[str, ...]]      # worker, task-worker, rewriter, asker (the skill's questions), judge
     parse: Callable[[str], Reply]             # stdout -> Reply
     default_model: str = ""                   # "" leaves the model to the CLI
+    confines_reads: bool = False              # its task-worker can be kept out of the {deny} folders
 
     def find(self) -> str | None:
         for name in self.commands:
@@ -92,13 +106,17 @@ def _int(value) -> int:
 
 
 def _claude_reply(stdout: str) -> Reply:
+    """json prints one result object; stream-json prints events and then the same result object. A run cut off before
+    its result, at the timeout or by a crash, has no result: that is an error, whatever came before it."""
     data = None
-    for line in reversed(stdout.strip().splitlines()):       # --output-format json prints one result object
+    for line in reversed(stdout.strip().splitlines()):
         try:
-            data = json.loads(line)
-            break
+            found = json.loads(line)
         except ValueError:
             continue
+        if isinstance(found, dict) and found.get("type", "result") == "result":     # every stream event has a type
+            data = found
+            break
     if not isinstance(data, dict):
         return Reply("", None, None, "no JSON result on stdout")
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
@@ -146,6 +164,13 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
           {"worker": ("-p", "--output-format", "json", "--permission-mode", "acceptEdits", "--permission-prompts",
                       "none", "?--allowedTools=Bash({check}:*)", "--no-session-persistence", "?--model={model}",
                       "--", "{prompt}"),
+           # For experiments scored by the check alone: any shell command, inside the sandbox, never the check;
+           # each step in the output (stream-json), so the bench can scan it; no MCP servers, which run outside the
+           # sandbox; and none of your user-level settings, which could loosen it. Checked live against 2.1.317.
+           "task-worker": ("-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
+                           "--permission-prompts", "none", "--settings", _SANDBOX, "--strict-mcp-config",
+                           "--setting-sources", "project,local", "--no-session-persistence", "?--model={model}",
+                           "--", "{prompt}"),
            "rewriter": ("-p", "--output-format", "json", "--tools", "Read,Grep,Glob", "--permission-prompts", "none",
                         "--disable-slash-commands", "--no-session-persistence", "?--model={model}", "--", "{prompt}"),
            "asker": ("-p", "--output-format", "json", "--tools", "Read,Grep,Glob", "--json-schema", "{schema_json}",
@@ -153,12 +178,14 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
                      "?--model={model}", "--", "{prompt}"),
            "judge": ("-p", "--output-format", "json", "--tools", "", "--json-schema", "{schema_json}",
                      "--disable-slash-commands", "--no-session-persistence", "?--model={model}", "--", "{prompt}")},
-          _claude_reply, default_model="claude-opus-5-5"),
+          _claude_reply, default_model="claude-opus-5-5", confines_reads=True),
     Agent("codex", "openai", ("codex",),
           ("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",),
           ("login", "status"), lambda report: "chatgpt" in report.lower(),
           "Open the ChatGPT app, or run `codex login`, and sign in with ChatGPT rather than an API key.",
           {"worker": ("exec", "--json", "--ephemeral", "-s", "workspace-write", "?--model={model}", "--", "{prompt}"),
+           "task-worker": ("exec", "--json", "--ephemeral", "-s", "workspace-write", "?--model={model}", "--",
+                           "{prompt}"),
            "rewriter": ("exec", "--json", "--ephemeral", "-s", "read-only", "?--model={model}", "--", "{prompt}"),
            "asker": ("exec", "--json", "--ephemeral", "-s", "read-only", "--output-schema", "{schema}",
                      "?--model={model}", "--", "{prompt}"),
