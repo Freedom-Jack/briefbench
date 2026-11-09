@@ -146,7 +146,7 @@ def test_a_brief_that_fails_its_fidelity_review_is_not_adopted():
     s = score.summary(EXPERIMENT, entries)
     assert s["fidelity"]["b"] == {"reviewed": 2, "failed": 1, "added": 1, "dropped": 0, "changed": 0}
     assert s["verdict"] == {"state": "adopt", "rule_wins": 16, "rule_pairs": 20, "adopted": False,
-                            "blocked_by": ["1 of its briefs failed your fidelity review"]}
+                            "blocked_by": ["1 of its briefs failed your fidelity review"], "harm_bound": None}
     text = score.report(EXPERIMENT, entries)
     assert "but 1 of its briefs failed your fidelity review, so it is not adopted." in text
     assert "Fidelity reviews of B's briefs: 1 of 2 failed (added 1, dropped 0, changed 0)." in text
@@ -274,6 +274,76 @@ def test_noise_checks_give_a_calibration_for_each_kind_of_task():
             "belief-right: 19 of 20 runs passed, 1 of 10 tasks disagreed. belief-wrong: 24 of 40 runs passed, 4 of 20 "
             "tasks disagreed.") in score.report(CHECKED, entries)
     assert score.summary(EXPERIMENT, fixture_log())["noise_checks"]["by_stratum"] == {}
+
+
+STRATA = CHECKED | {"rule": fixed_rule(60, net_min=0),
+                    "strata": {"help": "belief-wrong", "harm": "belief-right", "margin": 0.10}}
+
+
+def by_kind(wrong, right):
+    """A check-scored log in which each kind of task has its own counts, (wins, losses, both passed, both failed),
+    the two kinds taking turns as a generator writes them."""
+    a = [of_kind(e, "belief-wrong") for e in check_log(*wrong)]
+    b = [of_kind(e, "belief-right") for e in check_log(*right)]
+    return [e for pair in zip(a, b) for e in pair] + a[len(b):] + b[len(a):]
+
+
+def test_the_rule_tests_where_b_should_help_and_bounds_the_loss_where_it_could_hurt():
+    entries = by_kind((12, 1, 10, 7), (0, 0, 30, 0))       # 30 belief-wrong trials, 30 belief-right ones
+    s = score.summary(STRATA, entries)
+    wrong, right = s["by_stratum"]["belief-wrong"], s["by_stratum"]["belief-right"]
+    assert (wrong["trials"], wrong["wins_b"], wrong["wins_a"], right["trials"], right["ties"]) == (30, 12, 1, 30, 30)
+    assert wrong["sign_test_p"] == sign_test(12, 1) and wrong["difference_interval"] == list(tango_interval(12, 1, 30))
+    assert right["pass_rates"]["a"] == {"passed": 30, "of": 30, "interval": list(interval(30, 30))}
+    lower = tango_interval(0, 0, 30)[0]                      # -11 points: no loss over 10 points is not shown
+    assert s["verdict"]["harm_bound"] == {"stratum": "belief-right", "margin": 0.10, "lower": lower, "shown": False}
+    assert (s["verdict"]["state"], s["verdict"]["rule_wins"], s["verdict"]["rule_pairs"]) == ("benefit", 12, 13)
+    assert not s["verdict"]["adopted"]
+    text = score.report(STRATA, entries)
+    assert ("Kinds of task, tested apart: belief-wrong, where B should help, is tested; belief-right, where it could "
+            "hurt, must show no loss over 10 points.") in text
+    assert "belief-wrong: 30 trials. B won 12, A won 1, 17 ties." in text
+    assert "  A loss of up to 11 points is not ruled out; at most 10 are accepted." in text
+    assert "Both kinds together, for description only:" in text
+    assert ("but a loss of up to 11 points on belief-right is not ruled out, and at most 10 are accepted, so it is "
+            "not adopted.") in text
+    shown = STRATA | {"strata": STRATA["strata"] | {"margin": 0.12}}                # 11 points is within 12
+    s = score.summary(shown, entries)
+    assert s["verdict"]["harm_bound"]["shown"] and s["verdict"]["adopted"]
+    text = score.report(shown, entries)
+    assert ("Verdict: adopt B. Where B should help (belief-wrong), over 30 trials B won 12 and A won 1 (p = 0.0034), "
+            "and where it could hurt (belief-right) no loss over 12 points is shown") in text
+    assert "  No loss over 12 points shown: the 95% interval's lower end is -11 points." in text
+
+
+def test_a_significant_loss_in_either_kind_is_worse():
+    entries = by_kind((3, 2, 20, 5), (0, 9, 21, 0))          # A wins 9 to 0 where B could hurt: p = 0.0039
+    s = score.summary(STRATA, entries)
+    assert s["verdict"]["state"] == "harm"
+    assert ("Verdict: B is worse on belief-right: A won 9 to B's 0 over 30 trials (p = 0.0039).") in \
+        score.report(STRATA, entries)
+
+
+def test_with_kinds_of_task_nothing_is_tested_before_all_trials_are_in():
+    entries = by_kind((12, 1, 10, 7), (0, 0, 29, 0))         # 59 of 60
+    s = score.summary(STRATA, entries)
+    assert s["interim"] and s["verdict"]["state"] == "collecting" and s["verdict"]["harm_bound"] is None
+    assert s["by_stratum"]["belief-wrong"]["sign_test_p"] is None and s["by_stratum"]["belief-wrong"]["trials"] == 30
+    text = score.report(STRATA, entries)
+    assert "p =" not in text and "95% interval" not in text.split("Verdict")[0]
+    assert "Both kinds together" not in text and "belief-right: 29 trials. B won 0, A won 0, 29 ties." in text
+    one = score.report(STRATA, by_kind((0, 0, 0, 1), (0, 0, 0, 0)))
+    assert "belief-wrong: 1 trial. B won 0, A won 0, 1 tie." in one and "belief-right: no trials yet." in one
+
+
+def test_kinds_without_a_frozen_rule_are_description_only():
+    entries = by_kind((3, 1, 1, 0), (1, 0, 4, 0))
+    exp = CHECKED | {"rule": fixed_rule(10, net_min=0)}
+    s = score.summary(exp, entries)
+    assert s["strata"] is None and s["verdict"]["harm_bound"] is None and set(s["by_stratum"]) == {"belief-right",
+                                                                                                  "belief-wrong"}
+    assert (s["wins_b"], s["wins_a"]) == (4, 1)                # the rule tests all trials together, as before
+    assert "By kind of task, for description only:" in score.report(exp, entries)
 
 
 def test_a_declared_threshold_and_level_reach_the_verdict():

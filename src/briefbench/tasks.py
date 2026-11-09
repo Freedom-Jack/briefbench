@@ -11,7 +11,7 @@ from .experiment import TASK_TYPES
 
 FORMAT = 1
 _TEXT = ("id", "repo", "prompt", "type", "goal", "check")      # required, non-empty
-_OPTIONAL = ("set", "commit", "setup")                         # text, may be empty
+_OPTIONAL = ("set", "commit", "setup", "stratum")              # text, may be empty
 
 
 def load(path: Path) -> dict:
@@ -38,7 +38,7 @@ def load(path: Path) -> dict:
     repo = (path.parent / task["repo"]).resolve()
     if not repo.is_dir():
         raise UsageError(f"the task file {path} names a repo that isn't there: {repo}")
-    return {"id": task["id"], "set": task.get("set") or None, "repo": str(repo),
+    return {"id": task["id"], "set": task.get("set") or None, "stratum": task.get("stratum") or None, "repo": str(repo),
             "commit": task.get("commit") or None, "prompt": task["prompt"].strip(), "type": task["type"],
             "goal": task["goal"].strip(), "check": task["check"].strip(), "setup": task.get("setup", "").strip(),
             "protected": protected, "file": str(path.resolve()), "sha256": hashlib.sha256(data).hexdigest()}

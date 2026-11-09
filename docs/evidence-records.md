@@ -11,7 +11,7 @@ The records tie a prompting claim to an exactly identified treatment, paired out
 | Claim | `claims/<id>.md`: one claim, paraphrased, with a link to its source, its kind, skill fit, status and experiments ([format and statuses](../claims/README.md)) | Public |
 | Task (the 2026-11-04 "Case") | The trial line's `task` (type, prompt, goal, check, the skill's questions and your answers), `repo` (path and commit) and `settings` (setup, check, protected paths, timeout) | You |
 | Treatment | The experiment's `a` and `b`: spec, kind, path, the `sha256` of a skill folder or snippet file, and a skill's `metadata.version` | You |
-| Experiment | `~/.briefbench/experiments/<name>.json`: both treatments; the worker, rewriter and judge with their command templates; the cap, timeout, rule, `render` and `templates`. Frozen by `init`, never changed | You |
+| Experiment | `~/.briefbench/experiments/<name>.json`: both treatments; the worker, rewriter and judge with their command templates; the cap, timeout, rule, `render` and `templates`; with check scoring, `scoring` and the kinds of task tested apart (`strata`). Frozen by `init`, never changed | You |
 | Run | One line in `log.jsonl`, and the folder under `trials/` that its `output` field names: prompts, diffs, setup and check logs, each CLI's raw output, the headless requests and replies | You |
 | Judgment | The trial line's `decision` (the check or your blind pick, the tie kind, your guess of B), `judge` (both orders) and `fidelity` (your review of each brief) | You |
 | Finding | The JSON from `briefbench score <name> --json`, which you save on purpose beside a report; the bench saves nothing | You, until you publish it |

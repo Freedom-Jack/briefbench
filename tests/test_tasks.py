@@ -75,6 +75,47 @@ def test_a_threshold_belongs_to_a_fixed_rule(agents, repo, tip):
     assert exp["scoring"] == "check" and "Scored by the check alone" in err
 
 
+CHECK = ("--rule", "fixed:10", "--net-min", "0", "--scoring", "check")
+
+
+@pytest.mark.parametrize("extra,words", [
+    (("--strata", "belief-wrong,belief-right"), "with --scoring check"),          # pick scoring
+    (CHECK + ("--strata", "belief-wrong"), "two kinds of task"),
+    (CHECK + ("--strata", "same,same"), "two kinds of task"),
+    (CHECK + ("--margin", "0.1"), "two kinds of task"),
+    (CHECK + ("--strata", "a,b", "--margin", "0"), "above 0"),
+])
+def test_kinds_of_task_are_two_names_with_check_scoring(agents, repo, tip, extra, words):
+    code, err = init(repo, f"snippet:{tip}", *extra)
+    assert code == 2 and words in err and not (Path(os.environ["BRIEFBENCH_HOME"]) / "experiments").exists()
+
+
+def test_kinds_of_task_are_frozen_and_each_trial_records_its_kind(agents, repo, tip, tmp_path):
+    code, err = init(repo, f"snippet:{tip}", *CHECK, "--strata", "belief-wrong,belief-right")
+    assert code == 0, err
+    assert frozen()["strata"] == {"help": "belief-wrong", "harm": "belief-right", "margin": 0.10}
+    assert "belief-wrong, where B should help, is tested" in err and "no loss over 10 points" in err
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, stratum="belief-wrong"))], "", cwd=tmp_path)
+    assert code == 0, err
+    [t] = entries()
+    assert t["task"]["source"]["stratum"] == "belief-wrong"
+
+
+@pytest.mark.parametrize("fields", [{}, {"stratum": "elsewhere"}])
+def test_a_task_of_another_kind_is_refused_before_anything_runs(agents, repo, tip, tmp_path, fields):
+    init(repo, f"snippet:{tip}", *CHECK, "--strata", "belief-wrong,belief-right", "--margin", "0.05")
+    assert frozen()["strata"]["margin"] == 0.05
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, **fields))], "", cwd=tmp_path)
+    assert code == 2 and "tests only belief-wrong and belief-right" in err and entries() == [] and agents() == []
+
+
+def test_an_experiment_without_kinds_records_none(agents, repo, tip, tmp_path):
+    init(repo, f"snippet:{tip}", *CHECK)
+    assert frozen()["strata"] is None
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
+    assert entries()[0]["task"]["source"]["stratum"] is None
+
+
 def test_an_experiment_records_pick_scoring_by_default(agents, repo, tip):
     assert init(repo, f"snippet:{tip}")[0] == 0
     assert frozen()["scoring"] == "pick"
@@ -270,6 +311,7 @@ def test_a_pick_scored_worker_keeps_its_one_allowed_command(agents, repo, tip):
     ({"prompt": ""}, "no prompt"),
     ({"type": "poem"}, "type 'poem'"),
     ({"protected": "tests/"}, "a bad protected"),
+    ({"stratum": 1}, "a bad stratum"),
     ({"repo": "nowhere"}, "isn't there"),
 ])
 def test_a_bad_task_file_is_refused_before_anything_runs(agents, repo, tip, tmp_path, change, words):

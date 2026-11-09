@@ -73,6 +73,11 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     i.add_argument("--scoring", choices=experiment.SCORINGS, default="pick",
                    help="pick: the check decides, otherwise your blind pick (the default); check: the check alone, "
                         "for materials with an answer key")
+    i.add_argument("--strata", metavar="HELP,HARM",
+                   help="with --scoring check: the kind of task where B should help, which the rule tests, and the "
+                        "kind where it could hurt, which needs a loss bound; task files name each task's kind")
+    i.add_argument("--margin", type=_fraction, metavar="M",
+                   help="with --strata: the largest loss in pass rate accepted where B could hurt (default 0.10)")
     i.add_argument("-y", "--yes", action="store_true", help="freeze without asking to confirm the commands")
     a = commands.add_parser("ab", allow_abbrev=False, help="run one trial in the current repo")
     a.add_argument("prompt", nargs="?", help="the task's prompt, in quotes, or - to paste it")
@@ -194,6 +199,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         raise UsageError("with --scoring check most trials tie, and the two-step rule then ends in \"too few decided "
                          "pairs to test\" almost every time. Use --rule fixed:N, with --net-min (docs/design.md, \"When "
                          "most trials tie\").")
+    strata = _strata(args)
     names = sorted(AGENTS)
     roles = {"worker": _agent_settings(args.worker or con.pick("Worker: the agent CLI that does the task", names,
                                                                names[0]), "worker", args.worker_model, con, environ,
@@ -220,13 +226,16 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         "Cost cap: the most extra time and tokens B may use, as a median % of A's (for example 50)"))
     frozen = {"format": experiment.FORMAT, "name": args.name, "created": utc_now(), "briefbench_version": __version__,
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
-              "rule": rule, "scoring": args.scoring, "render": experiment.RENDER if roles["rewriter"] else None,
+              "rule": rule, "scoring": args.scoring, "strata": strata,
+              "render": experiment.RENDER if roles["rewriter"] else None,
               "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
                             "judge": judge.prompt_sha256() if roles["judge"] else None}}
     con.say(f"\nExperiment {args.name}: A is {args.a}, B is {args.b}. {_rule_text(rule)} B is adopted only if it also "
             f"passes your fidelity reviews and its median extra time and tokens stay within {cap:g}% of A's."
             + (" Scored by the check alone: both arms passing or both failing is a tie, and no pick is asked."
-               if args.scoring == "check" else ""))
+               if args.scoring == "check" else "")
+            + (f" Kinds of task, tested apart: {strata['help']}, where B should help, is tested; {strata['harm']}, "
+               f"where it could hurt, must show no loss over {strata['margin'] * 100:g} points." if strata else ""))
     for role, settings in roles.items():
         if settings:
             con.say(f"{ROLE_LABELS[role]} command:\n  {shlex.join(settings['argv'])}")
@@ -241,6 +250,20 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
                if args.scoring == "check" else
                "In the repo of a task you'd hand off whole, run: briefbench ab \"<prompt>\""))
     return 0
+
+
+def _strata(args) -> dict | None:
+    """The kinds of task frozen with a check-scored experiment: {help, harm, margin}, or None without --strata. The
+    rule tests the help kind, and the harm kind must show no loss over margin (docs/experiment-protocol.md, section 8)."""
+    if args.strata is None and args.margin is None:
+        return None
+    kinds = [kind.strip() for kind in (args.strata or "").split(",")]
+    if args.scoring != "check" or len(kinds) != 2 or not all(kinds) or kinds[0] == kinds[1]:
+        raise UsageError("--strata takes two kinds of task, HELP,HARM, such as belief-wrong,belief-right, with "
+                         "--scoring check; --margin goes with it.")
+    if args.margin is not None and args.margin <= 0:
+        raise UsageError("--margin is the largest loss accepted where B could hurt, above 0 and at most 1.")
+    return {"help": kinds[0], "harm": kinds[1], "margin": 0.10 if args.margin is None else args.margin}
 
 
 def _rule_text(rule: dict) -> str:
@@ -437,7 +460,7 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
         worktrees = runner.add_worktrees(root, commit, place)
     task = {"type": task_type, "prompt": prompt, "answers": answers, "questions": [], "listed": {}, "headless": []}
     if task_file:
-        task["source"] = {key: task_file[key] for key in ("id", "set", "file", "sha256")}
+        task["source"] = {key: task_file[key] for key in ("id", "set", "file", "sha256", "stratum")}
     stage = "questions"
     try:
         try:
@@ -495,7 +518,11 @@ def _task_file(args, exp) -> dict | None:
     if any(exp[side]["kind"] in ("skill", "clarified") for side in "ab"):
         raise UsageError(f"experiment {exp['name']} has a skill treatment, whose questions need someone to answer "
                          "them, so a task file can't run it yet; task files run original and snippet treatments.")
-    return tasks.load(args.task)
+    task = tasks.load(args.task)
+    if (strata := exp.get("strata")) and task["stratum"] not in (strata["help"], strata["harm"]):
+        raise UsageError(f"the task file {task['file']} is of kind {task['stratum']!r}, but experiment {exp['name']} "
+                         f"tests only {strata['help']} and {strata['harm']}.")
+    return task
 
 
 def _read_prompt(args, con) -> str:

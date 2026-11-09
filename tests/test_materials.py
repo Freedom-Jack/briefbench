@@ -71,6 +71,7 @@ def test_a_set_is_a_list_of_task_files_with_a_planted_answer(made):
     for path in files:
         task, truth = load(path), answers[json.loads(path.read_text())["id"]]
         assert task["type"] == "analysis" and "Main driver: <column name>" in task["prompt"]
+        assert task["stratum"] == truth["stratum"]                 # the kind of task, for score to test apart
         assert subprocess.run(["git", "status", "--porcelain"], cwd=task["repo"], capture_output=True,
                               text=True).stdout == ""
         domain = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])

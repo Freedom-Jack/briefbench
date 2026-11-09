@@ -281,6 +281,7 @@ So the skill grows one instruction per round, each tested against the current sk
 - under check scoring, each arm's pass rate with its exact 95% interval
 - the net preference over all trials, with Tango's 95% interval and a conservative one; under check scoring it is the difference in pass rate, in points
 - the sign test on decided pairs: p-value, B's win rate and its 95% interval
+- each kind of task apart, when the task files name kinds; with kinds frozen at `init --strata`, the rule tests the kind where B should help and requires no loss over the margin where it could hurt
 - the verdict under the frozen rule, and what blocked adoption, if anything
 - fidelity reviews of each brief arm: how many failed, and how
 - median extra time and tokens of B over A, each with its exact 95% interval, against your cap
