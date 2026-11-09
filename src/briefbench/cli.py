@@ -70,6 +70,9 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
                    help="with a fixed rule: the net preference B needs (default 0.15)")
     i.add_argument("--alpha", type=_fraction, metavar="P",
                    help="with a fixed rule: the two-sided level of its sign test (default 0.05)")
+    i.add_argument("--futility-at", type=int, metavar="K",
+                   help="with a fixed rule: a halfway look after K trials where B should help (all trials, without "
+                        "--strata); the test stops there unless B has won more decided pairs than A")
     i.add_argument("--scoring", choices=experiment.SCORINGS, default="pick",
                    help="pick: the check decides, otherwise your blind pick (the default); check: the check alone, "
                         "for materials with an answer key")
@@ -202,6 +205,10 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
             raise UsageError("--alpha is the two-sided level of the sign test, above 0 and at most 0.5.")
         rule = experiment.fixed_rule(rule["trials"], alpha=rule["alpha"] if args.alpha is None else args.alpha,
                                      net_min=rule["net_min"] if args.net_min is None else args.net_min)
+    if args.futility_at is not None:
+        if experiment.rule_kind(rule) != "fixed" or not 1 <= args.futility_at < rule["trials"]:
+            raise UsageError("--futility-at K sets a fixed rule's halfway look: K from 1 to fewer than its N trials.")
+        rule = rule | {"futility_at": args.futility_at}
     if args.scoring == "check" and args.net_min is None:
         raise UsageError("with --scoring check, declare --net-min: the default 0.15 would demand a 15-point gain in "
                          "pass rate. A public test declares 0, and its smallest gain worth detecting sets N instead "
@@ -311,7 +318,9 @@ def _stage(args, strata) -> dict:
 def _rule_text(rule: dict) -> str:
     if experiment.rule_kind(rule) == "fixed":
         return (f"Rule: fixed, one sign test after exactly {rule['trials']} trials; B needs p <= {rule['alpha']:g} "
-                f"and a net preference of at least {rule['net_min']:g}.")
+                f"and a net preference of at least {rule['net_min']:g}."
+                + (f" A halfway look after {rule['futility_at']} trials stops the test unless B is ahead."
+                   if rule.get("futility_at") else ""))
     return (f"Rule: two-step, adopt B at {rule['adopt_first']} of the first {rule['first']} decided pairs, or "
             f"{rule['adopt_second']} of {rule['second']}.")
 

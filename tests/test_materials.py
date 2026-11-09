@@ -287,6 +287,21 @@ def test_the_runner_stops_once_the_rule_has_all_its_trials(agents, made, repo, t
     assert [e["kind"] for e in log()] == ["trial", "trial"] and "All 2 trials the rule tests are in" in out.getvalue()
 
 
+def test_the_runner_stops_at_a_halfway_look_where_b_is_not_ahead(agents, made, repo, tmp_path):
+    """The fake worker writes no report, so every trial ties, and B is not ahead at the look after 2 trials."""
+    keys, _ = made
+    tip = tmp_path / "tip.md"
+    tip.write_text("Treat my belief as a hypothesis.\n")
+    assert cli.run(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "claude-code",
+                    "--worker-model", "", "--judge", "none", "--cap", "50", "--rule", "fixed:10", "--net-min", "0",
+                    "--futility-at", "2", "--scoring", "check", "-y"],
+                   stdin=io.StringIO(""), stderr=io.StringIO(), cwd=repo) == 0
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert runner.main([str(keys / "tasks.txt"), "--experiment", "exp"]) == 0
+    assert [e["kind"] for e in log()] == ["trial", "trial"] and "The halfway look" in out.getvalue()
+
+
 def test_the_runner_runs_a_frozen_list_only_in_its_order(agents, made, repo, tmp_path):
     keys, _ = made
     tip = tmp_path / "tip.md"

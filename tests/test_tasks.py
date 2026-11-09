@@ -190,6 +190,15 @@ def test_a_task_list_comes_from_one_generator_and_the_frozen_kinds(agents, repo,
     assert code == 2 and words in err
 
 
+def test_a_halfway_look_belongs_to_a_fixed_rule_and_comes_before_its_end(agents, repo, tip):
+    assert init(repo, f"snippet:{tip}", "--futility-at", "5")[0] == 2                     # the two-step rule
+    assert init(repo, f"snippet:{tip}", *CHECK, "--futility-at", "10")[0] == 2           # N is 10
+    code, err = init(repo, f"snippet:{tip}", *CHECK, "--futility-at", "5")
+    assert code == 0, err
+    assert frozen()["rule"] == {"kind": "fixed", "trials": 10, "alpha": 0.05, "net_min": 0.0, "futility_at": 5}
+    assert "A halfway look after 5 trials stops the test unless B is ahead." in err
+
+
 def test_an_experiment_records_pick_scoring_by_default(agents, repo, tip):
     assert init(repo, f"snippet:{tip}")[0] == 0
     assert frozen()["scoring"] == "pick"

@@ -75,6 +75,19 @@ def _effect(trials, interim: bool, check_only: bool) -> dict:
             "win_rate_interval": list(interval(wins, wins + losses)) if decided else None}
 
 
+def _halfway(trials, rule: dict, strata) -> dict | None:
+    """The halfway look a plan may fix (rule futility_at, docs/experiment-protocol.md, section 8): once that many of
+    the first N trials where B should help (all of them, without kinds of task) are in, the test stops if B hasn't
+    won more of their decided pairs than A. It only ever stops without a win, so it adds no false wins."""
+    if not (look := rule.get("futility_at")):
+        return None
+    seen = [i for i, t in enumerate(trials[:rule["trials"]]) if not strata or _stratum(t) == strata["help"]]
+    winners = [trials[i]["decision"]["winner"] for i in seen[:look]]
+    wins, losses = winners.count("b"), winners.count("a")
+    return ({"after_trials": seen[look - 1] + 1, "looked_at": look, "wins_b": wins, "wins_a": losses}
+            if len(seen) >= look and wins <= losses else None)
+
+
 def _by_kind(helped: dict, hurt: dict, trials: int, rule: dict) -> str:
     """The fixed rule with kinds of task (docs/experiment-protocol.md, section 8): one test, once all N trials are in,
     on the kind where B should help; B is worse if either kind shows a significant loss."""
@@ -126,8 +139,10 @@ def summary(exp: dict, entries: list[dict]) -> dict:
     mine = [e for e in entries if e.get("experiment") == exp["name"] and e.get("experiment_created", created) == created]
     trials = [e for e in mine if e.get("kind") == "trial"]
     rule, kind = exp["rule"], rule_kind(exp["rule"])
-    used = trials[:rule["trials"]] if kind == "fixed" else _until_verdict(trials, rule)
-    interim = kind == "fixed" and len(used) < rule["trials"]       # a fixed rule shows no test before all N are in
+    stopped = _halfway(trials, rule, exp.get("strata")) if kind == "fixed" else None
+    used = (trials[:stopped["after_trials"]] if stopped else trials[:rule["trials"]] if kind == "fixed"
+            else _until_verdict(trials, rule))
+    interim = kind == "fixed" and len(used) < rule["trials"] and not stopped   # no test before all N are in
     winners = [t["decision"]["winner"] for t in used if t["decision"]["winner"] in ("a", "b")]
     wins, losses = winners.count("b"), winners.count("a")
     ties = [_tie_kind(t["decision"]) for t in used if t["decision"]["winner"] == "tie"]
@@ -135,7 +150,9 @@ def summary(exp: dict, entries: list[dict]) -> dict:
     overall = _effect(used, interim, check_only)
     kinds = {name: _effect([t for t in used if _stratum(t) == name], interim, check_only)
              for name in sorted({_stratum(t) for t in used} - {None})}
-    if kind == "fixed" and strata:          # the rule tests where B should help, and bounds the loss where it could hurt
+    if stopped:                             # the halfway look ended the test without a win
+        state, rule_wins, rule_pairs = "no-difference", stopped["wins_b"], stopped["wins_b"] + stopped["wins_a"]
+    elif kind == "fixed" and strata:        # the rule tests where B should help, and bounds the loss where it could hurt
         helped, hurt = (kinds.get(strata[role]) or _effect([], interim, check_only) for role in ("help", "harm"))
         state, rule_wins, rule_pairs = (_by_kind(helped, hurt, len(used), rule), helped["wins_b"],
                                         helped["wins_b"] + helped["wins_a"])
@@ -186,7 +203,8 @@ def summary(exp: dict, entries: list[dict]) -> dict:
                                          "win_rate_interval")},
         "strata": strata, "by_stratum": kinds,
         "verdict": {"state": state, "rule_wins": rule_wins, "rule_pairs": rule_pairs, "blocked_by": blocked,
-                    "adopted": state in ("adopt", "benefit") and not blocked, "harm_bound": bound},
+                    "adopted": state in ("adopt", "benefit") and not blocked, "harm_bound": bound,
+                    "stopped": stopped},
         "fidelity": fidelity,
         "extra_cost_median_percent": {"time": time, "tokens": tokens}, "cap_percent": exp["cap_percent"],
         "extra_cost_interval_percent": None if interim else {
@@ -245,7 +263,14 @@ def _verdict(s: dict, exp: dict) -> str:
         planned = rule["trials"]
         if state == "collecting":                       # no p-value yet: the test runs once all trials are in
             return (f"none yet. {s['trials']} of the {planned} trials the rule tests at once; it looks only when "
-                    "all are in.")
+                    "all are in" + (f", or at the halfway look after {rule['futility_at']} trials"
+                                    f"{' where B should help' if exp.get('strata') else ''}."
+                                    if rule.get("futility_at") else "."))
+        if stop := v["stopped"]:
+            return (f"no difference shown: the test stopped at the halfway look fixed in advance. Of the first "
+                    f"{stop['looked_at']} trials{' where B should help' if exp.get('strata') else ''}, B won "
+                    f"{stop['wins_b']} and A won {stop['wins_a']}, and B needed more wins than A to go on. That means "
+                    "no large effect was found, not that there is none.")
         if strata := exp.get("strata"):
             return _verdict_by_kind(s, strata, rule, stopped)
         return {
@@ -364,7 +389,8 @@ def report(exp: dict, entries: list[dict]) -> str:
     tie_kinds = f" ({', '.join(shown)})" if shown else ""
     lines.append(f"Trials: {s['trials']}. B won {s['wins_b']}, A won {s['wins_a']}, {s['ties']} ties{tie_kinds}.")
     if s["beyond_plan"]:
-        after = (f"the planned {exp['rule']['trials']}" if rule_kind(exp["rule"]) == "fixed" else "the rule's verdict")
+        after = ("the halfway look stopped the test" if s["verdict"]["stopped"] else
+                 f"the planned {exp['rule']['trials']}" if rule_kind(exp["rule"]) == "fixed" else "the rule's verdict")
         lines.append(f"{s['beyond_plan']} more trial{'s' if s['beyond_plan'] != 1 else ''} came after {after}; "
                      "they are not part of the test.")
     if s["interim"]:

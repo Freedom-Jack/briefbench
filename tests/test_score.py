@@ -146,7 +146,8 @@ def test_a_brief_that_fails_its_fidelity_review_is_not_adopted():
     s = score.summary(EXPERIMENT, entries)
     assert s["fidelity"]["b"] == {"reviewed": 2, "failed": 1, "added": 1, "dropped": 0, "changed": 0}
     assert s["verdict"] == {"state": "adopt", "rule_wins": 16, "rule_pairs": 20, "adopted": False,
-                            "blocked_by": ["1 of its briefs failed your fidelity review"], "harm_bound": None}
+                            "blocked_by": ["1 of its briefs failed your fidelity review"], "harm_bound": None,
+                            "stopped": None}
     text = score.report(EXPERIMENT, entries)
     assert "but 1 of its briefs failed your fidelity review, so it is not adopted." in text
     assert "Fidelity reviews of B's briefs: 1 of 2 failed (added 1, dropped 0, changed 0)." in text
@@ -344,6 +345,40 @@ def test_kinds_without_a_frozen_rule_are_description_only():
                                                                                                   "belief-wrong"}
     assert (s["wins_b"], s["wins_a"]) == (4, 1)                # the rule tests all trials together, as before
     assert "By kind of task, for description only:" in score.report(exp, entries)
+
+
+LOOK = CHECKED | {"rule": fixed_rule(20, net_min=0) | {"futility_at": 10}}
+
+
+def test_the_halfway_look_stops_a_test_where_b_is_not_ahead():
+    entries = check_log(2, 3, 3, 2) + check_log(5, 0, 5, 0)      # 2 to 3 after 10 trials; B wins more later
+    s = score.summary(LOOK, entries)
+    assert s["verdict"]["stopped"] == {"after_trials": 10, "looked_at": 10, "wins_b": 2, "wins_a": 3}
+    assert (s["verdict"]["state"], s["trials"], s["beyond_plan"], s["interim"]) == ("no-difference", 10, 10, False)
+    assert not s["verdict"]["adopted"] and s["sign_test_p"] == 1.0          # shown as description once stopped
+    text = score.report(LOOK, entries)
+    assert ("no difference shown: the test stopped at the halfway look fixed in advance. Of the first 10 trials, B "
+            "won 2 and A won 3, and B needed more wins than A to go on.") in text
+    assert "10 more trials came after the halfway look stopped the test" in text
+    tied = check_log(1, 1, 8, 0)                                  # a tie at the look stops too
+    assert score.summary(LOOK, tied)["verdict"]["stopped"]["wins_b"] == 1
+
+
+def test_the_halfway_look_lets_the_test_go_on_when_b_is_ahead():
+    entries = check_log(3, 1, 4, 2) + check_log(1, 0, 1, 0)      # 3 to 1 at the look; 12 of 20 trials in
+    s = score.summary(LOOK, entries)
+    assert s["verdict"]["stopped"] is None and s["interim"] and s["verdict"]["state"] == "collecting"
+    assert ("it looks only when all are in, or at the halfway look after 10 trials." in
+            score.report(LOOK, entries))
+    assert score.summary(LOOK, entries + check_log(6, 0, 2, 0))["verdict"]["state"] == "benefit"  # 10 to 2: p = 0.039
+
+
+def test_with_kinds_the_halfway_look_counts_the_trials_where_b_should_help():
+    exp = STRATA | {"rule": fixed_rule(60, net_min=0) | {"futility_at": 15}}
+    entries = by_kind((2, 2, 11, 0), (0, 3, 27, 0))               # the 15th belief-wrong trial is the 29th in all
+    stop = score.summary(exp, entries)["verdict"]["stopped"]
+    assert stop == {"after_trials": 29, "looked_at": 15, "wins_b": 2, "wins_a": 2}
+    assert "Of the first 15 trials where B should help, B won 2 and A won 2" in score.report(exp, entries)
 
 
 def test_a_declared_threshold_and_level_reach_the_verdict():

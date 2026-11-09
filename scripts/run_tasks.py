@@ -27,7 +27,7 @@ import os
 import sys
 from pathlib import Path
 
-from briefbench import cli, experiment
+from briefbench import cli, experiment, score
 from briefbench.log import data_dir, read_entries
 from briefbench.tasks import load
 
@@ -75,6 +75,9 @@ def main(argv=None) -> int:
     for task in tasks:
         if planned and not args.aa and sum(e.get("kind") == "trial" for e in lines(exp)) >= planned:
             print(f"All {planned} trials the rule tests are in; the tasks left are reserves.")
+            break
+        if planned and not args.aa and score.summary(exp, lines(exp))["verdict"]["stopped"]:
+            print("The halfway look fixed in advance stopped the test: B wasn't ahead. `briefbench score` reports it.")
             break
         counts = seen(lines(exp), task["sha256"], args.aa)
         if counts["done"] or counts["failed"] >= 2:      # done, or failed twice: a missing outcome
