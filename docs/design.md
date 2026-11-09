@@ -350,6 +350,7 @@ scripts/package_skill.py    reproducible skill ZIP, with the bench's hash of the
 scripts/run_tasks.py        runs a list of task files unattended
 scripts/materials/          generators of materials with an answer key, such as planted_cause.py
 scripts/plan_trials.py      the trials a public test needs, from its calibration, by exact calculation
+scripts/audit_check.py      your labels of calibration reports, compared with the check
 .github/workflows/          offline tests on every pull request; a draft release when a brief--v<version> tag is pushed
 tests/                      offline tests use fake agent CLIs; live tests run the real ones
 ```
@@ -361,6 +362,7 @@ experiments/<name>.json       frozen settings, one per experiment
 repos.json                    per repo: setup command, check command, protected paths, judge allowed
 log.jsonl                     append-only: trial, aa, excluded and failed lines
 trials/<id>/output/           each trial's prompts, diffs, logs, headless requests and replies, judge replies
+audits/<name>.json            your labels of an experiment's reports, from scripts/audit_check.py
 (temp) briefbench-<id>-…/a, b the two arms' worktrees, outside the data folder; `clean` removes them
 ```
 
