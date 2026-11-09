@@ -58,7 +58,10 @@ def test_check_scoring_needs_a_fixed_rule_and_a_declared_threshold(agents, repo,
     code, err = init(repo, f"snippet:{tip}", "--scoring", "check", "--net-min", "0.05")
     assert code == 2 and "--rule fixed:N" in err and not (Path(os.environ["BRIEFBENCH_HOME"]) / "experiments").exists()
     code, err = init(repo, f"snippet:{tip}", "--scoring", "check", "--rule", "fixed:30")
-    assert code == 2 and "declare --net-min" in err
+    assert code == 2 and "declare --net-min" in err and "A public test declares 0" in err
+    code, err = init(repo, f"snippet:{tip}", "--scoring", "check", "--rule", "fixed:30", "--net-min", "0")
+    assert code == 0, err
+    assert frozen()["rule"] == {"kind": "fixed", "trials": 30, "alpha": 0.05, "net_min": 0.0}
 
 
 def test_a_threshold_belongs_to_a_fixed_rule(agents, repo, tip):

@@ -185,6 +185,26 @@ def test_a_declared_threshold_and_level_reach_the_verdict():
     assert score.summary(stricter, entries)["verdict"]["state"] == "no-difference"
 
 
+def test_a_zero_threshold_leaves_the_decision_to_the_test():
+    """A public test declares --net-min 0: a significant win is a benefit however small its net preference. Here
+    20 wins and 7 losses in 300 trials is +0.043, which a threshold of 0.05 would turn away."""
+    entries = fixed_log(20, 7, 273)
+    assert sign_test(20, 7) < 0.05
+    assert score.summary(EXPERIMENT | {"rule": fixed_rule(300, net_min=0.05)}, entries)["verdict"]["state"] == \
+        "below-threshold"
+    assert score.summary(EXPERIMENT | {"rule": fixed_rule(300, net_min=0)}, entries)["verdict"]["state"] == "benefit"
+
+
+def test_the_two_step_rule_with_too_few_decided_pairs_says_so():
+    """Before 2026-11-09 this verdict read "no practical difference", even when B won almost every decided pair."""
+    entries = [trial("b") for _ in range(18)] + [trial("a")] + [trial("tie") for _ in range(21)]
+    s = score.summary(EXPERIMENT, entries)
+    assert s["verdict"]["state"] == "no-difference" and s["sign_test_p"] < 0.001
+    text = score.report(EXPERIMENT, entries)
+    assert ("Verdict: too few decided pairs to test: 19 of 40 trials were decided, and the rule needs 20. The sign "
+            "test above only describes them.") in text and "no practical difference" not in text
+
+
 FIXED = EXPERIMENT | {"rule": fixed_rule(50)}
 
 

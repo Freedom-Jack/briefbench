@@ -188,10 +188,11 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
                                      net_min=rule["net_min"] if args.net_min is None else args.net_min)
     if args.scoring == "check" and args.net_min is None:
         raise UsageError("with --scoring check, declare --net-min: the default 0.15 would demand a 15-point gain in "
-                         "pass rate. 0.05 is the planning value (docs/design.md, \"When most trials tie\").")
+                         "pass rate. A public test declares 0, and its smallest gain worth detecting sets N instead "
+                         "(docs/design.md, \"A method for public results\").")
     if args.scoring == "check" and experiment.rule_kind(rule) != "fixed":
-        raise UsageError("with --scoring check most trials tie, and the two-step rule then ends in \"no practical "
-                         "difference\" almost every time. Use --rule fixed:N, with --net-min (docs/design.md, \"When "
+        raise UsageError("with --scoring check most trials tie, and the two-step rule then ends in \"too few decided "
+                         "pairs to test\" almost every time. Use --rule fixed:N, with --net-min (docs/design.md, \"When "
                          "most trials tie\").")
     names = sorted(AGENTS)
     roles = {"worker": _agent_settings(args.worker or con.pick("Worker: the agent CLI that does the task", names,

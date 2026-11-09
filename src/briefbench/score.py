@@ -186,7 +186,8 @@ def _verdict(s: dict, exp: dict) -> str:
                       "never evidence on their own.",
         "continue": f"continue. B won {wins} of the first {first}: neither adopted nor stopped, so the rule waits "
                     f"for {rule['second']} decided pairs.",
-        "no-difference": f"no practical difference: fewer than {first} of {rule['max_trials']} trials were decided.",
+        "no-difference": f"too few decided pairs to test: {pairs} of {rule['max_trials']} trials were decided, and the "
+                         f"rule needs {first}. The sign test above only describes them.",
         "stop": f"not adopted. B won {wins} of {pairs} decided pairs, short of the rule. That means no large effect "
                 "was found, not that there is none.",
         "adopt": f"adopt B. It won {wins} of {pairs} decided pairs, which the rule fixed in advance accepts" + stopped,
