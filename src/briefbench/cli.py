@@ -776,7 +776,8 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
                    "protected_changed": runner.restore_protected(worktrees[s], commit, settings["protected"]),
                    "diff": runner.save_diff(worktrees[s], commit, out / f"{s}.diff"), "check": None}
         if audit:
-            seen = (out / f"{s}.out").read_text(errors="replace") + (out / f"{s}.err").read_text(errors="replace")
+            seen = (agent.actions((out / f"{s}.out").read_text(errors="replace"))
+                    + (out / f"{s}.err").read_text(errors="replace"))     # not the CLI's own start-up report
             arms[s]["looked_outside"] = _names(seen, private[s], tokens[s], environ)
     if check:
         con.say("Running your check in both worktrees...")

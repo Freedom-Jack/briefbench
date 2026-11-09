@@ -88,6 +88,9 @@ class Agent:
     # The variable that moves the CLI's own temporary folder, set to a folder of each arm's own. It needs a short path:
     # given a long one, Claude Code 2.1.317 falls back to the shared /tmp/claude-{uid} (checked on 2026-11-09).
     temp_env: str = ""
+    # stdout -> what the agent did and said, for the scan for forbidden folders: the CLI's own start-up report goes,
+    # since it names folders the CLI keeps for itself, such as the arm's own memory folder under ~/.claude/projects.
+    actions: Callable[[str], str] = lambda stdout: stdout
 
     def find(self) -> str | None:
         for name in self.commands:
@@ -113,6 +116,18 @@ def _natural(path: str) -> list:
 
 def _int(value) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _claude_actions(stdout: str) -> str:
+    """stream-json without its first event, the start-up report (type system, subtype init): it lists the session's
+    own folders, among them its memory folder under ~/.claude/projects, before the agent has done anything."""
+    def startup(line: str) -> bool:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            return False
+        return isinstance(event, dict) and event.get("type") == "system" and event.get("subtype") == "init"
+    return "\n".join(line for line in stdout.splitlines() if not startup(line))
 
 
 def _claude_reply(stdout: str) -> Reply:
@@ -188,7 +203,8 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
                      "?--model={model}", "--", "{prompt}"),
            "judge": ("-p", "--output-format", "json", "--tools", "", "--json-schema", "{schema_json}",
                      "--disable-slash-commands", "--no-session-persistence", "?--model={model}", "--", "{prompt}")},
-          _claude_reply, default_model="claude-opus-5-5", confines_reads=True, temp_env="CLAUDE_CODE_TMPDIR"),
+          _claude_reply, default_model="claude-opus-5-5", confines_reads=True, temp_env="CLAUDE_CODE_TMPDIR",
+          actions=_claude_actions),
     Agent("codex", "openai", ("codex",),
           ("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",),
           ("login", "status"), lambda report: "chatgpt" in report.lower(),

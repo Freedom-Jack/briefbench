@@ -377,6 +377,18 @@ def test_the_worker_can_reach_neither_the_bench_source_nor_other_sessions_files(
         assert str(root) in denied and str(projects) in denied
         assert not any(str(root) in value for value in call["env"].values())
         assert not {"VIRTUAL_ENV", "BRIEFBENCH_HOME", "WHERE_RECORDS_ARE"} & set(call["env"])
+    [t] = entries()          # the start-up report names the arm's memory folder there, which isn't a look
+    assert t["arms"]["a"]["looked_outside"] is False and t["arms"]["b"]["looked_outside"] is False
+
+
+def test_a_look_at_other_sessions_transcripts_is_flagged(agents, repo, tip, tmp_path, monkeypatch):
+    Path(os.environ["HOME"], ".claude", "projects").mkdir(parents=True)
+    monkeypatch.setenv("FAKE_WORKER", "peek")
+    peek(monkeypatch, tmp_path, "ls ~/.claude/projects")
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    assert t["arms"]["a"]["looked_outside"] and t["arms"]["b"]["looked_outside"]
 
 
 def test_a_pick_scored_worker_keeps_its_one_allowed_command(agents, repo, tip):

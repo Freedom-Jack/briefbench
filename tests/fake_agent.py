@@ -45,6 +45,10 @@ with open(env["FAKE_CALLS"], "a") as calls:
                             "keys": sorted(k for k in env if k.endswith(("_API_KEY", "_BASE_URL"))),
                             "data_home": "BRIEFBENCH_HOME" in env, "env": dict(env)}) + "\n")
 
+if name == "claude" and "stream-json" in args:        # Claude Code's start-up report names its own memory folder
+    print(json.dumps({"type": "system", "subtype": "init", "cwd": os.getcwd(), "memory_paths": {
+        "auto": f"{env.get('HOME', '')}/.claude/projects/{os.getcwd().replace('/', '-')}/memory/"}}))
+
 if role == "asker":
     mode = env.get("FAKE_ASKER", "one")
     if mode == "fail":
