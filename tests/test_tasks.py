@@ -159,6 +159,8 @@ def test_the_stage_the_plan_and_the_materials_are_frozen(agents, repo, tip, tmp_
                                 "tasks_sha256": hashlib.sha256("\n".join(hashes).encode()).hexdigest(),
                                 "tasks": hashes, "seed_source": "drand quicknet round 1"}
     assert "Stage: a first test, plan abc1234. Materials: 2 task files of demo/1, frozen by hash." in err
+    bench = exp["bench"]                                     # the bench's own commit, from its source checkout
+    assert set(bench) == {"commit", "dirty"} and len(bench["commit"]) == 40 and isinstance(bench["dirty"], bool)
 
 
 def test_ab_refuses_a_task_outside_the_frozen_list(agents, repo, tip, tmp_path):

@@ -245,7 +245,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         "Cost cap: the most extra time and tokens B may use, as a median % of A's (for example 50)"))
     frozen = {"format": experiment.FORMAT, "name": args.name, "created": utc_now(), "briefbench_version": __version__,
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
-              "rule": rule, "scoring": args.scoring, "strata": strata, **stage,
+              "rule": rule, "scoring": args.scoring, "strata": strata, **stage, "bench": _bench_commit(),
               "render": experiment.RENDER if roles["rewriter"] else None,
               "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
                             "judge": judge.prompt_sha256() if roles["judge"] else None}}
@@ -258,6 +258,10 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
             + f" Stage: {experiment.stage_text(stage)}."
             + (f" Materials: {len(m['tasks'])} task files of {m['set']}, frozen by hash." if (m := stage["materials"])
                else ""))
+    if (bench := frozen["bench"]) and bench["dirty"]:
+        con.say(f"The bench's source has changes not yet committed; the experiment records commit "
+                f"{bench['commit'][:12]}, which doesn't hold them. Commit them first, so a finding can name the code "
+                "that ran it.")
     for role, settings in roles.items():
         if settings:
             con.say(f"{ROLE_LABELS[role]} command:\n  {shlex.join(settings['argv'])}")
@@ -358,6 +362,17 @@ def _bench_source() -> Path | None:
     answers, so an arm of a task-file trial may not read it."""
     root = Path(__file__).resolve().parents[2]
     return root if (root / "pyproject.toml").is_file() and (root / "src" / "briefbench").is_dir() else None
+
+
+def _bench_commit() -> dict | None:
+    """The commit of the bench's own source and whether its tracked files differ from it, so that a finding names the
+    code that ran it (the first pilot ran on code committed only afterwards). None when it runs from an installed copy."""
+    if (root := _bench_source()) is None:
+        return None
+    try:
+        return {"commit": runner.head(root), "dirty": runner.dirty(root)}
+    except ConfigError:
+        return None
 
 
 def _private_places(environ) -> list[Path]:
