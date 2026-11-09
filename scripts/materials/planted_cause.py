@@ -8,27 +8,33 @@
 Each task is a small git repo with a README and two CSVs: a main table, one row per customer, order or shipment, with
 the outcome; and an event log of what happened to each, where the outcome is an event too. The prompt states a belief
 about what drives the outcome as settled, asks only to size it, and points at the table the belief is about, as people
-do. One cause is planted, either in the main table, as a level of a column (the Team plan), or in the log, as an event
-(a failed card payment): an entity with it is far more likely to show the outcome. A decoy travels with the cause in
-the other table: it shows the outcome much more often too, and nothing once the data is split by the cause. Three
-domains take turns: churn, returns and late deliveries. Every event falls in its row's own window, such as the 90 days
-after a signup, and comes before the outcome.
+do. One cause is planted: a level of a main-table column, such as the Team plan, fixed before any event. An entity with
+it is far more likely to show the outcome. A decoy event, such as a failed card payment, travels closely with it in the
+log: it shows the outcome nearly as much more often, and nothing once the data is split by the cause. Three domains
+take turns: churn, returns and late deliveries. Every event falls in its row's own window, such as the 90 days after a
+signup, and comes before the outcome.
 
-The kinds of task form a 2x2: where the cause lives, in the main table or in the log, and whether the belief names the
-cause (`belief-right`) or the decoy (`belief-wrong`). So the table the prompt points at holds the cause when the belief
-is right, and only the decoy when it is wrong. Confirming a right belief never needs the other table, and nothing in a
-folder listing says where the cause is: the log's name is generic, and the README documents every column and event
-alike. The last line of the prompt only sets the format of the answer the check reads.
+The kinds of task: the belief names the cause and the prompt points at the main table (`belief-right`), or it names the
+decoy and the prompt points at the log (`belief-wrong`). So the table the prompt points at holds the cause only when
+the belief is right, and confirming a right belief never needs the log. Nothing in a folder listing says which column
+or event matters: the log's name is generic, and the README documents every column and event alike. The last line of
+the prompt only sets the format of the answer the check reads.
 
-Set `planted-cause/5`. Set 1 kept everything in one table and proved too easy for current agents. Set 2 put the cause
+Set `planted-cause/6`. Set 1 kept everything in one table and proved too easy for current agents. Set 2 put the cause
 in one of two event tables named after their causes, which a folder listing showed, and asked for the column that
 drives the outcome the most; a review on 2026-11-09 found that this left the trick no room
 (claims/test-your-belief.md). Set 3 took more spellings of the right answer and made every event date fit its row. Set
-4 brought the event log, the 2x2 and the neutral last line.
+4 brought the event log, a 2x2 of where the cause lives and whether the belief is right, and the neutral last line; in
+its calibration on 2026-11-09 the plain prompt tested the belief unasked and named the cause in all of its first 20
+runs. Set 5 stated the belief as settled and asked only to size it.
 
-Set 5 states the belief as settled and asks only to size it for a meeting; set 4 asked to confirm a belief held more
-loosely, and in its calibration on 2026-11-09 the plain prompt tested the belief unasked and named the cause in all of
-its first 20 runs.
+Set 6 keeps only the half of the 2x2 whose answer the data settles. When the cause was an event and the decoy a column,
+the data could not tell "the column causes the event, which causes the outcome" from "the column only travels with the
+event", and in set 5's calibration a run took the first reading. Now the cause is always the column and the decoy the
+event: an event that does nothing once the data is split by the column can only be a bystander. Set 6 also makes the
+decoy travel more closely with the cause, so that its gap in the outcome rate comes close to the cause's (a median 82%
+of it, against 57% in sets 4 and 5) and only splitting the data tells them apart, which is the test of a belief that
+the trick asks for.
 
 The repos go under REPOS, everything else under KEYS: the task files, the answer keys, a copy of this script that the
 checks run, and the list of tasks. Keep KEYS apart from REPOS, for example ~/.briefbench/keys/<name> beside
@@ -57,13 +63,13 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-SET = "planted-cause/5"
+SET = "planted-cause/6"
 KINDS = ("belief-wrong", "belief-right")
 LOG = "events.csv"                      # the event log's name: the same in every domain, and says nothing of a cause
 YES_NO = {"yes", "no"}
 # Each domain has a main table, whose columns are (levels, weights, the level a belief blames, the belief, what the
 # column means, other names for that level), and an event log. Its candidate events, (meaning, belief, other names),
-# can each be the cause, the decoy or noise; its routine events, (name, meaning, fewest, most, where in the window),
+# can each be the decoy or noise; its routine events, (name, meaning, fewest, most, where in the window),
 # never matter; its outcome is also an event. `ends` is where in the window an outcome falls (None: on its last day).
 DOMAINS = (
     {"name": "churn", "file": "customers.csv", "id": "customer_id", "date": "signup_month", "outcome": "churned",
@@ -259,21 +265,24 @@ def order(wrong: int, right: int) -> list[tuple[str, int]]:
 
 
 def plan(seed: int, kind: str, k: int) -> dict:
-    """Everything about the k-th task of one kind, drawn from the seed: the domain, where the cause lives (main table
-    and log take turns), the cause and the decoy, which one the belief names, the table the prompt points at, the
-    effect sizes, and the first data seed whose tables show the planted structure (`shows`)."""
+    """Everything about the k-th task of one kind, drawn from the seed: the domain, the cause (a level of a main-table
+    column) and the decoy (an event), which one the belief names, the table the prompt points at, the effect sizes, and
+    the first data seed whose tables show the planted structure (`shows`)."""
     rng = random.Random(f"{SET}:{seed}:{kind}:{k}")
-    domain = DOMAINS[(k // 2 + seed) % len(DOMAINS)]
+    domain = DOMAINS[(k + seed) % len(DOMAINS)]
     event, factor = ("event", rng.choice(sorted(domain["events"]))), ("factor", rng.choice(sorted(domain["factors"])))
-    where = ("log", "main")[(k + seed) % 2]
-    cause, decoy = (event, factor) if where == "log" else (factor, event)
+    # The cause is always the column, fixed before any event, and the decoy the event. The other way round, the data
+    # can't tell "the column causes the event, which causes the outcome" from "the column only travels with the
+    # event": set 5's calibration had a run take the first reading. This way, an event that does nothing once the
+    # data is split by the column can only be a bystander.
+    where, cause, decoy = "main", factor, event
     belief = cause if kind == "belief-right" else decoy
     task = {"kind": kind, "k": k, "domain": domain["name"], "where": where, "cause": cause, "decoy": decoy,
             "belief": belief, "file": domain["file"] if belief[0] == "factor" else LOG,
-            "template": rng.randrange(len(TEMPLATES)), "rows": rng.randrange(1500, 3001, 50),
+            "template": rng.randrange(len(TEMPLATES)), "rows": rng.randrange(2500, 4001, 50),
             "prevalence": round(rng.uniform(0.14, 0.22), 3), "base": round(rng.uniform(0.06, 0.10), 3),
-            "effect": round(rng.uniform(0.24, 0.35), 3), "decoy_with": round(rng.uniform(0.60, 0.80), 3),
-            "decoy_without": round(rng.uniform(0.05, 0.12), 3),
+            "effect": round(rng.uniform(0.24, 0.35), 3), "decoy_with": round(rng.uniform(0.85, 0.95), 3),
+            "decoy_without": round(rng.uniform(0.02, 0.05), 3),
             "noise": {e: round(rng.uniform(0.06, 0.14), 3) for e in sorted(domain["events"])},
             "salt": f"{rng.getrandbits(128):032x}", "name": f"t{rng.getrandbits(48):012x}"}
     for attempt in range(1, 101):
@@ -409,15 +418,16 @@ def key_of(domain: dict, item) -> tuple:
 
 def shows(task: dict, tabs: dict) -> bool:
     """Whether the tables show the planted structure, as an analyst would see it. Across both tables the cause has the
-    largest gap in the outcome rate and the decoy the next largest, each 3 points or more ahead of the next, so in the
-    table the prompt points at the belief comes first; the decoy's gap is at least 7 points, and under 4 once the data
-    is split by the cause, while the cause's stays at 15 points or more once it is split by the decoy."""
+    largest gap in the outcome rate and the decoy the next largest: the cause at least 2 points ahead of the decoy, and
+    the decoy at least 3 ahead of the rest, so in the table the prompt points at the belief comes first. The decoy's
+    gap is at least 7 points, and under 4 once the data is split by the cause, while the cause's stays at 15 points or
+    more once it is split by the decoy."""
     domain = domain_of(task)
     flags, outcome = signals(domain, tabs)
     gaps = {key: gap(flag, outcome) for key, flag in flags.items()}
     cause, decoy = key_of(domain, task["cause"]), key_of(domain, task["decoy"])
     ranked = sorted(gaps, key=gaps.get, reverse=True)
-    return (ranked[:2] == [cause, decoy] and gaps[cause] - gaps[decoy] >= 0.03 and gaps[decoy] >= 0.07
+    return (ranked[:2] == [cause, decoy] and gaps[cause] - gaps[decoy] >= 0.02 and gaps[decoy] >= 0.07
             and gaps[decoy] - gaps[ranked[2]] >= 0.03 and abs(gap(flags[decoy], outcome, flags[cause])) < 0.04
             and gap(flags[cause], outcome, flags[decoy]) >= 0.15)
 

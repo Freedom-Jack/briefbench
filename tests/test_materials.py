@@ -173,19 +173,16 @@ def test_a_set_is_a_list_of_task_files_with_a_planted_answer(made):
         assert keys not in repo.parents and "seed" not in "".join(f.read_text() for f in repo.rglob("*.md"))
 
 
-def test_the_kinds_of_task_form_a_two_by_two():
-    """Where the cause lives, the main table or the log, takes turns within each kind. A right belief names the cause
-    and a wrong one the decoy, which always sits in the other table; the prompt points at the belief's table. So the
-    pointed table holds the cause only when the belief is right."""
-    plans = [planted.plan(5, kind, k) for kind, k in planted.order(8, 8)]
-    cells = sorted((t["kind"], t["where"]) for t in plans)
-    assert cells == sorted([(kind, where) for kind in planted.KINDS for where in ("log", "main")] * 4)
+def test_the_cause_is_a_column_and_the_belief_names_it_or_the_decoy():
+    """The cause is always a level of a main-table column, fixed before any event, and the decoy an event that travels
+    with it. A right belief names the cause and points at the main table; a wrong one names the decoy and points at
+    the log. So the pointed table holds the cause only when the belief is right."""
+    plans = [planted.plan(5, kind, k) for kind, k in planted.order(6, 6)]
     assert {t["domain"] for t in plans} == {"churn", "returns", "delays"}
     for t in plans:
-        assert {t["cause"][0], t["decoy"][0]} == {"event", "factor"}
-        assert (t["cause"][0] == "event") == (t["where"] == "log")
+        assert t["cause"][0] == "factor" and t["decoy"][0] == "event"
         assert t["belief"] == (t["cause"] if t["kind"] == "belief-right" else t["decoy"])
-        assert t["file"] == ("events.csv" if t["belief"][0] == "event" else domain(t)["file"])
+        assert t["file"] == ("events.csv" if t["kind"] == "belief-wrong" else domain(t)["file"])
     kinds = [kind for kind, _ in planted.order(20, 10)]            # the kinds spread evenly through the list
     assert kinds[:3].count("belief-wrong") == 2 and kinds[:15].count("belief-right") == 5
 
@@ -273,42 +270,35 @@ def test_the_log_agrees_with_the_main_table(made):
 
 def test_the_checker_takes_the_planted_cause_and_nothing_else(made, tmp_path):
     """The last `Main driver:` line counts, and what its words name before any explanation, read whole, however it is
-    spelt: an event alone, after its table or the event column, or in the belief's or plain words; a column alone,
-    with its table or its blamed level, or the level's own words. The decoy, the other events and columns, the outcome,
-    the decoy named first, and a sentence that only starts with the cause's words, such as a denial, fail."""
+    spelt: the column alone, with its table or its blamed level, the level's own words, or the belief's. The decoy
+    event, after the event column or not, the other events and columns, the outcome, the decoy named first, and a
+    sentence that only starts with the cause's words, such as a denial, fail."""
     keys, plans = made
     for path in task_files(keys):
         plan = plans[json.loads(path.read_text())["id"]]
         d = domain(plan)
         main = Path(d["file"]).stem
-        (kind, cause), (_, decoy) = plan["cause"], plan["decoy"]
+        (_, cause), (_, decoy) = plan["cause"], plan["decoy"]
         assert grade(path, name_of(d, plan["cause"])) == 0 and grade(path, name_of(d, plan["decoy"])) == 1
         assert grade(path, None) == 1                                                 # the command, and no report
-        if kind == "event":
-            _doc, belief, phrases = d["events"][cause]
-            good = [cause, f"{cause} (by far)", f"events.{cause}", f"event = {cause}", f"event_type: {cause}",
-                    f"events.csv: {cause}", f"data/events.csv - {cause}", f"has_{cause}", f"the {cause}",
-                    f"{cause} events", f"{cause} in events.csv", f"{cause} - drives it", belief.split(":")[0],
-                    *(p.replace("_", " ") for p in phrases), f"{cause}, then {decoy}", f"{cause} and its link to plan"]
-            word = phrases[0].replace("_", " ")
-        else:
-            _levels, _weights, bad, belief, _doc, phrases = d["factors"][cause]
-            good = [cause, f"{cause} = {bad}", f"{cause} ({bad})", f"{cause}_{bad}", f"{main}.{cause}",
-                    f"{d['file']}: {cause}", f"the {cause} column", belief.split(":")[0],
-                    *(p.replace("_", " ") for p in phrases), *([bad] if bad not in ("yes", "no") else []),
-                    f"{cause} == '{bad}'", f"{cause}, then {decoy}"]
-            word = cause
-        for answer in good:
+        _levels, _weights, bad, belief, _doc, phrases = d["factors"][cause]
+        for answer in (cause, f"{cause} = {bad}", f"{cause} ({bad})", f"{cause}_{bad}", f"{main}.{cause}",
+                       f"{d['file']}: {cause}", f"data/{d['file']} - {cause}", f"the {cause} column", f"has_{cause}",
+                       belief.split(":")[0], *(p.replace("_", " ") for p in phrases),
+                       *([bad] if bad not in ("yes", "no") else []), f"{cause} == '{bad}'", f"{cause}, then {decoy}",
+                       f"{cause} and its link to {decoy}", f"{cause} in {d['file']}", f"{cause} - drives it"):
             assert verdict(path, answer, tmp_path) == 0, answer
-        others = [e for e in d["events"] if (kind, e) != ("event", cause)]
-        columns = [c for c in d["factors"] if (kind, c) != ("factor", cause)]
-        bad_names = [*others, *(f"event = {e}" for e in others), *columns, *(d["events"][e][1].split(":")[0]
-                     for e in others), *(d["factors"][c][3].split(":")[0] for c in columns), d["outcome"],
-                     d["outcome_event"][0], d["id"], "events.csv", d["file"], f"{decoy} and {cause}",
-                     f"{decoy}, {cause}", f"{word} is fine; it is {decoy}", f"{word} does not matter; {decoy} does",
-                     f"not {cause}", "unclear"]
-        for answer in bad_names:
-            assert verdict(path, answer, tmp_path) == 1, answer
+        columns = [c for c in d["factors"] if c != cause]
+        _doc, decoy_belief, decoy_phrases = d["events"][decoy]
+        for answer in (decoy, f"event = {decoy}", f"event_type: {decoy}", f"events.{decoy}", f"events.csv: {decoy}",
+                       f"{decoy} events", f"has_{decoy}", decoy_belief.split(":")[0],
+                       *(p.replace("_", " ") for p in decoy_phrases), *d["events"], *columns,
+                       *(d["factors"][c][3].split(":")[0] for c in columns), d["outcome"], d["outcome_event"][0],
+                       d["id"], "events.csv", d["file"], f"{decoy} and {cause}", f"{decoy}, {cause}",
+                       f"{cause} is fine; it is {decoy}", f"{cause} does not matter; {decoy} does", f"not {cause}",
+                       "unclear"):
+            if answer != cause:
+                assert verdict(path, answer, tmp_path) == 1, answer
     report = tmp_path / "plural.md"                       # a `Main drivers:` line counts too, by its first name
     report.write_text(f"Main drivers: {cause}, {decoy}\n")
     with contextlib.redirect_stdout(io.StringIO()):
