@@ -8,7 +8,11 @@ A prompt improver you use every day, and a small bench that checks on your own t
 
 People post prompting tricks all the time, and little of the advice is tested. Independent tests, mostly on 2025 models, found that several popular tricks, such as expert personas or "think step by step" on reasoning models, gave no reliable gain, and small 2026 tests point the same way. Stating what you want, why, and what done looks like helped in the studies that tested it, including on 2026 models ([research](docs/research/README.md)).
 
-briefbench started with one question about Felix Rieseberg's essay ["How to be more ambitious: A tutorial for humans with models"](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/): is its advice really useful? It treats every prompting tip as a hypothesis: write the claim down, test it on your own tasks, keep what helps and leave the rest out of the skill.
+briefbench started with one question about Felix Rieseberg's essay ["How to be more ambitious: A tutorial for humans with models"](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/): is its advice really useful? It treats every prompting tip as a hypothesis: write the claim down, test it on tasks where it can show an effect, and put into the skill only what helps and fits its job.
+
+## How the two parts fit
+
+The bench has two jobs. First, it is a benchmark for prompting tricks from recent posts: each trick runs as an add-on to a plain prompt, on tasks where it has room to act, and its result goes on its claim card whatever it is. Second, it is how the skill improves: advice that makes a request clearer, rather than telling the agent how to work, becomes one candidate instruction, tested against the current skill and kept only if it wins. People write the candidates, the bench tests them, and you decide; the bench never edits the skill. So most of a post's advice can only ever be a benchmark result, and the skill grows one tested instruction at a time. Tricks are tested one at a time from a short list of recent posts, checked again before each test.
 
 ## Two ways in
 
@@ -47,7 +51,7 @@ The skill's version is `metadata.version` in `SKILL.md`, now 0.2.0, separate fro
 
 ## The bench
 
-Give it a task's prompt, in the repo where you work. It asks how the result will be judged (a goal and a check command, which neither agent's prompt contains), then the questions the skill itself would ask. It writes the brief headless, runs the task twice from the same commit, each arm in its own git worktree, once with your original prompt and once with the brief, and runs your check. The check decides when exactly one arm passes; otherwise you pick the better result blind. Then you check the brief against what you asked. After enough trials, a test with its rule fixed in advance says whether the brief helps. You keep the better result either way.
+By default it compares your prompt with the brief; the same trial can instead test a trick (`snippet:`) or a candidate version of the skill (`skill:`). Give it a task's prompt, in the repo where you work. It asks how the result will be judged (a goal and a check command, which neither agent's prompt contains), then the questions the skill itself would ask. It writes the brief headless, runs the task twice from the same commit, each arm in its own git worktree, once with your original prompt and once with the brief, and runs your check. The check decides when exactly one arm passes; otherwise you pick the better result blind. Then you check the brief against what you asked. After enough trials, a test with its rule fixed in advance says whether the brief helps. You keep the better result either way.
 
 The bench calls models only through agent CLIs logged in with your own plans: Claude Code on a Claude plan, and Codex, which comes with the ChatGPT desktop app, on a ChatGPT plan. It needs no API key and adds no per-token charges. Keep pay-as-you-go extra usage off in your account, so a trial that reaches your plan's limit stops instead of billing you.
 

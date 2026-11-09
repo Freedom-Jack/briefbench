@@ -43,7 +43,7 @@ role = ("asker" if schema and "<skill>" in prompt else "judge" if schema
 with open(env["FAKE_CALLS"], "a") as calls:
     calls.write(json.dumps({"name": name, "role": role, "argv": args, "cwd": os.getcwd(),
                             "keys": sorted(k for k in env if k.endswith(("_API_KEY", "_BASE_URL"))),
-                            "data_home": "BRIEFBENCH_HOME" in env}) + "\n")
+                            "data_home": "BRIEFBENCH_HOME" in env, "env": dict(env)}) + "\n")
 
 if role == "asker":
     mode = env.get("FAKE_ASKER", "one")
@@ -76,8 +76,8 @@ elif role == "worker":
         else:
             print(json.dumps({"type": "turn.failed", "error": {"message": "You've hit your usage limit."}}))
         sys.exit(1)
-    if mode == "peek":                          # an arm that ran a command looking somewhere: $FAKE_PEEK says what
-        print(env.get("FAKE_PEEK", ""), file=sys.stderr)
+    if mode == "peek":                          # an arm that ran a command looking somewhere: the file
+        print(Path(env["FAKE_PEEK_FILE"]).read_text(), file=sys.stderr)     # $FAKE_PEEK_FILE says what
     if mode == "cutoff":                        # stopped before its result line, as a timeout or a crash leaves it
         if name == "claude":
             print(json.dumps({"type": "system", "subtype": "init"}))

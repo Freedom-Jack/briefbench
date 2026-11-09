@@ -13,6 +13,13 @@ from briefbench.log import read_entries
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "brief"
 
 
+def peek(monkeypatch, tmp_path, command):
+    """A peeking fake worker prints `command` as if it had run it. The command comes from a file: a variable naming a
+    denied folder never reaches the worker's environment."""
+    (tmp_path / "peek.txt").write_text(command)
+    monkeypatch.setenv("FAKE_PEEK_FILE", str(tmp_path / "peek.txt"))
+
+
 def bench(argv, typed="", cwd=None):
     err = io.StringIO()
     return cli.run(argv, stdin=io.StringIO(typed), stderr=err, cwd=cwd), err.getvalue()
@@ -146,7 +153,7 @@ def test_each_arm_gets_its_own_clone_outside_the_data_folder(agents, repo, tip, 
 
 def test_an_arm_that_names_the_data_folder_is_flagged(agents, repo, tip, tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_WORKER", "peek")
-    monkeypatch.setenv("FAKE_PEEK", f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
+    peek(monkeypatch, tmp_path, f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
     init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
     assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
     [t] = entries()
@@ -159,7 +166,7 @@ def test_an_arm_that_names_the_data_folder_is_flagged(agents, repo, tip, tmp_pat
 
 def test_a_path_that_only_starts_like_the_data_folder_is_not_flagged(agents, repo, tip, tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_WORKER", "peek")
-    monkeypatch.setenv("FAKE_PEEK", f"ls {os.environ['BRIEFBENCH_HOME']}-elsewhere/x")
+    peek(monkeypatch, tmp_path, f"ls {os.environ['BRIEFBENCH_HOME']}-elsewhere/x")
     init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
     assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
     [t] = entries()
@@ -198,9 +205,49 @@ def test_the_worker_never_gets_the_hidden_check_and_works_sandboxed(agents, repo
         assert settings["sandbox"]["enabled"] and settings["sandbox"]["failIfUnavailable"]
         mine = next(side for side, path in clones.items() if Path(path).resolve() == Path(call["cwd"]).resolve())
         theirs = str(Path(clones["b" if mine == "a" else "a"]).parent)
-        assert settings["sandbox"]["filesystem"]["denyRead"] == [os.environ["BRIEFBENCH_HOME"], theirs]
-        assert settings["permissions"]["deny"] == [f"Read(/{os.environ['BRIEFBENCH_HOME']}/**)", f"Read(/{theirs}/**)"]
+        denied = settings["sandbox"]["filesystem"]["denyRead"]
+        assert denied[:2] == [os.environ["BRIEFBENCH_HOME"], theirs]
+        assert settings["permissions"]["deny"] == [f"Read(/{p}/**)" for p in denied]
         assert settings["permissions"]["allow"] == ["Bash"] and not settings["sandbox"]["allowUnsandboxedCommands"]
+
+
+def test_each_arm_has_a_temporary_folder_of_its_own(agents, repo, tip, tmp_path):
+    """The two arms of a task-file trial share no temporary folder: each gets its own, through TMPDIR and the CLI's
+    own setting, and can't read the other's. clean removes them with the clones."""
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    meta = json.loads(Path(t["output"], "meta.json").read_text())
+    temps, clones = meta["temps"], meta["clones"]
+    assert temps["a"] != temps["b"] and all(Path(p).is_dir() and Path(p).name.startswith("bb-") for p in temps.values())
+    for call in [c for c in agents() if c["role"] == "worker"]:
+        mine = next(side for side, path in clones.items() if Path(path).resolve() == Path(call["cwd"]).resolve())
+        theirs = "b" if mine == "a" else "a"
+        assert call["env"]["TMPDIR"] == temps[mine] == call["env"]["CLAUDE_CODE_TMPDIR"]
+        argv = call["argv"]
+        assert temps[theirs] in json.loads(argv[argv.index("--settings") + 1])["sandbox"]["filesystem"]["denyRead"]
+    assert bench(["clean"])[0] == 0
+    assert not any(Path(p).exists() for p in [*temps.values(), *clones.values()])
+
+
+def test_the_worker_can_reach_neither_the_bench_source_nor_other_sessions_files(agents, repo, tip, tmp_path,
+                                                                               monkeypatch):
+    """The bench's own source, whose generators say how materials hide their answers, and the places where agent CLIs
+    keep other sessions' transcripts are denied. Nothing in the worker's environment, PATH included, names them."""
+    projects = Path(os.environ["HOME"], ".claude", "projects")
+    projects.mkdir(parents=True)
+    root = Path(cli.__file__).resolve().parents[2]
+    monkeypatch.setenv("PATH", f"{root / '.venv' / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("VIRTUAL_ENV", str(root / ".venv"))
+    monkeypatch.setenv("WHERE_RECORDS_ARE", os.environ["BRIEFBENCH_HOME"])
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
+    for call in [c for c in agents() if c["role"] == "worker"]:
+        argv = call["argv"]
+        denied = json.loads(argv[argv.index("--settings") + 1])["sandbox"]["filesystem"]["denyRead"]
+        assert str(root) in denied and str(projects) in denied
+        assert not any(str(root) in value for value in call["env"].values())
+        assert not {"VIRTUAL_ENV", "BRIEFBENCH_HOME", "WHERE_RECORDS_ARE"} & set(call["env"])
 
 
 def test_a_pick_scored_worker_keeps_its_one_allowed_command(agents, repo, tip):
@@ -292,7 +339,7 @@ def test_each_arm_is_kept_from_the_keys_and_from_leftover_clones(agents, repo, t
 def test_a_look_spelt_from_the_home_folder_is_flagged(agents, repo, tip, tmp_path, monkeypatch):
     monkeypatch.setenv("BRIEFBENCH_HOME", os.path.join(os.environ["HOME"], ".bbdata"))
     monkeypatch.setenv("FAKE_WORKER", "peek")
-    monkeypatch.setenv("FAKE_PEEK", "cat ~/.bbdata/keys/x")
+    peek(monkeypatch, tmp_path, "cat ~/.bbdata/keys/x")
     init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
     assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
     [t] = entries()

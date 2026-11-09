@@ -82,7 +82,7 @@ Added 2026-11-06. A task file is one JSON object that `ab --task` runs without a
 | `setup` | str | Optional: the setup command for a fresh checkout. |
 | `protected` | list of str | Optional: protected paths inside the repo. |
 
-Other fields, such as a generator's `generator_sha256`, are ignored; they count in the file's sha256, which each trial logs. The task file's settings are used for its trial only; `repos.json` is not read or written. A task file runs only under an experiment scored by the check alone. For now, an experiment with a skill or `clarified` treatment can't run task files, since a skill's questions need someone to answer them. Each arm of a task file's trial works in a clone of the repo, in a randomly named folder of its own under `~/.cache/briefbench-runs`, outside the data folder and outside temp; the trial's `meta.json` lists them under `clones`, and `clean` removes them.
+Other fields, such as a generator's `generator_sha256`, are ignored; they count in the file's sha256, which each trial logs. The task file's settings are used for its trial only; `repos.json` is not read or written. A task file runs only under an experiment scored by the check alone. For now, an experiment with a skill or `clarified` treatment can't run task files, since a skill's questions need someone to answer them. Each arm of a task file's trial works in a clone of the repo, in a randomly named folder of its own under `~/.cache/briefbench-runs`, outside the data folder and outside temp; the trial's `meta.json` lists them under `clones`, and `clean` removes them. Since 2026-11-09 each arm also has a temporary folder of its own, a short folder under `/tmp` listed under `temps`, which `clean` removes too.
 
 ## Where trial files live
 

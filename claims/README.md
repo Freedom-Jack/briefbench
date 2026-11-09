@@ -66,9 +66,9 @@ The value report sorts advice into specification, technique, harness and mindset
 
 ## What can enter the skill
 
-The `brief` skill clarifies the user's intent and instructions. It never chooses domain methods, and it does not do the task. So only `specification` and `wording` claims can ever enter it, and only by the protocol's route (section 11): a minimal variant, development tasks, a frozen comparison on fresh tasks against the released skill, and a reviewed decision.
+The `brief` skill clarifies the user's intent and instructions. It never chooses domain methods, and it does not do the task. So only `specification` and `wording` claims can ever enter it, and only by the protocol's route (section 11): a minimal variant, development tasks, a frozen comparison on fresh tasks against the current grown skill, and a reviewed decision. Older cards that say "the released skill" mean that incumbent; each is updated when it is next tested.
 
-`domain-method`, `harness` and `practice` claims may be tested as separately named worker treatments, such as a `snippet:`, or as test-only rewriter variants kept outside `skills/`, never released and never named `brief`. They are never added to the skill, whatever the result. Their cards always have `skill_fit: no`.
+`domain-method`, `harness` and `practice` claims may be tested as separately named worker treatments, such as a `snippet:`, or as test-only rewriter variants kept outside `skills/`, never released and never named `brief`. They are never added to the skill, whatever the result. Their cards always have `skill_fit: no`. Their results are still the benchmark's output: they go on the card and in the table of results. A card with `skill_fit: conditional` names both forms: the add-on as tested, and the narrower instruction the skill could carry, which needs its own round.
 
 `skill_fit` says whether a claim could belong in the skill under that boundary:
 

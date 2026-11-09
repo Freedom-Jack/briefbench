@@ -31,6 +31,6 @@ The released skill as `skill:<folder>` against `skill:variants/brief-emphasis`, 
 
 ## Status
 
-deferred: docs/design.md tests single techniques only after the whole brief wins against the original, and the report rates this one a liability on frontier models.
+deferred: the skill grows from empty one instruction at a time, starting with the candidates expected to matter most (docs/design.md, "The skill grows from empty"), and the report rates this one a liability on frontier models.
 
 briefbench evidence: none yet.

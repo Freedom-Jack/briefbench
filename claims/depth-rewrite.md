@@ -33,6 +33,6 @@ Measure your acceptance checks, tokens, files changed outside scope, and a blind
 
 ## Status
 
-deferred: docs/design.md tests single changes only after the whole brief has earned its cost against the original prompt, and the value report advises starting with the outcome and outside-check tests. No result would move depth into the skill.
+deferred: it would be tested as an add-on to the plain prompt, after the tricks expected to matter more (docs/design.md, "Posts under test"), and the value report advises starting with the outcome and outside-check tests. No result would move depth into the skill.
 
 briefbench evidence: none yet.

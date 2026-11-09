@@ -17,7 +17,7 @@ from pathlib import Path
 from . import __version__, experiment, judge, runner, score, tasks, treatments
 from .errors import AgentError, BriefbenchError, ConfigError, UsageError
 from .log import append, data_dir, display_path, header, prepare, read_entries, utc_now
-from .presets import AGENTS, agent_env, secret_values
+from .presets import AGENTS, PRIVATE_PLACES, agent_env, secret_values
 from .redact import scrub, strip_controls
 
 TIMEOUT_S = {"rewriter": 600, "asker": 600, "setup": 900, "check": 900, "judge": 600}
@@ -277,6 +277,25 @@ def _runs_folder(environ) -> Path:
     return runs
 
 
+def _bench_source() -> Path | None:
+    """The bench's own source folder, when it runs from one. Its docs and generators describe how materials hide their
+    answers, so an arm of a task-file trial may not read it."""
+    root = Path(__file__).resolve().parents[2]
+    return root if (root / "pyproject.toml").is_file() and (root / "src" / "briefbench").is_dir() else None
+
+
+def _private_places(environ) -> list[Path]:
+    """The places on this machine where agent CLIs keep other sessions' transcripts and scratch files, which exist."""
+    home, uid = environ.get("HOME") or str(Path.home()), str(os.getuid()) if hasattr(os, "getuid") else ""
+    places = (Path(p.replace("{uid}", uid).replace("~", home, 1) if p.startswith("~") else p.replace("{uid}", uid))
+              for p in PRIVATE_PLACES)
+    return [p for p in places if p.exists()]
+
+
+def _inside(path: str, place: Path) -> bool:
+    return path == str(place) or path.startswith(str(place).rstrip(os.sep) + os.sep)
+
+
 def _spellings(place: str, environ) -> list[str]:
     """The ways a command may name `place`: as it is, or from the home folder as ~, $HOME or ${HOME}."""
     place, home = place.rstrip("/"), (environ.get("HOME") or str(Path.home())).rstrip("/")
@@ -401,9 +420,12 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     if task_file:
         # Materials with an answer key: each arm gets its own clone in a randomly named folder under
         # ~/.cache/briefbench-runs, outside the data folder and outside temp, so no git link, sibling or parent leads
-        # to the key, the other arm or the records, and a sandboxed worker can't write to the other arm.
+        # to the key, the other arm or the records, and a sandboxed worker can't write to the other arm. Each arm also
+        # gets a temporary folder of its own, so the two can't see each other's scratch files.
         worktrees = runner.add_clones(root, commit, _runs_folder(environ))
-        meta = {"root": str(root), "commit": commit, "clones": {s: str(p) for s, p in worktrees.items()}}
+        temps = {s: runner.temp_folder() for s in "ab"}
+        meta = {"root": str(root), "commit": commit, "clones": {s: str(p) for s, p in worktrees.items()},
+                "temps": {s: str(p) for s, p in temps.items()}}
         experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
     else:
         # The worktrees live in a private temporary folder outside the data folder, so an agent looking around,
@@ -424,7 +446,8 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
             stage = "run"
             arms = _run_arms(prompts, agents["worker"], exp, settings, answers["check"], worktrees, commit, out,
                              environ, con, role=_worker_role(scoring),
-                             keys=Path(task_file["file"]).parent.parent if task_file else None)
+                             keys=Path(task_file["file"]).parent.parent if task_file else None,
+                             temps=temps if task_file else None)
             # An arm stopped at the timeout is an outcome; one that ended in an error, such as a usage limit or a
             # sandbox that didn't start, measured the service.
             if scoring == "check" and (hit := [s for s in "ab" if arms[s]["error"] and not arms[s]["timed_out"]]):
@@ -620,12 +643,13 @@ def _briefing(t, exp, headless) -> dict | None:
 
 
 def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, environ, con, role="worker",
-              keys=None) -> dict:
+              keys=None, temps=None) -> dict:
     """Both arms at once, then the check in each. role is the worker's template: worker may run the check command
     itself; task-worker, for experiments scored by the check alone, never gets it. With keys, the folder that holds
-    the task files and answer keys, the trial runs a task file: each arm is kept from reading the data folder, the
-    keys, the other arm's folder and any other trial's leftover clone, gets no BRIEFBENCH_HOME, and its output is
-    searched for those places afterwards; arms.<side>.looked_outside records a hit."""
+    the task files and answer keys, the trial runs a task file: each arm works with its own temporary folder (temps)
+    and is kept from reading the data folder, the keys, the other arm's folders, any other trial's leftover clone, the
+    bench's own source and other sessions' files (PRIVATE_PLACES). Nothing in its environment names those places, and
+    its output is searched for them afterwards; arms.<side>.looked_outside records a hit."""
     if settings["setup"]:
         con.say("Running the setup command in both worktrees...")
         done = runner.wait([runner.start(settings["setup"], worktrees[s], agent_env(environ), out / f"{s}.setup.log")
@@ -635,20 +659,29 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
     agent, executable = worker
     con.say(f"Running both arms with {exp['worker']['agent']} (at most {exp['timeout_s'] / 60:g} minutes)...")
     audit, other, env = keys is not None, {"a": "b", "b": "a"}, agent_env(environ)
-    private, tokens = {s: [] for s in "ab"}, {s: [] for s in "ab"}
+    private, tokens, envs = {s: [] for s in "ab"}, {s: [] for s in "ab"}, {s: env for s in "ab"}
     if audit:
-        env.pop("BRIEFBENCH_HOME", None)                     # nothing in the arm's environment points at the data
+        homes = [w.parent for w in worktrees.values()]
+        shared = [p for p in [data_dir(environ), Path(keys), _bench_source(), *_private_places(environ)]
+                  if p and not any(p == h or p in h.parents for h in homes)]    # never a folder an arm works in
+        # Nothing in the arm's environment points at those places: no BRIEFBENCH_HOME, no variable naming one, such as
+        # the bench's virtual environment, and no PATH entry inside one.
+        env = {k: v for k, v in env.items() if k not in ("BRIEFBENCH_HOME", "PWD", "OLDPWD")
+               and (k == "PATH" or not any(str(p) in v for p in shared))}
+        env["PATH"] = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep)
+                                      if not any(_inside(d, p) for p in shared))
         for s in "ab":
             mine = worktrees[s].parent
-            places = [data_dir(environ), Path(keys), worktrees[other[s]].parent]
+            places = [data_dir(environ), worktrees[other[s]].parent, temps[other[s]], *shared]
             places += [p for p in mine.parent.iterdir() if p != mine]      # other trials' leftover clones
             # never a folder the arm works in, such as a keys folder that happens to sit above the runs folder
             private[s] = list(dict.fromkeys(str(p) for p in places if p != mine and p not in mine.parents))
-            tokens[s] = [data_dir(environ).name, worktrees[other[s]].parent.name]
+            tokens[s] = [data_dir(environ).name, worktrees[other[s]].parent.name, temps[other[s]].name]
+            envs[s] = env | {"TMPDIR": str(temps[s])} | ({agent.temp_env: str(temps[s])} if agent.temp_env else {})
     procs = [runner.start(agent.argv(executable, role, prompt=prompts[s], model=exp["worker"]["model"] or "",
                                      check=check, deny=json.dumps(private[s]),
                                      deny_rules=json.dumps([f"Read(/{p}/**)" for p in private[s]])),
-                          worktrees[s], env, out / f"{s}.out", out / f"{s}.err")
+                          worktrees[s], envs[s], out / f"{s}.out", out / f"{s}.err")
              for s in "ab"]
     arms = {}
     for s, done in zip("ab", runner.wait(procs, exp["timeout_s"])):
@@ -819,6 +852,8 @@ def cmd_clean(args, con, environ, cwd, secrets) -> int:
             if Path(clone).exists():
                 shutil.rmtree(Path(clone).parent, ignore_errors=True)
                 removed += 1
+        for folder in (info.get("temps") or {}).values():    # and a temporary folder each
+            shutil.rmtree(folder, ignore_errors=True)
         if info.get("clones"):
             continue
         folder = Path(info.get("worktrees") or meta.parent.parent)   # older trials kept them beside the output

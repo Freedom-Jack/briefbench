@@ -77,6 +77,15 @@ def add_clones(root: Path, commit: str, base: Path) -> dict[str, Path]:
     return paths
 
 
+SHORT_TEMP = "/tmp"
+
+
+def temp_folder() -> Path:
+    """A private temporary folder for one arm of a task-file trial, with a short path: an agent CLI given a long one
+    may fall back to a temporary folder that every session on the machine shares, where the other arm writes too."""
+    return Path(tempfile.mkdtemp(prefix="bb-", dir=SHORT_TEMP if os.path.isdir(SHORT_TEMP) else None))
+
+
 @dataclass(frozen=True)
 class Done:
     code: int | None        # None: stopped at the timeout, or by Ctrl-C

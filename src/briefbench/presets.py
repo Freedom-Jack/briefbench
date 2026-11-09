@@ -5,7 +5,9 @@ Flags were checked on 2026-11-03 against Claude Code 2.1.309 and Codex 0.166 (do
 asker role, added on 2026-11-05, reuses the rewriter's read-only tools and the judge's schema flags. On 2026-11-06 a task-worker
 role was added, checked against Claude Code 2.1.317: the worker of experiments scored by the check alone, confined so
 it can't read the answer key, the records or the other arm. Its stream-json output ends with the same result object
-that json prints, so one parser reads both.
+that json prints, so one parser reads both. On 2026-11-09 each arm got its own temporary folder, checked live against
+2.1.317: before, both arms' sandboxes used the one temporary folder that every Claude Code session on the machine
+shares, and in one pilot trial an arm ran a script the other had just written there.
 """
 from __future__ import annotations
 
@@ -28,9 +30,14 @@ KEY_ENVS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CODEX_API_KEY", "GEMIN
 _ROUTING = ("ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "CLAUDECODE")
 _KEEP = ("CLAUDE_CODE_OAUTH_TOKEN",)
 SKILL_DIRS = ("~/.claude/skills/brief", "~/.agents/skills/brief")    # where `brief` looks, in order
+# Where agent CLIs keep other sessions' transcripts and scratch files on this machine, which can hold a study's seed or
+# answers: an arm of a task-file trial may not read them. {uid} is your user id. /tmp/claude-{uid} is the temporary
+# folder that Claude Code sessions share; a task worker gets a folder of its own instead (Agent.temp_env).
+PRIVATE_PLACES = ("~/.claude/projects", "~/.codex/sessions", "/tmp/claude-{uid}", "/private/tmp/claude-{uid}")
 # Claude Code's sandbox for the task-worker, checked against 2.1.317 on 2026-11-06: every shell command is allowed and
-# runs inside an OS sandbox that confines writes to the working folder and temp, and blocks reads of the {deny} folders
-# (the data folder and the other arm's folder), for the Read tool as well. It fails closed if the sandbox can't start.
+# runs inside an OS sandbox that confines writes to the working folder and the arm's own temporary folder, and blocks
+# reads of the {deny} folders (the data folder, the keys, the other arm's folders, the bench's own source and
+# PRIVATE_PLACES), for the Read tool as well. It fails closed if the sandbox can't start.
 # Allowing Bash outright matters: without it, commands Claude Code can't analyse, such as `cat > $TMPDIR/x <<EOF`, still
 # asked for approval, which nobody can give in a headless run, and were denied.
 _SANDBOX = ('{"sandbox": {"enabled": true, "autoAllowBashIfSandboxed": true, "failIfUnavailable": true, '
@@ -78,6 +85,9 @@ class Agent:
     parse: Callable[[str], Reply]             # stdout -> Reply
     default_model: str = ""                   # "" leaves the model to the CLI
     confines_reads: bool = False              # its task-worker can be kept out of the {deny} folders
+    # The variable that moves the CLI's own temporary folder, set to a folder of each arm's own. It needs a short path:
+    # given a long one, Claude Code 2.1.317 falls back to the shared /tmp/claude-{uid} (checked on 2026-11-09).
+    temp_env: str = ""
 
     def find(self) -> str | None:
         for name in self.commands:
@@ -178,7 +188,7 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
                      "?--model={model}", "--", "{prompt}"),
            "judge": ("-p", "--output-format", "json", "--tools", "", "--json-schema", "{schema_json}",
                      "--disable-slash-commands", "--no-session-persistence", "?--model={model}", "--", "{prompt}")},
-          _claude_reply, default_model="claude-opus-5-5", confines_reads=True),
+          _claude_reply, default_model="claude-opus-5-5", confines_reads=True, temp_env="CLAUDE_CODE_TMPDIR"),
     Agent("codex", "openai", ("codex",),
           ("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",),
           ("login", "status"), lambda report: "chatgpt" in report.lower(),

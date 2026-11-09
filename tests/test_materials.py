@@ -19,6 +19,13 @@ from briefbench.tasks import load
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def peek(monkeypatch, tmp_path, command):
+    """A peeking fake worker prints `command` as if it had run it. The command comes from a file: a variable naming a
+    denied folder never reaches the worker's environment."""
+    (tmp_path / "peek.txt").write_text(command)
+    monkeypatch.setenv("FAKE_PEEK_FILE", str(tmp_path / "peek.txt"))
+
+
 def script(name, path):
     spec = importlib.util.spec_from_file_location(name, ROOT / path)
     module = importlib.util.module_from_spec(spec)
@@ -87,28 +94,35 @@ def verdict(task_file, answer, folder):
 
 
 def test_the_checker_takes_the_planted_driver_and_nothing_else(made, tmp_path):
-    """The last `Main driver:` line counts, and what its first words name, however it is spelled: the column alone,
-    with its table or its level, the table, the bad level, the belief's own words or a plain phrase. The decoy, the
-    other event table, or the decoy named first, fail."""
+    """The last `Main driver:` line counts, and what its words name before any explanation, read whole, however it is
+    spelt: the column alone, with its table or its level, the table or file, the bad level, the belief's own words or a
+    plain phrase. The decoy, the other event table, the decoy named first, and a sentence that only starts with the
+    driver's words, such as a denial, fail."""
     keys, answers = made
     for path in task_files(keys):
         truth = answers[json.loads(path.read_text())["id"]]
         domain = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])
-        driver, decoy = truth["driver"], truth["decoy"]
+        driver, decoy, main = truth["driver"], truth["decoy"], Path(domain["file"]).stem
         noise = next(name for name in domain["sources"] if name != driver)
         source, other = domain["sources"][driver], domain["sources"][noise]
-        stem, other_stem = Path(source["file"]).stem, Path(other["file"]).stem
+        stem, other_stem, phrase = Path(source["file"]).stem, Path(other["file"]).stem, source["phrases"][0]
         assert grade(path, driver) == 0 and grade(path, decoy) == 1 and grade(path, None) == 1     # the command
         for answer in (f"{driver} (by far)", f"{driver} = {source['bad']}", f"{driver}, then {decoy}", source["bad"],
-                       source["phrases"][0].replace("_", " "), stem, f"data/{source['file']}", f"{stem}.{driver}",
-                       f"has_{source['phrases'][0]}", source["belief"].split(":")[0], f"the {driver}",
-                       f"{Path(domain['file']).stem} with {source['phrases'][0].replace('_', ' ')}"):
+                       stem, f"data/{source['file']}", f"{stem}.{driver}", f"has_{phrase}", f"the {driver}",
+                       source["belief"].split(":")[0], f"{main} with {phrase.replace('_', ' ')}",
+                       *(p.replace("_", " ") for p in source["phrases"]),
+                       f"{phrase.replace('_', ' ')} in {source['file']}", f"{driver} - {source['bad']} drives it"):
             assert verdict(path, answer, tmp_path) == 0, answer
-        for answer in (f"the {decoy}", f"{Path(domain['file']).stem}.{decoy}", f"{decoy} and {driver}",
-                       f"{decoy}, {driver}", noise, f"{other_stem}.{noise}", other_stem, other["bad"],
-                       *(p.replace("_", " ") for p in other["phrases"]), other["belief"].split(":")[0],
-                       f"has_{other['phrases'][0]}", domain["outcome"], domain["id"]):
+        for answer in (f"the {decoy}", f"{main}.{decoy}", f"{decoy} and {driver}", f"{decoy}, {driver}", noise,
+                       f"{other_stem}.{noise}", other_stem, other["bad"], *(p.replace("_", " ") for p in other["phrases"]),
+                       other["belief"].split(":")[0], f"has_{other['phrases'][0]}", domain["outcome"], domain["id"],
+                       f"{stem} are fine; it is the {decoy}", f"{source['bad']} to identify a single driver",
+                       f"{phrase.replace('_', ' ')} do not matter; {decoy} does", f"{stem} speed"):
             assert verdict(path, answer, tmp_path) == 1, answer
+    report = tmp_path / "plural.md"                       # a `Main drivers:` line counts too, by its first name
+    report.write_text(f"Main drivers: {driver}, {decoy}\n")
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert planted.check(path.parent / "key.json", report) == 0
 
 
 def rows(repo, name):
@@ -253,7 +267,7 @@ def test_the_runner_stops_when_an_arm_names_the_data_folder(agents, made, repo, 
     keys, _ = made
     freeze(repo, tmp_path)
     monkeypatch.setenv("FAKE_WORKER", "peek")
-    monkeypatch.setenv("FAKE_PEEK", f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
+    peek(monkeypatch, tmp_path, f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
     assert runner.main([str(keys / "tasks.txt"), "--experiment", "exp"]) == 1
     assert len(log()) == 1 and log()[0]["arms"]["a"]["looked_outside"]
 

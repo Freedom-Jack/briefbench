@@ -33,6 +33,6 @@ The report's crew test, one agent with a matched token budget against one agent 
 
 ## Status
 
-deferred: like depth, it waits until the whole brief has earned its cost against the original prompt (docs/design.md), and its crew part needs a runner that `ab` does not have.
+deferred: like depth, it would be tested as an add-on after the tricks expected to matter more (docs/design.md, "Posts under test"), and its crew part needs a runner that `ab` does not have.
 
 briefbench evidence: none yet.

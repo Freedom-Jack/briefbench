@@ -70,11 +70,12 @@ DOMAINS = (
                             "per": (1, 4), "doc": "one row per card payment attempt in the customer's first 90 days, "
                                                   "retries included",
                             "belief": "failed payments: people whose card payments fail end up leaving",
-                            "phrases": ("failed_payments", "failed_payment", "payment_failures", "payment_failure")},
+                            "phrases": ("failed_payments", "payment_failures", "card_payment_failures", "failed_card_payments",
+                                        "card_failures")},
          "ticket_status": {"file": "tickets.csv", "date": "opened_on", "good": "resolved", "bad": "unresolved",
                            "per": (0, 3), "doc": "one row per support ticket opened in the customer's first 90 days",
                            "belief": "support: people whose tickets never get resolved leave",
-                           "phrases": ("unresolved_tickets", "unresolved_ticket", "unresolved_support_tickets")}}},
+                           "phrases": ("unresolved_tickets", "unresolved_support_tickets", "support_tickets")}}},
     {"name": "returns", "file": "orders.csv", "id": "order_id", "date": "order_month", "outcome": "returned",
      "words": "returns", "rise": "Returns went up this year", "span": 14,
      "when": "The month the order was placed (YYYY-MM)",
@@ -93,12 +94,13 @@ DOMAINS = (
          "delivery_condition": {"file": "deliveries.csv", "date": "delivered_on", "good": "intact",
                                 "bad": "damaged", "per": (1, 2), "doc": "one row per parcel delivered for the order",
                                 "belief": "damage in transit: things arrive broken and get sent back",
-                                "phrases": ("damaged_deliveries", "damaged_delivery", "delivery_damage",
-                                            "transit_damage", "damaged_parcels")},
+                                "phrases": ("damaged_deliveries", "delivery_damage", "transit_damage", "damaged_parcels",
+                                            "parcel_damage", "shipping_damage", "damaged_items")},
          "message_topic": {"file": "messages.csv", "date": "sent_on", "good": "general", "bad": "sizing",
                            "per": (0, 2), "doc": "one row per customer message about the order",
                            "belief": "sizing: people who aren't sure of their size send it back",
-                           "phrases": ("sizing_questions", "sizing_question", "sizing_messages", "size_questions")}}},
+                           "phrases": ("sizing_questions", "sizing_messages", "size_questions", "sizing_issues",
+                                       "size_related_messages")}}},
     {"name": "delays", "file": "shipments.csv", "id": "shipment_id", "date": "ship_week", "outcome": "late",
      "words": "late deliveries", "rise": "Late deliveries went up this year", "span": 4,
      "when": "The ISO week the shipment left (YYYY-Www)",
@@ -117,11 +119,12 @@ DOMAINS = (
          "scan_result": {"file": "scans.csv", "date": "scanned_on", "good": "ok", "bad": "missed", "per": (2, 5),
                          "doc": "one row per handoff scan along the route",
                          "belief": "missed scans: parcels that miss a handoff scan get stuck",
-                         "phrases": ("missed_scans", "missed_scan", "missed_handoffs", "missed_handoff_scans")},
+                         "phrases": ("missed_scans", "missed_handoffs", "missed_handoff_scans", "scan_misses")},
          "weather": {"file": "weather.csv", "date": "day", "good": "clear", "bad": "storm", "daily": True,
                      "doc": "one row per day the shipment was on the road, with the weather on its route",
                      "belief": "the weather: storms hold the trucks up",
-                     "phrases": ("storms", "storm_days", "bad_weather", "weather_storm")}}},
+                     "phrases": ("storms", "storm_days", "bad_weather", "route_weather", "stormy_weather",
+                                 "storm_exposure")}}},
 )
 TEMPLATES = (
     "{rise}, and I'm pretty sure it's {belief}. Can you confirm that with the data in data/{file} and write up what "
@@ -131,11 +134,18 @@ TEMPLATES = (
 )
 FORMAT_LINE = ("End the report with a line `Main driver: <column name>` naming the column that drives {words} "
                "the most.")
-MAIN = re.compile(r"^\W*main driver\W*:\s*(.+?)\s*$", re.IGNORECASE)
-# Words a name may start with that don't change what it names: the payment_status, has_failed_payment, n_storms,
-# customers with failed payments.
+MAIN = re.compile(r"^\W*main drivers?\W*?(?::|\s[-–—])\s*(.+?)\s*$", re.IGNORECASE)
+# Where a named driver ends and an explanation starts: a bracket, comma, semicolon, colon or equals sign, a dash between
+# spaces, a full stop, "in <file>.csv", or a joining word such as "and", "not" or "on". So `payment_status (failed)`,
+# `payment_status = failed` and `payment_status and its link to plan` name the column, and `plan and payment_status`
+# names plan.
+END = re.compile(r"[(\[,;:=]| [-–—] |\.(?:\s|$)|\s+(?:in|from)\s+(?:data/)?[\w-]+\.csv\b|\s+(?:and|but|not|because|"
+                 r"vs\.?|versus|over|rather than|on|during|along|across|per|among)\s+", re.IGNORECASE)
+# Words a name may start or end with that don't change what it names: the payment_status, has_failed_payment,
+# n_storms, customers with failed payments, failed_payment_count.
 LEAD = re.compile(r"^(?:(?:the|a|an|data|column|has|had|any|ever|is|with|n|num|number_of|count_of|count|pct|"
-                  r"share_of|rate_of|customers?_with|orders?_with|shipments?_with)_)+")
+                  r"share_of|rate_of|customers?|orders?|shipments?)_)+")
+TAIL = re.compile(r"_(?:count|counts|flag|rate|share|pct|percent|any|ever|n|events?)$")
 TABLE = re.compile(r"^\W*[\w/-]+\.(?:csv\.)?(?=\w)")       # a table in front of a column: payments.payment_status
 
 
@@ -146,20 +156,17 @@ def domain_of(task: dict) -> dict:
 def canon(name: str) -> str:
     """A name as the key compares it: lower case, words joined by _, without leading words such as the, data or has,
     and each word in the singular, so `Failed payments`, failed_payment and has_failed_payments read the same."""
-    name = LEAD.sub("", re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_"))
+    name = TAIL.sub("", LEAD.sub("", re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")))
     return "_".join(w[:-3] + "y" if w.endswith("ies") else w[:-1] if len(w) > 3 and w.endswith("s") else w
                     for w in name.split("_"))
 
 
 def candidates(value: str) -> set[str]:
-    """What a `Main driver:` value may name: each run of its first words, as written and without a table in front.
-    So `payment_status (by far)` and `payments.payment_status` both name payment_status, and a value that names the
-    decoy first, such as `plan, then payment_status`, never does."""
-    value, found = re.sub(r"[`'\"*]", "", value), set()
-    for text in (value, TABLE.sub("", value)):
-        words = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_").split("_")
-        found |= {canon("_".join(words[:i])) for i in range(1, len(words) + 1)}
-    return found - {""}
+    """What a `Main driver:` value names: all of its words before any explanation (END), read whole, as written and
+    without a table in front. So `payment_status (by far)` and `payments.payment_status` name payment_status, while
+    `plan, then payment_status` names plan, and `payments are fine; it is the plan` names neither."""
+    head = END.split(re.sub(r"[`'\"*]", "", value), 1)[0].strip()
+    return {canon(text) for text in (head, TABLE.sub("", head))} - {""}
 
 
 def digest(salt: str, text: str) -> str:
@@ -167,11 +174,12 @@ def digest(salt: str, text: str) -> str:
 
 
 def accepted(column: str, source: dict) -> list[str]:
-    """The names of the planted driver, as `canon` writes them: its column, alone or after its bad value, its table,
-    its bad value when that isn't yes or no, the belief's own words for it (the weather), or a plain phrase such as
-    failed_payments. A value that starts with one of them, such as payment_status = failed, names the driver."""
-    bad = source["bad"]
-    names = {column, f"{bad}_{column}", Path(source["file"]).stem, source["belief"].split(":")[0], *source["phrases"]}
+    """The names of the planted driver, as `canon` writes them: its column, alone or with its bad value, its table or
+    file, its bad value when that isn't yes or no, the belief's own words for it (the weather), or a plain phrase
+    such as failed_payments."""
+    bad, stem = source["bad"], Path(source["file"]).stem
+    names = {column, f"{bad}_{column}", f"{column}_{bad}", stem, f"{stem}_csv", source["belief"].split(":")[0],
+             *source["phrases"]}
     return sorted({canon(n) for n in names | ({bad} if bad not in YES_NO else set())})
 
 
@@ -346,7 +354,7 @@ def explain(seed: int, count: int) -> list[dict]:
 
 
 def check(key_path: Path, report: Path) -> int:
-    """Exit 0 when the report's last `Main driver:` line names the planted driver first, else 1."""
+    """Exit 0 when the report's last `Main driver:` line names the planted driver, else 1."""
     key = json.loads(Path(key_path).read_text())
     try:
         text = report.read_text(errors="replace")
