@@ -261,6 +261,7 @@ The unit is one trial, on one task. Over the trials the rule uses, W is B's wins
 | Conditional win rate | W / D, labelled "among decided pairs" | `win_rate` |
 | Its 95% interval | Exact Clopper–Pearson | `win_rate_interval` |
 | Counts | Trials, wins each way, ties by kind, trials decided by the check or by you | `trials`, `wins_b`, `wins_a`, `ties`, `ties_by_kind`, `decided_by` |
+| Each arm's pass rate, under check scoring | Trials whose check that arm passed, of all trials, with its exact Clopper–Pearson 95% interval; null under your picks, and before a fixed rule's N trials are in (added 2026-11-09) | `pass_rates`, as `{a, b}`, each `{passed, of, interval}` |
 
 It also returns the verdict and what blocked adoption (`verdict`), the fidelity counts, the median extra cost against the cap, the judge's agreement with its Clopper–Pearson interval, how often the longer diff won, your guesses, the noise checks, exclusions and failed trials, the worker's models and versions, the trial ids and the briefbench version.
 

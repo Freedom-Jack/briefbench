@@ -278,6 +278,7 @@ So the skill grows one instruction per round, each tested against the current sk
 
 `briefbench score` prints, and `score --json` returns as numbers:
 - trials, with B's wins, A's wins and ties, and the tie kinds
+- under check scoring, each arm's pass rate with its exact 95% interval
 - the net preference over all trials, with a conservative 95% interval
 - the sign test on decided pairs: p-value, B's win rate and its 95% interval
 - the verdict under the frozen rule, and what blocked adoption, if anything

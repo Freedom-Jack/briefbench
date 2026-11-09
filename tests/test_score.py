@@ -175,6 +175,35 @@ def test_check_scored_ties_are_named_by_the_check():
     assert "Trials: 10. B won 3, A won 0, 7 ties (5 both passed the check, 2 both failed the check)." in text
 
 
+def checked(winner, tie=None, **kwargs):
+    """A trial scored by the check alone: the arms pass as the winner and the tie kind say."""
+    t = trial(winner, by="check", **kwargs)
+    passing = {"b": "b", "a": "a", "tie": "ab" if tie == "both_passed" else ""}[winner]
+    for s in "ab":
+        t["arms"][s]["check"] = {"exit_code": 0 if s in passing else 1, "seconds": 1.0, "passed": s in passing}
+    t["decision"]["check_tie"] = tie
+    return t
+
+
+def check_log(wins, losses, passed, failed):
+    return ([checked("b") for _ in range(wins)] + [checked("a") for _ in range(losses)]
+            + [checked("tie", "both_passed") for _ in range(passed)] + [checked("tie", "both_failed") for _ in range(failed)])
+
+
+CHECKED = EXPERIMENT | {"scoring": "check", "rule": fixed_rule(10, net_min=0)}
+
+
+def test_each_arms_pass_rate_has_its_exact_interval():
+    entries = check_log(3, 1, 4, 2)                      # A passed 1 + 4 of 10, B 3 + 4 of 10
+    s = score.summary(CHECKED, entries)
+    assert s["pass_rates"] == {"a": {"passed": 5, "of": 10, "interval": list(interval(5, 10))},
+                               "b": {"passed": 7, "of": 10, "interval": list(interval(7, 10))}}
+    assert "Pass rates under the check, with exact 95% intervals: A 5 of 10 (19% to 81%), B 7 of 10 (35% to 93%)." \
+        in score.report(CHECKED, entries)
+    assert score.summary(CHECKED, entries[:9])["pass_rates"] is None          # the fixed rule hasn't looked yet
+    assert score.summary(EXPERIMENT, fixture_log())["pass_rates"] is None    # your picks: no pass rates
+
+
 def test_a_declared_threshold_and_level_reach_the_verdict():
     """A check-scored experiment may declare a lower net preference: 12 wins and 3 losses in 100 trials is +0.09."""
     entries = fixed_log(12, 3, 85)

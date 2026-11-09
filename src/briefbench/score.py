@@ -34,6 +34,13 @@ def _extra(trials, field) -> float | None:
     return median(changes) if changes else None
 
 
+def _pass_rates(trials) -> dict:
+    """Under the check alone, each arm's pass rate, {passed, of, interval}, with its exact 95% interval."""
+    passed = {s: sum(bool((t["arms"][s].get("check") or {}).get("passed")) for t in trials) for s in "ab"}
+    return {s: {"passed": passed[s], "of": len(trials), "interval": list(interval(passed[s], len(trials)))}
+            for s in "ab"}
+
+
 def _task(e: dict) -> tuple:
     return (e.get("task", {}).get("prompt"), (e.get("repo") or {}).get("root"), (e.get("repo") or {}).get("commit"))
 
@@ -110,6 +117,7 @@ def summary(exp: dict, entries: list[dict]) -> dict:
         "ties_by_kind": {k: sum(t == k for t in ties) for k in TIE_KINDS} | {"not_recorded": sum(t is None for t in ties)},
         "decided_by": {by: sum(t["decision"]["by"] == by for t in used) for by in ("check", "you")},
         "interim": interim,
+        "pass_rates": _pass_rates(used) if exp.get("scoring") == "check" and used and not interim else None,
         "net_preference": (wins - losses) / len(used) if used and not interim else None,
         "net_interval": list(net_interval(wins, losses, len(used))) if used and not interim else None,
         "sign_test_p": None if interim else sign_test(wins, losses),
@@ -225,6 +233,10 @@ def report(exp: dict, entries: list[dict]) -> str:
     if s["interim"]:
         lines.append(f"The test waits for all {exp['rule']['trials']} trials; until then the report shows no p-value, "
                      "win rate or interval, so it can't tempt an early stop.")
+    if rates := s["pass_rates"]:
+        lines.append("Pass rates under the check, with exact 95% intervals: " + ", ".join(
+            f"{side.upper()} {r['passed']} of {r['of']} ({r['interval'][0]:.0%} to {r['interval'][1]:.0%})"
+            for side, r in rates.items()) + ".")
     if s["net_preference"] is not None:
         lo, hi = s["net_interval"]
         lines.append(f"Net preference for B (wins minus losses, over all trials): {s['net_preference']:+.2f}, "
