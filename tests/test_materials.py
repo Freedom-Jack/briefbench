@@ -1,5 +1,5 @@
-"""scripts/materials/planted_cause.py and scripts/run_tasks.py: generated tasks with a planted answer, their checker,
-and the unattended runner, offline. Every file is written under a temporary folder."""
+"""scripts/materials/planted_cause.py and scripts/run_tasks.py: generated tasks with a planted answer (set 4), their
+checker, and the unattended runner, offline. Every file is written under a temporary folder."""
 import contextlib
 import csv
 import hashlib
@@ -40,14 +40,29 @@ runner = script("run_tasks", "scripts/run_tasks.py")
 
 @pytest.fixture
 def made(tmp_path):
-    """A set of six tasks: (the keys folder, the answers by task id)."""
+    """A set of six tasks, three of each kind: (the keys folder, each task's plan by task id)."""
     keys = tmp_path / "keys"
-    planted.make(seed=3, count=6, out=tmp_path / "repos", keys=keys)
-    return keys, {t["id"]: t for t in planted.explain(3, 6)}
+    planted.make(seed=3, wrong=3, right=3, out=tmp_path / "repos", keys=keys)
+    return keys, {t["name"]: t for t in (planted.plan(3, kind, k) for kind, k in planted.order(3, 3))}
+
+
+@pytest.fixture(scope="module")
+def big(tmp_path_factory):
+    """Twelve tasks, three in each cell of the 2x2, from all three domains: (the task files, each task's plan by id).
+    Made once for the module, since the analyses below read every file; making a set touches neither HOME nor the
+    data folder."""
+    folder = tmp_path_factory.mktemp("big")
+    files = planted.make(seed=8, wrong=6, right=6, out=folder / "repos", keys=folder / "keys")
+    plans = {t["name"]: t for t in (planted.plan(8, kind, k) for kind, k in planted.order(6, 6))}
+    return files, plans
 
 
 def task_files(keys):
     return [keys / line for line in (keys / "tasks.txt").read_text().split()]
+
+
+def domain(plan):
+    return planted.domain_of(plan)
 
 
 def grade(task_file, answer):
@@ -63,31 +78,6 @@ def grade(task_file, answer):
     return code
 
 
-def test_a_set_is_a_list_of_task_files_with_a_planted_answer(made):
-    keys, answers = made
-    files = task_files(keys)
-    assert len(files) == 6 and (keys / "planted_cause.py").is_file()
-    assert all(t["id"].startswith("t") and len(t["id"]) == 13 for t in answers.values())    # opaque names
-    assert sorted(t["stratum"] for t in answers.values()) == ["belief-right"] * 3 + ["belief-wrong"] * 3
-    for path in files:
-        task, truth = load(path), answers[json.loads(path.read_text())["id"]]
-        assert task["type"] == "analysis" and "Main driver: <column name>" in task["prompt"]
-        assert task["stratum"] == truth["stratum"]                 # the kind of task, for score to test apart
-        assert subprocess.run(["git", "status", "--porcelain"], cwd=task["repo"], capture_output=True,
-                              text=True).stdout == ""
-        domain = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])
-        stated = (domain["sources"][truth["belief"]]["belief"] if truth["belief"] in domain["sources"]
-                  else domain["factors"][truth["belief"]][3])
-        assert stated.split(":")[0] in task["prompt"]                              # the prompt states the belief
-        assert f"data/{domain['file']}" in task["prompt"] and ".csv" not in task["prompt"].replace(domain["file"], "")
-        readme = (Path(task["repo"]) / "README.md").read_text()                     # every file is documented
-        assert all(f"data/{name}" in readme for name in [domain["file"], *(s["file"] for s in domain["sources"].values())])
-        key = json.loads((path.parent / "key.json").read_text())
-        assert all(len(h) == 64 for h in key["accepted"]) and truth["driver"] not in json.dumps(key["accepted"])
-        repo = Path(task["repo"])                   # nothing in the repo names the task, its seed or its key
-        assert keys not in repo.parents and "seed" not in "".join(f.read_text() for f in repo.rglob("*.md"))
-
-
 def verdict(task_file, answer, folder):
     """The checker's verdict in this process, which is quicker than its command: 0 right, 1 wrong."""
     (folder / "report.md").write_text(f"# Findings\n\nThe numbers.\n\n**Main driver:** `{answer}`\n")
@@ -95,112 +85,265 @@ def verdict(task_file, answer, folder):
         return planted.check(task_file.parent / "key.json", folder / "report.md")
 
 
-def test_the_checker_takes_the_planted_driver_and_nothing_else(made, tmp_path):
-    """The last `Main driver:` line counts, and what its words name before any explanation, read whole, however it is
-    spelt: the column alone, with its table or its level, the table or file, the bad level, the belief's own words or a
-    plain phrase. The decoy, the other event table, the decoy named first, and a sentence that only starts with the
-    driver's words, such as a denial, fail."""
-    keys, answers = made
-    for path in task_files(keys):
-        truth = answers[json.loads(path.read_text())["id"]]
-        domain = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])
-        driver, decoy, main = truth["driver"], truth["decoy"], Path(domain["file"]).stem
-        noise = next(name for name in domain["sources"] if name != driver)
-        source, other = domain["sources"][driver], domain["sources"][noise]
-        stem, other_stem, phrase = Path(source["file"]).stem, Path(other["file"]).stem, source["phrases"][0]
-        assert grade(path, driver) == 0 and grade(path, decoy) == 1 and grade(path, None) == 1     # the command
-        for answer in (f"{driver} (by far)", f"{driver} = {source['bad']}", f"{driver}, then {decoy}", source["bad"],
-                       stem, f"data/{source['file']}", f"{stem}.{driver}", f"has_{phrase}", f"the {driver}",
-                       source["belief"].split(":")[0], f"{main} with {phrase.replace('_', ' ')}",
-                       *(p.replace("_", " ") for p in source["phrases"]),
-                       f"{phrase.replace('_', ' ')} in {source['file']}", f"{driver} - {source['bad']} drives it"):
-            assert verdict(path, answer, tmp_path) == 0, answer
-        for answer in (f"the {decoy}", f"{main}.{decoy}", f"{decoy} and {driver}", f"{decoy}, {driver}", noise,
-                       f"{other_stem}.{noise}", other_stem, other["bad"], *(p.replace("_", " ") for p in other["phrases"]),
-                       other["belief"].split(":")[0], f"has_{other['phrases'][0]}", domain["outcome"], domain["id"],
-                       f"{stem} are fine; it is the {decoy}", f"{source['bad']} to identify a single driver",
-                       f"{phrase.replace('_', ' ')} do not matter; {decoy} does", f"{stem} speed"):
-            assert verdict(path, answer, tmp_path) == 1, answer
-    report = tmp_path / "plural.md"                       # a `Main drivers:` line counts too, by its first name
-    report.write_text(f"Main drivers: {driver}, {decoy}\n")
-    with contextlib.redirect_stdout(io.StringIO()):
-        assert planted.check(path.parent / "key.json", report) == 0
-
-
 def rows(repo, name):
     with (repo / "data" / name).open() as f:
         return list(csv.DictReader(f))
 
 
-def test_every_event_falls_in_its_rows_span(made):
-    """Events come within 90 days of a signup, 14 days of an order, or on the days a shipment is on the road, which
-    the weather table lists one by one and the scans keep to. Nothing is dated after the export."""
-    keys, answers = made
+def read(repo, d, tables):
+    """What an analyst reads from the repo's files in `tables` ("main", "log" or both): the outcome per entity, and a
+    yes/no flag per entity for each candidate cause, by the name the data gives it: each level of each main-table
+    column ("plan = team"), and having at least one of an event that some entities have and others don't
+    ("payment_failed"). With the log alone, the entities and the outcome come from the log."""
+    main, log = rows(repo, d["file"]), rows(repo, "events.csv")
+    who = {}
+    for r in log:
+        who.setdefault(r["event"], set()).add(r[d["id"]])
+    if "main" in tables:
+        ids, outcome = [r[d["id"]] for r in main], [r[d["outcome"]] == "yes" for r in main]
+    else:
+        ids = sorted({r[d["id"]] for r in log})
+        outcome = [i in who[d["outcome_event"][0]] for i in ids]
+    flags = {}
+    if "main" in tables:
+        for column in main[0]:
+            if column not in (d["id"], d["date"], d["outcome"]):
+                for value in {r[column] for r in main}:
+                    flags[f"{column} = {value}"] = [r[column] == value for r in main]
+    if "log" in tables:
+        for event, seen in who.items():
+            if event != d["outcome_event"][0] and len(seen) < len(ids):
+                flags[event] = [i in seen for i in ids]
+    return flags, outcome
+
+
+def split_gap(flag, outcome, within=None):
+    """The outcome rate's gap with and without the flag; with `within`, averaged over both sides of that flag."""
+    if within is not None:
+        return sum(split_gap([f for f, w in zip(flag, within) if w == side],
+                             [o for o, w in zip(outcome, within) if w == side]) * within.count(side) / len(within)
+                   for side in (True, False))
+    yes, no = [o for f, o in zip(flag, outcome) if f], [o for f, o in zip(flag, outcome) if not f]
+    return sum(yes) / len(yes) - sum(no) / len(no)
+
+
+def strongest(flags, outcome):
+    gaps = {name: split_gap(flag, outcome) for name, flag in flags.items()}
+    return max(gaps, key=gaps.get), gaps
+
+
+def name_of(d, item):
+    """The name the analyses above give a planted item."""
+    kind, name = item
+    return name if kind == "event" else f"{name} = {d['factors'][name][2]}"
+
+
+def pointed(task):
+    """The tables the prompt points at, read from the prompt as an analyst would."""
+    return ("log",) if "data/events.csv" in task["prompt"] else ("main",)
+
+
+def test_a_set_is_a_list_of_task_files_with_a_planted_answer(made):
+    keys, plans = made
+    files = task_files(keys)
+    assert len(files) == 6 and (keys / "planted_cause.py").is_file()
+    assert all(name.startswith("t") and len(name) == 13 for name in plans)              # opaque names
+    assert sorted(t["kind"] for t in plans.values()) == ["belief-right"] * 3 + ["belief-wrong"] * 3
+    for path in files:
+        task, plan = load(path), plans[json.loads(path.read_text())["id"]]
+        d = domain(plan)
+        assert task["type"] == "analysis" and task["stratum"] == plan["kind"] and task["set"] == planted.SET
+        assert subprocess.run(["git", "status", "--porcelain"], cwd=task["repo"], capture_output=True,
+                              text=True).stdout == ""
+        kind, name = plan["belief"]
+        stated = d["events"][name][1] if kind == "event" else d["factors"][name][3]
+        assert stated in task["prompt"]                                               # the prompt states the belief
+        table = "events.csv" if kind == "event" else d["file"]                        # and points at its table only
+        assert f"data/{table}" in task["prompt"] and task["prompt"].count(".csv") == 1
+        assert any(word in task["prompt"] for word in ("confirm", "put a number", "size"))   # confirm it, or size it
+        assert task["prompt"].endswith(planted.FORMAT_LINE) and "the most" not in task["prompt"]
+        readme = (Path(task["repo"]) / "README.md").read_text()        # every file, column and event, documented
+        names = [d["file"], "events.csv", d["id"], d["date"], d["outcome"], *d["factors"], *d["events"],
+                 *(r[0] for r in d["routine"]), d["outcome_event"][0]]
+        assert all(f"`{n}`" in readme or f"data/{n}" in readme for n in names)
+        assert sorted(p.name for p in (Path(task["repo"]) / "data").iterdir()) == sorted([d["file"], "events.csv"])
+        key = json.loads((path.parent / "key.json").read_text())
+        assert all(len(h) == 64 for h in key["accepted"]) and plan["cause"][1] not in json.dumps(key["accepted"])
+        repo = Path(task["repo"])                   # nothing in the repo names the task, its seed or its key
+        assert keys not in repo.parents and "seed" not in "".join(f.read_text() for f in repo.rglob("*.md"))
+
+
+def test_the_kinds_of_task_form_a_two_by_two():
+    """Where the cause lives, the main table or the log, takes turns within each kind. A right belief names the cause
+    and a wrong one the decoy, which always sits in the other table; the prompt points at the belief's table. So the
+    pointed table holds the cause only when the belief is right."""
+    plans = [planted.plan(5, kind, k) for kind, k in planted.order(8, 8)]
+    cells = sorted((t["kind"], t["where"]) for t in plans)
+    assert cells == sorted([(kind, where) for kind in planted.KINDS for where in ("log", "main")] * 4)
+    assert {t["domain"] for t in plans} == {"churn", "returns", "delays"}
+    for t in plans:
+        assert {t["cause"][0], t["decoy"][0]} == {"event", "factor"}
+        assert (t["cause"][0] == "event") == (t["where"] == "log")
+        assert t["belief"] == (t["cause"] if t["kind"] == "belief-right" else t["decoy"])
+        assert t["file"] == ("events.csv" if t["belief"][0] == "event" else domain(t)["file"])
+    kinds = [kind for kind, _ in planted.order(20, 10)]            # the kinds spread evenly through the list
+    assert kinds[:3].count("belief-wrong") == 2 and kinds[:15].count("belief-right") == 5
+
+
+def test_a_full_analysis_recovers_the_key(big):
+    """Read both tables: the candidate with the largest gap in the outcome rate is the planted cause. It holds once
+    the data is split by the runner-up, whose own gap goes, and the check passes a report that names it."""
+    files, plans = big
+    for path in files:
+        plan, task = plans[json.loads(path.read_text())["id"]], load(path)
+        d = domain(plan)
+        flags, outcome = read(Path(task["repo"]), d, ("main", "log"))
+        top, gaps = strongest(flags, outcome)
+        assert top == name_of(d, plan["cause"])
+        column = top.split(" = ")[0]
+        second = max((n for n in gaps if n.split(" = ")[0] != column), key=gaps.get)
+        assert second == name_of(d, plan["decoy"])
+        assert split_gap(flags[top], outcome, flags[second]) > 0.15
+        assert abs(split_gap(flags[second], outcome, flags[top])) < 0.05
+        assert grade(path, top) == 0
+
+
+def test_the_pointed_table_alone_names_the_decoy_when_the_belief_is_wrong(big):
+    """An analysis of only the table the prompt points at names the stated belief: the decoy when the belief is wrong,
+    which the check fails, and the cause when it is right, which it passes, so confirming a right belief never needs
+    the other table."""
+    files, plans = big
+    for path in files:
+        plan, task = plans[json.loads(path.read_text())["id"]], load(path)
+        d = domain(plan)
+        top, _gaps = strongest(*read(Path(task["repo"]), d, pointed(task)))
+        assert top == name_of(d, plan["belief"])
+        assert grade(path, top) == (1 if plan["kind"] == "belief-wrong" else 0)
+
+
+def test_the_decoy_only_looks_like_a_cause(big):
+    """The decoy shows the outcome at least 7 points more often, less than the cause does, and within each side of
+    the cause nothing beyond sampling noise."""
+    files, plans = big
+    for path in files:
+        plan, task = plans[json.loads(path.read_text())["id"]], load(path)
+        d = domain(plan)
+        flags, outcome = read(Path(task["repo"]), d, ("main", "log"))
+        cause, decoy = flags[name_of(d, plan["cause"])], flags[name_of(d, plan["decoy"])]
+        assert split_gap(cause, outcome) > split_gap(decoy, outcome) >= 0.07
+        for side in (True, False):
+            pick = [c == side for c in cause]
+            part = [o for o, p in zip(outcome, pick) if p]
+            marked = [m for m, p in zip(decoy, pick) if p]
+            rate = sum(part) / len(part)
+            error = (rate * (1 - rate) * (1 / max(1, sum(marked)) + 1 / max(1, len(marked) - sum(marked)))) ** 0.5
+            assert abs(split_gap(marked, part)) < 3 * error + 1e-9
+
+
+def test_the_log_agrees_with_the_main_table(made):
+    """The outcome's event marks exactly the rows whose outcome is yes, and comes after the row's other events. Every
+    row has its first event on its first day, every event falls in its window, the log runs oldest first, and nothing
+    is dated after the export."""
+    keys, plans = made
     for path in task_files(keys):
         task = json.loads(path.read_text())
-        repo = Path(task["repo"])
-        domain = next(d for d in planted.DOMAINS if d["name"] == answers[task["id"]]["domain"])
-        own = {r[domain["id"]]: r[domain["date"]] for r in rows(repo, domain["file"])}
+        d, repo = domain(plans[task["id"]]), Path(task["repo"])
+        main = {r[d["id"]]: r for r in rows(repo, d["file"])}
+        log = rows(repo, "events.csv")
+        assert [r["day"] for r in log] == sorted(r["day"] for r in log)
         days = {}
-        for name, source in domain["sources"].items():
-            for r in rows(repo, source["file"]):
-                days.setdefault(name, {}).setdefault(r[domain["id"]], []).append(date.fromisoformat(r[source["date"]]))
-        for name, source in domain["sources"].items():
-            for eid, seen in days[name].items():
-                if domain["date"] == "ship_week":
-                    week = int(own[eid][-2:])
-                    first, last = max(date.fromisocalendar(2026, week, 1), date(2026, 1, 1)), \
-                        date.fromisocalendar(2026, week, 7)
-                else:
-                    first, last = date(2026, int(own[eid][-2:]), 1), date(2026, int(own[eid][-2:]), 28)
-                assert first <= min(seen) and max(seen) <= last + timedelta(days=domain["span"] - 1) < date(2026, 10, 1)
-                assert seen == sorted(seen)
-                if source.get("daily"):
-                    assert seen == [seen[0] + timedelta(days=k) for k in range(len(seen))]
-        if domain["name"] == "delays":
-            assert len(days["weather"]) == len(own)                     # every shipment has its days on the road
-            assert all(set(seen) <= set(days["weather"][eid]) for eid, seen in days["scan_result"].items())
+        for r in log:
+            days.setdefault(r[d["id"]], []).append((date.fromisoformat(r["day"]), r["event"]))
+        assert set(days) == set(main)
+        first, ending = d["routine"][0][0], d["outcome_event"][0]
+        for eid, seen in days.items():
+            assert seen[0][1] == first and seen == sorted(seen, key=lambda s: s[0])
+            assert (main[eid][d["outcome"]] == "yes") == any(event == ending for _, event in seen)
+            start = seen[0][0]
+            own = main[eid][d["date"]]
+            if d["date"] == "ship_week":
+                assert start.isocalendar()[1] == int(own[-2:]) or start == date(2026, 1, 1)
+            else:
+                assert start.month == int(own[-2:]) and start.day <= 28
+            assert max(day for day, _ in seen) <= start + timedelta(days=d["span"] - 1) < date(2026, 10, 1)
+            if any(event == ending for _, event in seen):
+                stop = next(day for day, event in seen if event == ending)
+                assert all(day <= stop for day, event in seen if event not in (ending, "delivered"))
 
 
-def test_the_decoy_only_looks_like_a_cause(made):
-    """In the main table the decoy's bad level shows more of the outcome and stands out from the other columns. Joined
-    with its event table, the real driver's gap is the larger one, and within each side of it the decoy shows
-    nothing beyond sampling noise."""
-    keys, answers = made
+def test_the_checker_takes_the_planted_cause_and_nothing_else(made, tmp_path):
+    """The last `Main driver:` line counts, and what its words name before any explanation, read whole, however it is
+    spelt: an event alone, after its table or the event column, or in the belief's or plain words; a column alone,
+    with its table or its blamed level, or the level's own words. The decoy, the other events and columns, the outcome,
+    the decoy named first, and a sentence that only starts with the cause's words, such as a denial, fail."""
+    keys, plans = made
     for path in task_files(keys):
-        truth = answers[json.loads(path.read_text())["id"]]
-        repo = Path(json.loads(path.read_text())["repo"])
-        domain = next(d for d in planted.DOMAINS if d["name"] == truth["domain"])
-        main = list(csv.DictReader((repo / "data" / domain["file"]).open()))
-        source = domain["sources"][truth["driver"]]
-        events = csv.DictReader((repo / "data" / source["file"]).open())
-        hit = {r[domain["id"]] for r in events if r[truth["driver"]] == source["bad"]}
-        outcome, decoy_bad = domain["outcome"], domain["factors"][truth["decoy"]][2]
+        plan = plans[json.loads(path.read_text())["id"]]
+        d = domain(plan)
+        main = Path(d["file"]).stem
+        (kind, cause), (_, decoy) = plan["cause"], plan["decoy"]
+        assert grade(path, name_of(d, plan["cause"])) == 0 and grade(path, name_of(d, plan["decoy"])) == 1
+        assert grade(path, None) == 1                                                 # the command, and no report
+        if kind == "event":
+            _doc, belief, phrases = d["events"][cause]
+            good = [cause, f"{cause} (by far)", f"events.{cause}", f"event = {cause}", f"event_type: {cause}",
+                    f"events.csv: {cause}", f"data/events.csv - {cause}", f"has_{cause}", f"the {cause}",
+                    f"{cause} events", f"{cause} in events.csv", f"{cause} - drives it", belief.split(":")[0],
+                    *(p.replace("_", " ") for p in phrases), f"{cause}, then {decoy}", f"{cause} and its link to plan"]
+            word = phrases[0].replace("_", " ")
+        else:
+            _levels, _weights, bad, belief, _doc, phrases = d["factors"][cause]
+            good = [cause, f"{cause} = {bad}", f"{cause} ({bad})", f"{cause}_{bad}", f"{main}.{cause}",
+                    f"{d['file']}: {cause}", f"the {cause} column", belief.split(":")[0],
+                    *(p.replace("_", " ") for p in phrases), *([bad] if bad not in ("yes", "no") else []),
+                    f"{cause} == '{bad}'", f"{cause}, then {decoy}"]
+            word = cause
+        for answer in good:
+            assert verdict(path, answer, tmp_path) == 0, answer
+        others = [e for e in d["events"] if (kind, e) != ("event", cause)]
+        columns = [c for c in d["factors"] if (kind, c) != ("factor", cause)]
+        bad_names = [*others, *(f"event = {e}" for e in others), *columns, *(d["events"][e][1].split(":")[0]
+                     for e in others), *(d["factors"][c][3].split(":")[0] for c in columns), d["outcome"],
+                     d["outcome_event"][0], d["id"], "events.csv", d["file"], f"{decoy} and {cause}",
+                     f"{decoy}, {cause}", f"{word} is fine; it is {decoy}", f"{word} does not matter; {decoy} does",
+                     f"not {cause}", "unclear"]
+        for answer in bad_names:
+            assert verdict(path, answer, tmp_path) == 1, answer
+    report = tmp_path / "plural.md"                       # a `Main drivers:` line counts too, by its first name
+    report.write_text(f"Main drivers: {cause}, {decoy}\n")
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert planted.check(path.parent / "key.json", report) == 0
 
-        def gap(rows, inside):
-            """The outcome rate's gap between rows where `inside` holds and the rest, and its standard error."""
-            yes = [r[outcome] == "yes" for r in rows if inside(r)]
-            no = [r[outcome] == "yes" for r in rows if not inside(r)]
-            p = (sum(yes) + sum(no)) / (len(yes) + len(no))
-            return sum(yes) / len(yes) - sum(no) / len(no), (p * (1 - p) * (1 / len(yes) + 1 / len(no))) ** 0.5
 
-        is_decoy = lambda r: r[truth["decoy"]] == decoy_bad
-        driver_gap, decoy_gap = gap(main, lambda r: r[domain["id"]] in hit)[0], gap(main, is_decoy)[0]
-        assert driver_gap > decoy_gap > 0.04
-        for other, (levels, *_rest) in domain["factors"].items():   # the decoy stands out in the main table
-            if other != truth["decoy"]:
-                assert all(gap(main, lambda r: r[other] == level)[0] < decoy_gap for level in levels)
-        for side in (True, False):
-            split = [r for r in main if (r[domain["id"]] in hit) == side]
-            difference, error = gap(split, is_decoy)
-            assert abs(difference) < 3 * error             # no effect of its own, up to sampling noise
+def test_each_candidate_has_names_of_its_own():
+    """In every domain, no two candidate causes share a name, and none is named like the outcome, the id, a routine
+    event or the log, so the check can't take one for another."""
+    for d in planted.DOMAINS:
+        items = [("event", e) for e in d["events"]] + [("factor", f) for f in d["factors"]]
+        taken = {planted.canon(n) for n in (d["outcome"], d["id"], d["date"], d["outcome_event"][0], "events.csv",
+                                            "events", "event", d["file"], *(r[0] for r in d["routine"]))}
+        seen = set()
+        for item in items:
+            names = set(planted.names(d, item))
+            assert not names & seen and not names & taken, (d["name"], item, names & (seen | taken))
+            seen |= names
+
+
+def test_explain_gives_each_answer_in_the_order_of_the_list(made):
+    keys, plans = made
+    items = planted.explain(3, 3, 3)
+    assert [i["id"] for i in items] == [json.loads(f.read_text())["id"] for f in task_files(keys)]
+    for item in items:
+        plan = plans[item["id"]]
+        assert item["stratum"] == plan["kind"] and item["driver"].startswith(plan["cause"][1])
+        assert item["pointed_at"] == f"data/{plan['file']}" and item["decoy"].startswith(plan["decoy"][1])
 
 
 def test_a_seed_gives_the_same_set_whatever_your_git_settings(tmp_path, monkeypatch):
-    planted.make(seed=5, count=2, out=tmp_path / "r1", keys=tmp_path / "k1")
+    planted.make(seed=5, wrong=1, right=1, out=tmp_path / "r1", keys=tmp_path / "k1")
     monkeypatch.setenv("GIT_AUTHOR_NAME", "Someone Else")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "else@example.invalid")
-    planted.make(seed=5, count=2, out=tmp_path / "r2", keys=tmp_path / "k2")
+    planted.make(seed=5, wrong=1, right=1, out=tmp_path / "r2", keys=tmp_path / "k2")
     for one, two in zip(task_files(tmp_path / "k1"), task_files(tmp_path / "k2")):
         a, b = json.loads(one.read_text()), json.loads(two.read_text())
         assert a["commit"] == b["commit"] and a["prompt"] == b["prompt"] and a["id"] == b["id"]
@@ -212,7 +355,9 @@ def test_make_never_writes_into_an_existing_set(made, tmp_path):
     for out, into in ((tmp_path / "repos", tmp_path / "new-keys"), (tmp_path / "new-repos", keys),
                       (tmp_path / "x", tmp_path / "x" / "keys")):
         with pytest.raises(SystemExit):
-            planted.make(seed=4, count=1, out=out, keys=into)
+            planted.make(seed=4, wrong=1, right=0, out=out, keys=into)
+    with pytest.raises(SystemExit):
+        planted.make(seed=4, wrong=0, right=0, out=tmp_path / "none", keys=tmp_path / "none-keys")
     assert (keys / "planted_cause.py").read_bytes() == checker
 
 

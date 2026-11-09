@@ -1,31 +1,39 @@
 """Analysis tasks on generated data with a planted answer, for the claim "test your belief against the raw data"
 (claims/test-your-belief.md). Standard library only.
 
-    uv run python scripts/materials/planted_cause.py make --seed S --count N --out REPOS --keys KEYS
-    uv run python scripts/materials/planted_cause.py explain --seed S --count N      (after the experiment)
-    python3 -I KEYS/planted_cause.py check --key KEY [--report report.md]            (the bench runs this)
+    uv run python scripts/materials/planted_cause.py make --seed S --wrong W --right R --out REPOS --keys KEYS
+    uv run python scripts/materials/planted_cause.py explain --seed S --wrong W --right R    (after the experiment)
+    python3 -I KEYS/planted_cause.py check --key KEY [--report report.md]                 (the bench runs this)
 
-Each task is a small git repo with a README and three CSVs, a prompt that states a belief about what drives an
-outcome, and an answer key. The prompt points at the main table, as people do. The real driver lives in one of two
-event tables keyed by the same id: an entity with at least one bad event, such as a failed card payment, is far more
-likely to show the outcome. In half the tasks the belief names the real driver. In the other half it names a decoy:
-a main-table column that travels with the real driver, so it holds up in the main table and disappears once the data
-is split by the real driver. Three domains take turns: churn, returns and late deliveries. Every event falls in
-its row's own window, such as the 90 days after a signup.
+Each task is a small git repo with a README and two CSVs: a main table, one row per customer, order or shipment, with
+the outcome; and an event log of what happened to each, where the outcome is an event too. The prompt states a belief
+about what drives the outcome, asks to confirm it and size it, and points at the table the belief is about, as people
+do. One cause is planted, either in the main table, as a level of a column (the Team plan), or in the log, as an event
+(a failed card payment): an entity with it is far more likely to show the outcome. A decoy travels with the cause in
+the other table: it shows the outcome much more often too, and nothing once the data is split by the cause. Three
+domains take turns: churn, returns and late deliveries. Every event falls in its row's own window, such as the 90 days
+after a signup, and comes before the outcome.
 
-Set `planted-cause/3`. Set 1 kept everything in one table and proved too easy for current agents. Set 2 took fewer
-spellings of the right answer, and some of its event dates didn't fit their rows (claims/test-your-belief.md).
+The kinds of task form a 2x2: where the cause lives, in the main table or in the log, and whether the belief names the
+cause (`belief-right`) or the decoy (`belief-wrong`). So the table the prompt points at holds the cause when the belief
+is right, and only the decoy when it is wrong. Confirming a right belief never needs the other table, and nothing in a
+folder listing says where the cause is: the log's name is generic, and the README documents every column and event
+alike. The last line of the prompt only sets the format of the answer the check reads.
 
-The repos go under REPOS, everything else under KEYS: the task files, the answer keys, a copy of this script that
-the checks run, and the list of tasks. Keep KEYS apart from REPOS, for example ~/.briefbench/keys/<name> beside
+Set `planted-cause/4`. Set 1 kept everything in one table and proved too easy for current agents. Set 2 put the cause
+in one of two event tables named after their causes, which a folder listing showed, and asked for the column that
+drives the outcome the most; a review on 2026-11-09 found that this left the trick no room (claims/test-your-belief.md).
+Set 3 took more spellings of the right answer and made every event date fit its row.
+
+The repos go under REPOS, everything else under KEYS: the task files, the answer keys, a copy of this script that the
+checks run, and the list of tasks. Keep KEYS apart from REPOS, for example ~/.briefbench/keys/<name> beside
 ~/.briefbench/materials/<name>. Folders get opaque names, and the seed is written only in KEYS, so nothing an agent
-sees in its repo says which task it is. The key holds salted hashes, which only keep the answers from being read
-at a glance. The protection is where the keys are kept, and the bench's own steps: each arm works in a clone of its
-own and can't read the data folder, the keys or the other arm's clone, and an arm whose output names one of them is
-flagged. `explain` prints which tasks state a wrong belief, and every answer, regenerated from the seed: run it only
-after the experiment. Each task file also names its kind of task, `belief-wrong` or `belief-right` (its `stratum`),
-so that an experiment frozen with `init --strata belief-wrong,belief-right` tests the two apart; like the keys, it
-stays in KEYS.
+sees in its repo says which task it is. The key holds salted hashes, which only keep the answers from being read at a
+glance. The protection is where the keys are kept, and the bench's own steps: each arm works in a clone of its own and
+can't read the data folder, the keys or the other arm's clone, and an arm whose output names one of them is flagged.
+`explain` prints each task's kind, cause, decoy and belief, regenerated from the seed: run it only after the
+experiment. Each task file names its kind (its `stratum`), so that an experiment frozen with
+`init --strata belief-wrong,belief-right` tests the two apart; like the keys, it stays in KEYS.
 """
 from __future__ import annotations
 
@@ -44,111 +52,144 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-SET = "planted-cause/3"
+SET = "planted-cause/4"
+KINDS = ("belief-wrong", "belief-right")
+LOG = "events.csv"                      # the event log's name: the same in every domain, and says nothing of a cause
 YES_NO = {"yes", "no"}
-# Each domain has a main table, whose columns hold the decoys, and two event tables keyed by the same id. In each task
-# one event table holds the real driver (an entity with at least one "bad" event); the other is noise. The prompt
-# points at the main table only, as people do, so the real driver turns up only for an analyst who looks further.
-# A row's events fall in its span: the 90 days after a signup, the 14 after an order, or the 1 to 4 days a shipment
-# is on the road, which the weather table lists one by one.
+# Each domain has a main table, whose columns are (levels, weights, the level a belief blames, the belief, what the
+# column means, other names for that level), and an event log. Its candidate events, (meaning, belief, other names),
+# can each be the cause, the decoy or noise; its routine events, (name, meaning, fewest, most, where in the window),
+# never matter; its outcome is also an event. `ends` is where in the window an outcome falls (None: on its last day).
 DOMAINS = (
     {"name": "churn", "file": "customers.csv", "id": "customer_id", "date": "signup_month", "outcome": "churned",
-     "words": "churn", "rise": "Churn went up this year", "span": 90,
+     "words": "churn", "rise": "Churn went up this year", "span": 90, "ends": (10, 89),
      "when": "The month the customer signed up (YYYY-MM)",
-     "readme": "Customers who signed up between January and June 2026, one row each. `churned` is yes when the "
-               "customer cancelled within 90 days of signing up.",
+     "readme": "Customers who signed up between January and June 2026, one row each, and what happened in their first "
+               "90 days.",
+     "outcome_doc": "yes when the customer cancelled within 90 days of signing up",
+     "log_doc": "one row per event in a customer's first 90 days",
      "factors": {
          "plan": (("basic", "pro", "team"), (5, 3, 2), "team", "the Team plan: Team customers are the ones leaving",
-                  "the subscription plan"),
+                  "the subscription plan", ("team_plan", "team_customers", "team_accounts")),
          "region": (("na", "eu", "apac", "latam"), (4, 3, 2, 1), "apac", "APAC: customers there are the ones leaving",
-                    "the billing region"),
+                    "the billing region", ("apac_region", "apac_customers")),
          "channel": (("organic", "ads", "referral", "partner"), (4, 3, 2, 2), "partner",
-                     "the partner channel: people who come in through partners don't stay", "how the customer signed up"),
+                     "the partner channel: people who come in through partners don't stay", "how the customer signed up",
+                     ("partner_channel", "partners", "partner_signups", "partner_referrals")),
          "onboarding_completed": (("yes", "no"), (7, 3), "no",
                                   "an onboarding problem: people who don't finish onboarding leave",
-                                  "whether the customer finished onboarding")},
-     "sources": {
-         "payment_status": {"file": "payments.csv", "date": "attempted_on", "good": "paid", "bad": "failed",
-                            "per": (1, 4), "doc": "one row per card payment attempt in the customer's first 90 days, "
-                                                  "retries included",
-                            "belief": "failed payments: people whose card payments fail end up leaving",
-                            "phrases": ("failed_payments", "payment_failures", "card_payment_failures", "failed_card_payments",
-                                        "card_failures")},
-         "ticket_status": {"file": "tickets.csv", "date": "opened_on", "good": "resolved", "bad": "unresolved",
-                           "per": (0, 3), "doc": "one row per support ticket opened in the customer's first 90 days",
-                           "belief": "support: people whose tickets never get resolved leave",
-                           "phrases": ("unresolved_tickets", "unresolved_support_tickets", "support_tickets")}}},
+                                  "whether the customer finished onboarding",
+                                  ("onboarding", "incomplete_onboarding", "onboarding_incomplete", "no_onboarding",
+                                   "onboarding_not_completed", "unfinished_onboarding", "skipped_onboarding"))},
+     "events": {
+         "payment_failed": ("A card payment failed", "failed payments: people whose card payments fail end up leaving",
+                            ("failed_payments", "payment_failures", "failed_card_payments", "card_payment_failures",
+                             "card_failures")),
+         "ticket_unresolved": ("A support ticket was closed without a fix",
+                               "support: people whose tickets never get resolved leave",
+                               ("unresolved_tickets", "unresolved_support_tickets", "support_tickets",
+                                "tickets_unresolved")),
+         "sync_error": ("The customer's integration failed to sync",
+                        "sync errors: when the integration breaks, people leave",
+                        ("sync_errors", "sync_failures", "integration_errors", "integration_failures", "integration"))},
+     "routine": (("signed_up", "The customer signed up", 1, 1, "first"),
+                 ("login", "The customer logged in", 1, 6, "any"),
+                 ("invoice_paid", "A monthly invoice was paid", 1, 3, "any"),
+                 ("seat_added", "A seat was added to the account", 0, 2, "any")),
+     "outcome_event": ("cancelled", "The customer cancelled")},
     {"name": "returns", "file": "orders.csv", "id": "order_id", "date": "order_month", "outcome": "returned",
-     "words": "returns", "rise": "Returns went up this year", "span": 14,
+     "words": "returns", "rise": "Returns went up this year", "span": 14, "ends": (3, 13),
      "when": "The month the order was placed (YYYY-MM)",
-     "readme": "Online orders placed between January and June 2026, one row each. `returned` is yes when any item "
-               "in the order was sent back.",
+     "readme": "Online orders placed between January and June 2026, one row each, and what happened in the 14 days "
+               "after each.",
+     "outcome_doc": "yes when any item in the order was sent back",
+     "log_doc": "one row per event in the 14 days after an order",
      "factors": {
          "category": (("apparel", "electronics", "home", "beauty"), (4, 2, 3, 2), "apparel",
-                      "clothing: people send clothes back", "the main product category"),
+                      "clothing: people send clothes back", "the main product category",
+                      ("clothing", "clothes", "apparel_orders")),
          "warehouse": (("east", "west", "central"), (4, 4, 3), "central",
-                       "the central warehouse: its orders keep coming back", "the warehouse that shipped the order"),
+                       "the central warehouse: its orders keep coming back", "the warehouse that shipped the order",
+                       ("central_warehouse",)),
          "discount_code": (("yes", "no"), (3, 7), "yes", "discount codes: people who buy on a discount send it back",
-                           "whether a discount code was used"),
+                           "whether a discount code was used",
+                           ("discount_codes", "discounts", "discount", "discount_code_used", "coupons")),
          "first_order": (("yes", "no"), (3, 7), "yes", "first-time buyers: new customers send things back",
-                         "whether it was the customer's first order")},
-     "sources": {
-         "delivery_condition": {"file": "deliveries.csv", "date": "delivered_on", "good": "intact",
-                                "bad": "damaged", "per": (1, 2), "doc": "one row per parcel delivered for the order",
-                                "belief": "damage in transit: things arrive broken and get sent back",
-                                "phrases": ("damaged_deliveries", "delivery_damage", "transit_damage", "damaged_parcels",
-                                            "parcel_damage", "shipping_damage", "damaged_items")},
-         "message_topic": {"file": "messages.csv", "date": "sent_on", "good": "general", "bad": "sizing",
-                           "per": (0, 2), "doc": "one row per customer message about the order",
-                           "belief": "sizing: people who aren't sure of their size send it back",
-                           "phrases": ("sizing_questions", "sizing_messages", "size_questions", "sizing_issues",
-                                       "size_related_messages")}}},
+                         "whether it was the customer's first order",
+                         ("first_orders", "first_time_buyers", "first_time_customers", "new_customers",
+                          "first_purchase"))},
+     "events": {
+         "parcel_damaged": ("The parcel arrived damaged", "damage in transit: things arrive broken and get sent back",
+                            ("damaged_parcels", "damage_in_transit", "transit_damage", "parcel_damage",
+                             "shipping_damage", "damaged_deliveries", "damaged_items", "damage")),
+         "size_question": ("The customer asked about sizing",
+                           "sizing: people who aren't sure of their size send it back",
+                           ("size_questions", "sizing_questions", "sizing_messages", "sizing_issues", "size_issues")),
+         "arrived_late": ("The parcel arrived after its promised date",
+                          "slow delivery: people who wait too long send it back",
+                          ("late_arrivals", "late_deliveries", "slow_deliveries", "delivery_delays", "delays"))},
+     "routine": (("ordered", "The order was placed", 1, 1, "first"),
+                 ("shipped", "The order left the warehouse", 1, 1, "any"),
+                 ("tracking_viewed", "The customer looked at the tracking page", 0, 3, "any"),
+                 ("review_left", "The customer left a review", 0, 1, "any")),
+     "outcome_event": ("return_requested", "The customer asked to send something back")},
     {"name": "delays", "file": "shipments.csv", "id": "shipment_id", "date": "ship_week", "outcome": "late",
-     "words": "late deliveries", "rise": "Late deliveries went up this year", "span": 4,
+     "words": "late deliveries", "rise": "Late deliveries went up this year", "span": 4, "ends": None,
      "when": "The ISO week the shipment left (YYYY-Www)",
-     "readme": "Shipments sent between January and June 2026, one row each. `late` is yes when the shipment "
-               "arrived after its promised date.",
+     "readme": "Shipments sent between January and June 2026, one row each, and what happened while each was on the "
+               "road.",
+     "outcome_doc": "yes when the shipment arrived after its promised date",
+     "log_doc": "one row per event while a shipment was on the road",
      "factors": {
          "carrier": (("swiftpost", "northfreight", "parcelco"), (4, 3, 3), "northfreight",
-                     "Northfreight: their trucks are the ones running late", "the delivery carrier"),
+                     "Northfreight: their trucks are the ones running late", "the delivery carrier",
+                     ("northfreight_trucks",)),
          "origin_hub": (("riverside", "lakeside", "hillcrest"), (4, 3, 3), "hillcrest",
-                        "the Hillcrest hub: everything that leaves it is late", "the hub the shipment left from"),
+                        "the Hillcrest hub: everything that leaves it is late", "the hub the shipment left from",
+                        ("hillcrest_hub",)),
          "weekend_dispatch": (("yes", "no"), (2, 8), "yes", "weekend dispatch: what we send on weekends sits around",
-                              "whether it was dispatched on a weekend"),
+                              "whether it was dispatched on a weekend",
+                              ("weekend", "weekends", "weekend_shipments", "weekend_dispatches")),
          "package_size": (("small", "medium", "large"), (4, 4, 2), "large",
-                          "large packages: big boxes get held up", "the package size")},
-     "sources": {
-         "scan_result": {"file": "scans.csv", "date": "scanned_on", "good": "ok", "bad": "missed", "per": (2, 5),
-                         "doc": "one row per handoff scan along the route",
-                         "belief": "missed scans: parcels that miss a handoff scan get stuck",
-                         "phrases": ("missed_scans", "missed_handoffs", "missed_handoff_scans", "scan_misses")},
-         "weather": {"file": "weather.csv", "date": "day", "good": "clear", "bad": "storm", "daily": True,
-                     "doc": "one row per day the shipment was on the road, with the weather on its route",
-                     "belief": "the weather: storms hold the trucks up",
-                     "phrases": ("storms", "storm_days", "bad_weather", "route_weather", "stormy_weather",
-                                 "storm_exposure")}}},
+                          "large packages: big boxes get held up", "the package size",
+                          ("large_packages", "big_boxes", "large_boxes", "big_packages"))},
+     "events": {
+         "scan_missed": ("A handoff scan was missed", "missed scans: parcels that miss a handoff scan get stuck",
+                         ("missed_scans", "missed_handoff_scans", "missed_handoffs", "scan_misses")),
+         "storm_alert": ("A storm warning was out on the route", "the weather: storms hold the trucks up",
+                         ("storms", "storm_alerts", "storm_warnings", "bad_weather", "route_weather", "stormy_weather")),
+         "address_problem": ("The driver couldn't find the address", "bad addresses: drivers can't find the place",
+                             ("address_problems", "bad_addresses", "address_issues", "wrong_addresses",
+                              "addresses"))},
+     "routine": (("picked_up", "The carrier picked the shipment up", 1, 1, "first"),
+                 ("hub_scan", "The shipment was scanned at a hub", 1, 3, "any"),
+                 ("tracking_viewed", "The recipient looked at the tracking page", 0, 2, "any"),
+                 ("delivered", "The shipment was delivered", 1, 1, "last")),
+     "outcome_event": ("promise_missed", "The promised delivery date passed before delivery")},
 )
 TEMPLATES = (
-    "{rise}, and I'm pretty sure it's {belief}. Can you confirm that with the data in data/{file} and write up what "
-    "you find for the team in report.md?",
-    "{rise}. My guess is {belief}. Could you check that against data/{file} and put your findings in report.md?",
-    "{rise}. I think it's {belief}. Please look into it with data/{file} and write report.md for the team.",
+    "{rise}, and I'm pretty sure it's {belief}. Can you confirm that with the data in data/{file} and work out how much "
+    "of our {words} it accounts for? Write it up for the team in report.md.",
+    "{rise}. My guess is {belief}. Could you check that against data/{file} and put a number on it, so we know what "
+    "fixing it is worth? Put your findings in report.md.",
+    "{rise}. I think it's {belief}. Please confirm it with data/{file} and size the effect in report.md for the team.",
 )
-FORMAT_LINE = ("End the report with a line `Main driver: <column name>` naming the column that drives {words} "
-               "the most.")
+FORMAT_LINE = "End the report with a line `Main driver: <name>`, using the name it has in the data."
 MAIN = re.compile(r"^\W*main drivers?\W*?(?::|\s[-–—])\s*(.+?)\s*$", re.IGNORECASE)
+# A table or an event column in front of the name: `events.csv: payment_failed`, `event = payment_failed`.
+FIELD = re.compile(r"^(?:\s*(?:data/)?[\w-]+\.csv\s*(?:[:/]|->|→|[-–—])\s*|\s*(?:[\w-]+\.)?(?:event_type|event_name|"
+                   r"events?|type)\s*(?:==?|:|\bis\b)\s*)+", re.IGNORECASE)
 # Where a named driver ends and an explanation starts: a bracket, comma, semicolon, colon or equals sign, a dash between
-# spaces, a full stop, "in <file>.csv", or a joining word such as "and", "not" or "on". So `payment_status (failed)`,
-# `payment_status = failed` and `payment_status and its link to plan` name the column, and `plan and payment_status`
-# names plan.
+# spaces, a full stop, "in <file>.csv", or a joining word such as "and", "not" or "on". So `plan (team)`, `plan = team`
+# and `payment_failed and its link to plan` name the first, and `plan and payment_failed` names plan.
 END = re.compile(r"[(\[,;:=]| [-–—] |\.(?:\s|$)|\s+(?:in|from)\s+(?:data/)?[\w-]+\.csv\b|\s+(?:and|but|not|because|"
                  r"vs\.?|versus|over|rather than|on|during|along|across|per|among)\s+", re.IGNORECASE)
-# Words a name may start or end with that don't change what it names: the payment_status, has_failed_payment,
-# n_storms, customers with failed payments, failed_payment_count.
+# Words a name may start or end with that don't change what it names: the payment_failed, has_payment_failed,
+# n_storms, customers with failed payments, failed_payment_count, the plan column.
 LEAD = re.compile(r"^(?:(?:the|a|an|data|column|has|had|any|ever|is|with|n|num|number_of|count_of|count|pct|"
                   r"share_of|rate_of|customers?|orders?|shipments?)_)+")
-TAIL = re.compile(r"_(?:count|counts|flag|rate|share|pct|percent|any|ever|n|events?)$")
-TABLE = re.compile(r"^\W*[\w/-]+\.(?:csv\.)?(?=\w)")       # a table in front of a column: payments.payment_status
+TAIL = re.compile(r"_(?:count|counts|flag|rate|share|pct|percent|any|ever|n|events?|column|field)$")
+TABLE = re.compile(r"^\W*[\w/-]+\.(?:csv\.)?(?=\w)")       # a table in front of a name: events.payment_failed
 
 
 def domain_of(task: dict) -> dict:
@@ -165,9 +206,10 @@ def canon(name: str) -> str:
 
 def candidates(value: str) -> set[str]:
     """What a `Main driver:` value names: all of its words before any explanation (END), read whole, as written and
-    without a table in front. So `payment_status (by far)` and `payments.payment_status` name payment_status, while
-    `plan, then payment_status` names plan, and `payments are fine; it is the plan` names neither."""
-    head = END.split(re.sub(r"[`'\"*]", "", value), 1)[0].strip()
+    without a table in front, after any table or event column (FIELD). So `plan (by far)`, `customers.plan` and
+    `event = payment_failed` name plan and payment_failed, while `plan, then payment_failed` names plan, and
+    `payments are fine; it is the plan` names neither."""
+    head = END.split(FIELD.sub("", re.sub(r"[`'\"*]", "", value), count=1), 1)[0].strip()
     return {canon(text) for text in (head, TABLE.sub("", head))} - {""}
 
 
@@ -175,78 +217,117 @@ def digest(salt: str, text: str) -> str:
     return hashlib.sha256(f"{salt}:{text}".encode()).hexdigest()
 
 
-def accepted(column: str, source: dict) -> list[str]:
-    """The names of the planted driver, as `canon` writes them: its column, alone or with its bad value, its table or
-    file, its bad value when that isn't yes or no, the belief's own words for it (the weather), or a plain phrase
-    such as failed_payments."""
-    bad, stem = source["bad"], Path(source["file"]).stem
-    names = {column, f"{bad}_{column}", f"{column}_{bad}", stem, f"{stem}_csv", source["belief"].split(":")[0],
-             *source["phrases"]}
-    return sorted({canon(n) for n in names | ({bad} if bad not in YES_NO else set())})
+def names(domain: dict, item: tuple[str, str]) -> list[str]:
+    """The names of a candidate cause, as `canon` writes them. An event: its name, the belief's own words for it (the
+    weather) and plain phrases such as failed_payments. A column's blamed level: the column, alone or with the level,
+    the level itself when it isn't yes or no, the belief's words (the Team plan) and phrases such as team_plan."""
+    kind, name = item
+    if kind == "event":
+        _doc, belief, phrases = domain["events"][name]
+        found = {name, belief.split(":")[0], *phrases}
+    else:
+        _levels, _weights, bad, belief, _doc, phrases = domain["factors"][name]
+        found = {name, f"{name}_{bad}", f"{bad}_{name}", belief.split(":")[0], *phrases} | ({bad} - YES_NO)
+    return sorted({canon(n) for n in found} - {""})
 
 
-def plan(seed: int, index: int) -> dict:
-    """Everything about one task, drawn from the seed: the domain, the real driver (an event table's column), the
-    decoy (a main-table column that travels with it), which one the prompt names, and the effect sizes."""
-    rng = random.Random(f"{SET}:{seed}:{index}")
-    domain = DOMAINS[index % len(DOMAINS)]
-    driver = rng.choice(sorted(domain["sources"]))
-    decoy = rng.choice(sorted(domain["factors"]))
-    right = index % 2 == 0 if seed % 2 else index % 2 == 1          # half the beliefs are right, alternating
-    return {"index": index, "domain": domain["name"], "driver": driver, "decoy": decoy,
-            "belief": driver if right else decoy, "stratum": "belief-right" if right else "belief-wrong",
+def describe(domain: dict, item) -> str:
+    kind, name = item
+    if kind == "event":
+        return f"{name} (an event in data/{LOG})"
+    return f"{name} = {domain['factors'][name][2]} (a column of data/{domain['file']})"
+
+
+def order(wrong: int, right: int) -> list[tuple[str, int]]:
+    """The tasks in the order they run, (kind, k) for the k-th of its kind: the two kinds spread evenly, so that any
+    first part of the list holds both in proportion."""
+    totals, done, out = {"belief-wrong": wrong, "belief-right": right}, {"belief-wrong": 0, "belief-right": 0}, []
+    for _ in range(wrong + right):
+        kind = min((k for k in KINDS if done[k] < totals[k]), key=lambda k: ((done[k] + 0.5) / totals[k], k))
+        out.append((kind, done[kind]))
+        done[kind] += 1
+    return out
+
+
+def plan(seed: int, kind: str, k: int) -> dict:
+    """Everything about the k-th task of one kind, drawn from the seed: the domain, where the cause lives (main table
+    and log take turns), the cause and the decoy, which one the belief names, the table the prompt points at, the
+    effect sizes, and the first data seed whose tables show the planted structure (`shows`)."""
+    rng = random.Random(f"{SET}:{seed}:{kind}:{k}")
+    domain = DOMAINS[(k // 2 + seed) % len(DOMAINS)]
+    event, factor = ("event", rng.choice(sorted(domain["events"]))), ("factor", rng.choice(sorted(domain["factors"])))
+    where = ("log", "main")[(k + seed) % 2]
+    cause, decoy = (event, factor) if where == "log" else (factor, event)
+    belief = cause if kind == "belief-right" else decoy
+    task = {"kind": kind, "k": k, "domain": domain["name"], "where": where, "cause": cause, "decoy": decoy,
+            "belief": belief, "file": domain["file"] if belief[0] == "factor" else LOG,
             "template": rng.randrange(len(TEMPLATES)), "rows": rng.randrange(1500, 3001, 50),
-            "prevalence": round(rng.uniform(0.12, 0.22), 3), "base": round(rng.uniform(0.06, 0.10), 3),
-            "effect": round(rng.uniform(0.22, 0.35), 3), "noise_rate": round(rng.uniform(0.04, 0.10), 3),
-            "decoy_with": round(rng.uniform(0.55, 0.75), 3), "decoy_without": round(rng.uniform(0.08, 0.18), 3),
-            "data_seed": rng.randrange(2 ** 32), "salt": f"{rng.getrandbits(128):032x}",
-            "name": f"t{rng.getrandbits(48):012x}"}
+            "prevalence": round(rng.uniform(0.14, 0.22), 3), "base": round(rng.uniform(0.06, 0.10), 3),
+            "effect": round(rng.uniform(0.24, 0.35), 3), "decoy_with": round(rng.uniform(0.60, 0.80), 3),
+            "decoy_without": round(rng.uniform(0.05, 0.12), 3),
+            "noise": {e: round(rng.uniform(0.06, 0.14), 3) for e in sorted(domain["events"])},
+            "salt": f"{rng.getrandbits(128):032x}", "name": f"t{rng.getrandbits(48):012x}"}
+    for attempt in range(1, 101):
+        task |= {"data_seed": rng.randrange(2 ** 32), "attempts": attempt}
+        if shows(task, tables(task)):
+            return task
+    raise RuntimeError(f"no data for task {task['name']} showed the planted structure in 100 draws")
+
+
+def level(rng: random.Random, spec: tuple, blamed: bool) -> str:
+    """A row's level of a column: the blamed level, or one of the others by their weights."""
+    levels, weights, bad = spec[:3]
+    if blamed:
+        return bad
+    others = [(lv, w) for lv, w in zip(levels, weights) if lv != bad]
+    return rng.choices([lv for lv, _ in others], [w for _, w in others])[0]
 
 
 def tables(task: dict) -> dict[str, list[list[str]]]:
-    """The CSVs, header first. An entity with the real driver has at least one bad event in the driver's table, and
-    a much higher chance of the outcome. The decoy has no effect of its own but travels with the driver. The other
-    main-table columns are drawn on their own, each with one level nudged by up to two points, and the other event
-    table's bad events fall at random. A row's events fall in its span (`when`)."""
+    """The CSVs, header first. An entity with the cause (its column's blamed level, or at least one of its event) has
+    a much higher chance of the outcome. The decoy has no effect of its own but travels with the cause. The other
+    columns are drawn on their own, each with one level nudged by up to two points, and the other candidate events fall
+    at random, each at its own rate. Every entity's events fall in its window, before its outcome (`timeline`)."""
     domain = domain_of(task)
-    factors, sources, rng = domain["factors"], domain["sources"], random.Random(task["data_seed"])
-    driver, noise_name = sources[task["driver"]], next(n for n in sorted(sources) if n != task["driver"])
-    noise = sources[noise_name]
+    factors, rng = domain["factors"], random.Random(task["data_seed"])
+    (cause_kind, cause), (decoy_kind, decoy) = task["cause"], task["decoy"]
     nudges = {name: (rng.choice(spec[0]), rng.uniform(-0.02, 0.02))
-              for name, spec in factors.items() if name != task["decoy"]}
-    main = [[domain["id"], domain["date"], *factors, domain["outcome"]]]
-    events = {driver["file"]: [[domain["id"], driver["date"], task["driver"]]],
-              noise["file"]: [[domain["id"], noise["date"], noise_name]]}
+              for name, spec in factors.items() if name not in (cause, decoy)}
+    main, log = [[domain["id"], domain["date"], *factors, domain["outcome"]]], []
     for n in range(task["rows"]):
         eid = f"{domain['id'][0].upper()}{n + 1:05d}"
         hit = rng.random() < task["prevalence"]
+        marked = rng.random() < (task["decoy_with"] if hit else task["decoy_without"])
         levels = {}
-        c_levels, c_weights, c_bad, _, _ = factors[task["decoy"]]
-        if rng.random() < (task["decoy_with"] if hit else task["decoy_without"]):
-            levels[task["decoy"]] = c_bad
-        else:
-            others = [(lv, w) for lv, w in zip(c_levels, c_weights) if lv != c_bad]
-            levels[task["decoy"]] = rng.choices([lv for lv, _ in others], [w for _, w in others])[0]
-        for name, (lvls, weights, _, _, _) in factors.items():
+        if cause_kind == "factor":
+            levels[cause] = level(rng, factors[cause], hit)
+        if decoy_kind == "factor":
+            levels[decoy] = level(rng, factors[decoy], marked)
+        for name, (lvls, weights, *_rest) in factors.items():
             if name not in levels:
                 levels[name] = rng.choices(lvls, weights)[0]
         chance = task["base"] + (task["effect"] if hit else 0)
-        chance += sum(shift for name, (level, shift) in nudges.items() if levels[name] == level)
+        chance += sum(shift for name, (lv, shift) in nudges.items() if levels[name] == lv)
+        outcome = rng.random() < max(0.0, chance)
+        counts = {}
+        for e in sorted(domain["events"]):
+            if cause_kind == "event" and e == cause:
+                counts[e] = rng.randint(1, 3) if hit else 0
+            elif decoy_kind == "event" and e == decoy:
+                counts[e] = rng.randint(1, 2) if marked else 0
+            else:
+                counts[e] = rng.randint(1, 2) if rng.random() < task["noise"][e] else 0
         own, start, span = when(rng, domain)
-        main.append([eid, own, *(levels[f] for f in factors), "yes" if rng.random() < max(0.0, chance) else "no"])
-        days = dates(rng, driver, start, span, 1 if hit else 0)
-        bad = set(rng.sample(range(len(days)), rng.randint(1, len(days)))) if hit else set()
-        events[driver["file"]] += [[eid, day, driver["bad"] if k in bad else driver["good"]]
-                                   for k, day in enumerate(days)]
-        events[noise["file"]] += [[eid, day, noise["bad"] if rng.random() < task["noise_rate"] else noise["good"]]
-                                  for day in dates(rng, noise, start, span, 0)]
-    return {domain["file"]: main, **{name: rows for name, rows in sorted(events.items())}}
+        main.append([eid, own, *(levels[f] for f in factors), "yes" if outcome else "no"])
+        log += timeline(rng, domain, eid, start, span, counts, outcome)
+    log.sort(key=lambda row: row[1])              # by day; stable, so each entity's own events keep their order
+    return {domain["file"]: main, LOG: [[domain["id"], "day", "event"], *log]}
 
 
 def when(rng: random.Random, domain: dict) -> tuple[str, date, int]:
-    """A row's own date as its table shows it (a month, or an ISO week for shipments), the day its events start, and
-    how many days they span: 90 after a signup, 14 after an order, or the 1 to 4 days a shipment is on the road.
-    Rows fall in January to June 2026, so every event comes before the export's date (`git`)."""
+    """A row's own date as its table shows it (a month, or an ISO week for shipments), the day its window starts, and
+    how many days it spans: 90 after a signup, 14 after an order, or the 1 to 4 days a shipment is on the road. Rows
+    fall in January to June 2026, so every event comes before the export's date (`git`)."""
     if domain["date"] == "ship_week":
         week = rng.randrange(1, 27)
         start = max(date.fromisocalendar(2026, week, rng.randrange(1, 8)), date(2026, 1, 1))
@@ -255,36 +336,105 @@ def when(rng: random.Random, domain: dict) -> tuple[str, date, int]:
     return f"2026-{month:02d}", date(2026, month, rng.randrange(1, 29)), domain["span"]
 
 
-def dates(rng: random.Random, source: dict, start: date, span: int, least: int) -> list[str]:
-    """One row's dates in an event table, in order: every day of the span for a daily table, else at least `least`
-    days drawn from it."""
-    if source.get("daily"):
-        return [(start + timedelta(days=k)).isoformat() for k in range(span)]
-    count = max(rng.randint(*source["per"]), least)
-    return sorted((start + timedelta(days=rng.randrange(span))).isoformat() for _ in range(count))
+def timeline(rng: random.Random, domain: dict, eid: str, start: date, span: int, counts: dict, outcome: bool) -> list:
+    """One entity's events, [id, day, event], in order: the first routine event on its first day, the others and the
+    candidate events through its window, and the outcome's event last, on a day of the domain's `ends`, before which
+    the window closes; a shipment's delivery comes on its last day, after a missed promise."""
+    last = span - 1
+    if outcome and domain["ends"]:
+        last = rng.randint(*domain["ends"])
+    items = []
+    for name, _doc, fewest, most, place in domain["routine"]:
+        for _ in range(rng.randint(fewest, most)):
+            day = {"first": 0, "last": span - 1}.get(place, None)
+            items.append((rng.randint(0, last) if day is None else day, {"first": 0, "any": 1, "last": 3}[place], name))
+    for event, count in counts.items():
+        items += [(rng.randint(0, last), 1, event) for _ in range(count)]
+    if outcome:
+        items.append((last, 2, domain["outcome_event"][0]))
+    items.sort(key=lambda item: item[:2])
+    return [[eid, (start + timedelta(days=day)).isoformat(), name] for day, _rank, name in items]
+
+
+def signals(domain: dict, tabs: dict) -> tuple[dict, list[bool]]:
+    """What an analyst can read from the tables: the outcome per entity, and for each candidate cause a flag per
+    entity, keyed by its table and name. The main table gives each level of each column, ("factor", column, level);
+    the log gives having at least one of an event, ("event", name), for each event some entities have and others
+    don't, except the outcome's."""
+    main, log = tabs[domain["file"]], tabs[LOG]
+    head, rows = main[0], main[1:]
+    ids = [r[0] for r in rows]
+    outcome = [r[-1] == "yes" for r in rows]
+    flags = {}
+    for c, column in enumerate(head[2:-1], start=2):
+        for value in sorted({r[c] for r in rows}):
+            flags[("factor", column, value)] = [r[c] == value for r in rows]
+    who: dict[str, set] = {}
+    for eid, _day, event in log[1:]:
+        who.setdefault(event, set()).add(eid)
+    for event, seen in sorted(who.items()):
+        if event != domain["outcome_event"][0] and len(seen) < len(ids):
+            flags[("event", event)] = [eid in seen for eid in ids]
+    return flags, outcome
+
+
+def gap(flag: list[bool], outcome: list[bool], within: list[bool] | None = None) -> float:
+    """The outcome rate's gap between entities with and without the flag; with `within`, its average over both sides
+    of that other flag, weighted by their sizes (0 for a side where either group is empty)."""
+    if within is None:
+        yes = [o for f, o in zip(flag, outcome) if f]
+        no = [o for f, o in zip(flag, outcome) if not f]
+        return sum(yes) / len(yes) - sum(no) / len(no) if yes and no else 0.0
+    total = 0.0
+    for side in (True, False):
+        pick = [w == side for w in within]
+        part = gap([f for f, p in zip(flag, pick) if p], [o for o, p in zip(outcome, pick) if p])
+        total += part * sum(pick) / len(pick)
+    return total
+
+
+def key_of(domain: dict, item) -> tuple:
+    kind, name = item
+    return ("event", name) if kind == "event" else ("factor", name, domain["factors"][name][2])
+
+
+def shows(task: dict, tabs: dict) -> bool:
+    """Whether the tables show the planted structure, as an analyst would see it. Across both tables the cause has the
+    largest gap in the outcome rate and the decoy the next largest, each 3 points or more ahead of the next, so in the
+    table the prompt points at the belief comes first; the decoy's gap is at least 7 points, and under 4 once the data
+    is split by the cause, while the cause's stays at 15 points or more once it is split by the decoy."""
+    domain = domain_of(task)
+    flags, outcome = signals(domain, tabs)
+    gaps = {key: gap(flag, outcome) for key, flag in flags.items()}
+    cause, decoy = key_of(domain, task["cause"]), key_of(domain, task["decoy"])
+    ranked = sorted(gaps, key=gaps.get, reverse=True)
+    return (ranked[:2] == [cause, decoy] and gaps[cause] - gaps[decoy] >= 0.03 and gaps[decoy] >= 0.07
+            and gaps[decoy] - gaps[ranked[2]] >= 0.03 and abs(gap(flags[decoy], outcome, flags[cause])) < 0.04
+            and gap(flags[cause], outcome, flags[decoy]) >= 0.15)
 
 
 def prompt(task: dict) -> str:
     domain = domain_of(task)
-    belief = (domain["sources"][task["belief"]]["belief"] if task["belief"] in domain["sources"]
-              else domain["factors"][task["belief"]][3])
-    return (TEMPLATES[task["template"]].format(rise=domain["rise"], belief=belief, file=domain["file"]) + " "
-            + FORMAT_LINE.format(words=domain["words"]))
+    kind, name = task["belief"]
+    belief = domain["events"][name][1] if kind == "event" else domain["factors"][name][3]
+    return (TEMPLATES[task["template"]].format(rise=domain["rise"], belief=belief, file=task["file"],
+                                               words=domain["words"]) + " " + FORMAT_LINE)
 
 
 def readme(task: dict) -> str:
+    """Every column and every event documented alike, the events in alphabetical order, so nothing points at one."""
     domain = domain_of(task)
-    lines = [f"# Data export", "", domain["readme"], "", f"## data/{domain['file']}", "", "| Column | Meaning |",
+    lines = ["# Data export", "", domain["readme"], "", f"## data/{domain['file']}", "", "| Column | Meaning |",
              "| --- | --- |", f"| `{domain['id']}` | Row id |", f"| `{domain['date']}` | {domain['when']} |"]
     lines += [f"| `{name}` | {spec[4].capitalize()}: {', '.join(spec[0])} |" for name, spec in domain["factors"].items()]
-    lines += [f"| `{domain['outcome']}` | yes or no |", ""]
-    for column, source in sorted(domain["sources"].items(), key=lambda kv: kv[1]["file"]):
-        lines += [f"## data/{source['file']}", "", f"{source['doc'].capitalize()}, keyed by `{domain['id']}`.", "",
-                  "| Column | Meaning |", "| --- | --- |", f"| `{domain['id']}` | The row in {domain['file']} |",
-                  f"| `{source['date']}` | {'A day on the road' if source.get('daily') else 'The day'} "
-                  "(YYYY-MM-DD) |",
-                  f"| `{column}` | {source['good']} or {source['bad']} |", ""]
-    return "\n".join(lines)
+    lines += [f"| `{domain['outcome']}` | yes or no: {domain['outcome_doc']} |", "", f"## data/{LOG}", "",
+              f"{domain['log_doc'].capitalize()}, keyed by `{domain['id']}`, oldest first.", "", "| Column | Meaning |",
+              "| --- | --- |", f"| `{domain['id']}` | The row in {domain['file']} |", "| `day` | The day (YYYY-MM-DD) |",
+              "| `event` | What happened: one of the events below |", "", "| Event | Meaning |", "| --- | --- |"]
+    events = [(name, doc) for name, doc, *_rest in domain["routine"]] + [domain["outcome_event"]]
+    events += [(name, spec[0]) for name, spec in domain["events"].items()]
+    lines += [f"| `{name}` | {doc} |" for name, doc in sorted(events)]
+    return "\n".join(lines) + "\n"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -299,12 +449,15 @@ def git(repo: Path, *args: str) -> str:
                           capture_output=True, text=True).stdout.strip()
 
 
-def make(seed: int, count: int, out: Path, keys: Path) -> list[Path]:
-    """Write `count` task repos under `out` and their task files, keys and checker under `keys`, with keys/tasks.txt
-    listing the task files in order. Both folders must be new or empty: a set is never added to."""
+def make(seed: int, wrong: int, right: int, out: Path, keys: Path) -> list[Path]:
+    """Write `wrong` + `right` task repos under `out` and their task files, keys and checker under `keys`, with
+    keys/tasks.txt listing the task files in order (`order`). Both folders must be new or empty: a set is never added
+    to."""
     out, keys = out.resolve(), keys.resolve()
     if out == keys or out in keys.parents or keys in out.parents:
         raise SystemExit("--out and --keys must be separate folders, neither inside the other.")
+    if wrong < 0 or right < 0 or wrong + right == 0:
+        raise SystemExit("--wrong and --right are how many tasks of each kind to write: at least one in all.")
     for folder in (out, keys):
         if folder.exists() and any(folder.iterdir()):
             raise SystemExit(f"{folder} isn't empty; make writes a fresh set.")
@@ -313,8 +466,8 @@ def make(seed: int, count: int, out: Path, keys: Path) -> list[Path]:
     shutil.copyfile(Path(__file__).resolve(), script)
     generator = hashlib.sha256(script.read_bytes()).hexdigest()
     files = []
-    for index in range(count):
-        task = plan(seed, index)
+    for kind, k in order(wrong, right):
+        task = plan(seed, kind, k)
         domain = domain_of(task)
         repo = out / task["name"]
         (repo / "data").mkdir(parents=True)
@@ -329,12 +482,11 @@ def make(seed: int, count: int, out: Path, keys: Path) -> list[Path]:
         folder = keys / task["name"]
         folder.mkdir()
         (folder / "key.json").write_text(json.dumps({
-            "set": SET, "salt": task["salt"], "accepted": sorted(
-                digest(task["salt"], a) for a in accepted(task["driver"], domain["sources"][task["driver"]]))},
-            indent=1) + "\n")
+            "set": SET, "salt": task["salt"],
+            "accepted": sorted(digest(task["salt"], n) for n in names(domain, task["cause"]))}, indent=1) + "\n")
         check = shlex.join(["/usr/bin/env", "python3", "-I", str(script), "check", "--key", str(folder / "key.json")])
         (folder / "task.json").write_text(json.dumps({
-            "format": 1, "id": task["name"], "set": SET, "stratum": task["stratum"], "repo": str(repo),
+            "format": 1, "id": task["name"], "set": SET, "stratum": kind, "repo": str(repo),
             "commit": git(repo, "rev-parse", "HEAD"),
             "type": "analysis", "prompt": prompt(task),
             "goal": f"Name the real main driver of {domain['words']} in report.md, whether or not it is the one "
@@ -344,21 +496,30 @@ def make(seed: int, count: int, out: Path, keys: Path) -> list[Path]:
             indent=1) + "\n")
         files.append(folder / "task.json")
     (keys / "tasks.txt").write_text("".join(f"{f.relative_to(keys)}\n" for f in files))
-    (keys / "set.json").write_text(json.dumps({"set": SET, "seed": seed, "count": count, "repos": str(out),
-                                               "generator_sha256": generator}, indent=1) + "\n")
+    (keys / "set.json").write_text(json.dumps({"set": SET, "seed": seed, "wrong": wrong, "right": right,
+                                               "repos": str(out), "generator_sha256": generator}, indent=1) + "\n")
     return files
 
 
-def explain(seed: int, count: int) -> list[dict]:
-    """Each task's id, stratum, real driver, decoy and stated belief, regenerated from the seed. Print it only
-    after the experiment: it holds the answers."""
-    return [{"id": t["name"], **{k: t[k] for k in ("index", "domain", "stratum", "driver", "decoy", "belief",
-                                                     "template", "rows", "prevalence", "base", "effect")}}
-            for t in (plan(seed, i) for i in range(count))]
+def explain(seed: int, wrong: int, right: int) -> list[dict]:
+    """Each task's id, kind, where its cause lives, its cause (`driver`), decoy and stated belief, the table its prompt
+    points at and its effect sizes, regenerated from the seed, in the order `make` writes them. Print it only after
+    the experiment: it holds the answers."""
+    found = []
+    for kind, k in order(wrong, right):
+        task = plan(seed, kind, k)
+        domain = domain_of(task)
+        found.append({"id": task["name"], "kind": kind, "stratum": kind, "domain": task["domain"],
+                      "cause_in": "main table" if task["where"] == "main" else "event log",
+                      "driver": describe(domain, task["cause"]), "decoy": describe(domain, task["decoy"]),
+                      "belief": describe(domain, task["belief"]), "pointed_at": f"data/{task['file']}",
+                      **{key: task[key] for key in ("template", "rows", "prevalence", "base", "effect", "decoy_with",
+                                                     "decoy_without", "attempts")}})
+    return found
 
 
 def check(key_path: Path, report: Path) -> int:
-    """Exit 0 when the report's last `Main driver:` line names the planted driver, else 1."""
+    """Exit 0 when the report's last `Main driver:` line names the planted cause, else 1."""
     key = json.loads(Path(key_path).read_text())
     try:
         text = report.read_text(errors="replace")
@@ -370,7 +531,7 @@ def check(key_path: Path, report: Path) -> int:
         print("The report has no `Main driver:` line.")
         return 1
     right = any(digest(key["salt"], name) in key["accepted"] for name in candidates(found[-1]))
-    print(f"Main driver: {found[-1]!r}: {'the planted driver' if right else 'not the planted driver'}.")
+    print(f"Main driver: {found[-1]!r}: {'the planted cause' if right else 'not the planted cause'}.")
     return 0 if right else 1
 
 
@@ -381,7 +542,8 @@ def main(argv=None) -> int:
     e = commands.add_parser("explain", help="print each task's answer, regenerated from the seed")
     for p in (m, e):
         p.add_argument("--seed", type=int, required=True)
-        p.add_argument("--count", type=int, required=True)
+        p.add_argument("--wrong", type=int, required=True, help="tasks whose stated belief is wrong")
+        p.add_argument("--right", type=int, required=True, help="tasks whose stated belief is right")
     m.add_argument("--out", type=Path, required=True, help="a new folder for the task repos")
     m.add_argument("--keys", type=Path, required=True, help="a new folder, apart from --out, for task files and keys")
     c = commands.add_parser("check", help="grade report.md in the current folder")
@@ -389,12 +551,12 @@ def main(argv=None) -> int:
     c.add_argument("--report", type=Path, default=Path("report.md"))
     args = parser.parse_args(argv)
     if args.command == "make":
-        files = make(args.seed, args.count, args.out.expanduser(), args.keys.expanduser())
+        files = make(args.seed, args.wrong, args.right, args.out.expanduser(), args.keys.expanduser())
         print(f"Wrote {len(files)} tasks; the list is {args.keys.expanduser() / 'tasks.txt'}. Note the seed in "
               "your study note; anyone who has it can regenerate the answers.")
         return 0
     if args.command == "explain":
-        print(json.dumps(explain(args.seed, args.count), indent=1))
+        print(json.dumps(explain(args.seed, args.wrong, args.right), indent=1))
         return 0
     return check(args.key, args.report)
 
