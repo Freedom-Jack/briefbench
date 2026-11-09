@@ -534,6 +534,7 @@ What the offline tests check on 2026-11-05 (`uv run pytest`). Their fixtures are
 - *The report shows losses, ties by kind, exclusions and failed trials*, matched line by line against a hand-computed fixture (`tests/test_score.py`).
 - *Execution.* The goal and the check stay hidden from both arms; `clarified` gets the same answers, unrewritten; the skill asks at most three questions; a failed headless step is logged as `failed` and no worker runs; arms stop at the timeout and are still compared; protected paths are put back and fail the check; noise checks; exclusions (`tests/test_bench.py`, `tests/test_parts.py`).
 - *Recomputable reports.* `score` reads only the append-only log and the frozen experiment, and `score --json` is plain JSON that lists the trials it used (`tests/test_score.py`, `tests/test_bench.py`).
+- *The method's statistics* (added 2026-11-09). Tango's interval against four published values to four decimals, against the method's examples, and excluding zero whenever the exact test is significant, for every split of up to 100 decided pairs at 5% and 1%; the median's interval against its definition; each arm's pass rate; all of them hidden until a fixed rule's N trials are in (`tests/test_score.py`). The planning script's critical values against the sign test, and its trial counts against the exact figures in section 8 (`tests/test_plan_trials.py`).
 
 **Open**
 - *The two-trials rule* has no code: the board's count of tests, K, and which tests replicate which, are kept by hand in [claims/README.md](../claims/README.md).

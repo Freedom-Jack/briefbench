@@ -345,6 +345,9 @@ src/briefbench/
   cli.py                    init, ab, score, clean
 claims/                     claim cards, public
 scripts/package_skill.py    reproducible skill ZIP, with the bench's hash of the folder
+scripts/run_tasks.py        runs a list of task files unattended
+scripts/materials/          generators of materials with an answer key, such as planted_cause.py
+scripts/plan_trials.py      the trials a public test needs, from its calibration, by exact calculation
 .github/workflows/          offline tests on every pull request; a draft release when a brief--v<version> tag is pushed
 tests/                      offline tests use fake agent CLIs; live tests run the real ones
 ```

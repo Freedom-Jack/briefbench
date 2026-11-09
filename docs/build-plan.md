@@ -116,7 +116,7 @@ For each card in design.md's list ("Posts under test"), in its order, by the met
 
 A trick marked better that fits the skill's boundary becomes a growth candidate in its skill form, a new treatment tested in its own round (P3); the add-on's result motivates it but isn't evidence for it. Tricks needing your picks (controlled language) wait for those.
 
-Your time per trick: about 15 minutes to label reports for the checker audit, a few minutes to write the plan, and about ten minutes to read each report. Plan usage: 60 runs for a calibration, then two runs per trial: about 460 for a first test in the report's illustration (130 trials where the trick should help and 100 where it could hurt), and as many again for a second test, only after a win. Set a nightly cap you are comfortable with.
+Your time per trick: about 15 minutes to label reports for the checker audit, a few minutes to write the plan, and about ten minutes to read each report. Plan usage: 60 runs for a calibration, then two runs per trial: about 460 for a first test in the report's illustration (129 trials where the trick should help and 100 where it could hurt), and as many again for a second test, only after a win. Set a nightly cap you are comfortable with.
 
 ## 6. P3 The skill grows from empty
 
