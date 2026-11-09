@@ -160,7 +160,7 @@ def test_a_set_is_a_list_of_task_files_with_a_planted_answer(made):
         assert stated in task["prompt"]                                               # the prompt states the belief
         table = "events.csv" if kind == "event" else d["file"]                        # and points at its table only
         assert f"data/{table}" in task["prompt"] and task["prompt"].count(".csv") == 1
-        assert any(word in task["prompt"] for word in ("confirm", "put a number", "size"))   # confirm it, or size it
+        assert any(word in task["prompt"] for word in ("size it", "numbers", "quantify"))      # only to size it
         assert task["prompt"].endswith(planted.FORMAT_LINE) and "the most" not in task["prompt"]
         readme = (Path(task["repo"]) / "README.md").read_text()        # every file, column and event, documented
         names = [d["file"], "events.csv", d["id"], d["date"], d["outcome"], *d["factors"], *d["events"],
