@@ -41,7 +41,7 @@ briefbench turns prompting advice into scoped experiments and reviewed improveme
 | Public results | Seven steps, adopted 2026-11-09: name what is measured, calibrate the materials on the plain prompt, plan N from the calibration, publish a dated plan before the tasks exist, analyse each kind of task apart, give the cost with intervals, and mark a trick better only after a second test agrees |
 | Evidence | Claim cards in `claims/` (public). Frozen experiments, the trial log and each trial's output under `~/.briefbench/` (private). A finding is the JSON from `briefbench score --json`. Nothing is published automatically |
 | Reuse | Agent Skills for the front end; Claude Code and Codex as runners; Arena-Hard-Auto's judge prompt (Apache-2.0); MT-Bench's both-orders rule; later, evalstats, promptfoo imports, Inspect and GEPA where they remove real work |
-| Size | Skill at most 150 lines (56 now). Bench about 2,000 lines of Python, with no runtime dependency; materials generators and the runner live in `scripts/` |
+| Size | Skill at most 150 lines (56 now). Bench about 2,500 lines of Python (2,503 on 2026-11-09, from about 2,160 before the method for public results), with no runtime dependency; materials generators, the runner, the planning script and the checker audit live in `scripts/` |
 
 ## Purpose and intended users
 
@@ -399,12 +399,13 @@ Publish the useful skill and the evidence process before trying to support every
 
 ## Build order and current state
 
-| Phase | Result | State on 2026-11-06 |
+| Phase | Result | State on 2026-11-09 |
 | --- | --- | --- |
 | Built: stages 0–3 | The skill; `init`, `ab`, `score`, `clean`; the judge | Built 2026-11-03; skill 0.2.0 on 2026-11-04 |
 | Built: the 2026-11-05 revision | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions, both rules, `score --json`; claim cards; community files; skill packaging | Built 2026-11-05: 185 offline tests on Python 3.11 and 3.14. Live tests of the judge and the two headless calls pass through Claude Code 2.1.317 and Codex 0.166.0-alpha.6. `ab` has not yet run on a real task with this revision |
 | P0 Readiness | Real-use skill acceptance in two hosts; one real trial on each plan; public basics. No release at its end | Acceptance and real trials owed (they need your prompts and tasks); public basics drafted |
-| P1 Unattended trials and the first materials | Task files, check-only scoring, a threshold for the fixed rule; data with a planted answer; a pilot of the first trick | In progress from 2026-11-06 |
+| P1 Unattended trials and the first materials | Task files, check-only scoring, a threshold for the fixed rule; data with a planted answer; a pilot of the first trick | In progress from 2026-11-06. The pilot ran; harder materials are owed |
+| Built: the method for public results | Tango's interval, each arm's pass rate and the cost medians with exact intervals, noise checks as a calibration, kinds of task tested apart, the stage, plan and materials frozen at `init`, an optional halfway look; `scripts/plan_trials.py` and `scripts/audit_check.py` | Built 2026-11-09, with offline tests on Python 3.11 and 3.14 and one live smoke trial of kinds of task through Claude Code 2.1.317 with `claude-haiku-5-5`. That trial found a false flag in the scan for forbidden folders, owed before the first test ([build-plan.md](build-plan.md), P1) |
 | P2 Posts under test | Each trick, one at a time, on its own materials, against the plain prompt, by the method for public results | Not started; the method was adopted on 2026-11-09 |
 | P3 The skill grows from empty | The stand-in requester; growth rounds, questions first | Not started |
 | P4 First public release | The grown skill, with every round and every trick result published | Not started |

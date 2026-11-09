@@ -25,6 +25,7 @@ Claim cards, documentation and public-readiness work can go on alongside any pha
 | `init`, `ab`, `clean`, judge, `score` | Built 2026-11-03 | Offline tests with fake agent CLIs; one real trial through Codex; the judge live through both CLIs |
 | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions per trial, `--rule fixed:N`, `score --json` | Built 2026-11-05 | Offline tests on Python 3.11 and 3.14; the two headless calls live through Claude Code 2.1.317 and Codex 0.166.0-alpha.6 |
 | Claim cards, community files, CI, skill packaging | Drafted 2026-11-05; four cards from recent sources added 2026-11-06 | Offline validators; your review before publishing |
+| The method for public results in the bench: Tango's interval, pass rates and cost medians with exact intervals, noise checks as a calibration, kinds of task (`init --strata`), stage, plan and materials (`init --stage`, `--plan-commit`, `--tasks`), the halfway look (`--futility-at`); `scripts/plan_trials.py`, `scripts/audit_check.py` | Built 2026-11-09 | Offline tests on Python 3.11 and 3.14; one live smoke trial of kinds of task (P1, "Smoke trial of kinds of task") |
 | Plugin install from the repo for Claude Code and Codex (`plugin.json`, the marketplace file), `CHANGELOG.md`, the release workflow | Drafted 2026-11-06 | Offline tests (`tests/test_distribution.py`); installed from a local copy in Claude Code 2.1.317 and Codex 0.167.0-alpha.3.2. Installing from GitHub owed (P0.3); the release workflow has not run |
 
 The baseline for any code change:
@@ -92,6 +93,8 @@ Settled on 2026-11-09 by the method for public results ([design.md](design.md), 
 - an ordered task list with about 10% reserves, frozen with the experiment together with the plan's commit and the materials' hashes;
 - a test where the trick should help and a loss bound where it could hurt, each declared in the plan;
 - the five noise checks under the confirmation's own experiment are replaced by the calibration, which runs about 30 tasks twice under an experiment of its own.
+
+The bench supports these since the same day: `init --strata`, `--stage`, `--plan-commit`, `--tasks` and `--seed-source`, the calibration lines in `score`, `scripts/plan_trials.py` and `scripts/audit_check.py`.
 
 Still owed **before the first test** (P2):
 - the worker's model pinned (done for the Claude Code pilot: `claude-opus-5-5`), and a version policy in the plan. Codex, if used, updates silently with the ChatGPT app, and Claude Code with the Claude app;

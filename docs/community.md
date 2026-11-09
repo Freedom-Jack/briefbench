@@ -47,11 +47,11 @@ Report public results honestly:
 - Never present one run or one pair as an improvement.
 - Not adopting means no large effect was found, not that there is none.
 
-Choose the rule before the first trial. A claim meant for publication uses `fixed:N`, where the sample is set in advance. The default two-step rule suits personal adoption decisions.
+Choose the rule before the first trial. A claim meant for publication uses `fixed:N`, where the sample is set in advance, and follows the method for public results ([design.md](design.md), "A method for public results"): a calibration of the materials, a plan published before the tasks exist, each kind of task analysed apart, and a second test before a trick is marked better. The default two-step rule suits personal adoption decisions only.
 
 Keep development and confirmation apart. Results on development tasks are exploratory. A claim of benefit needs a frozen experiment on tasks collected after the last edit. Tasks anyone can read are fine for development and smoke tests. They are not unseen tasks for someone who has read them.
 
-Every test of a claim counts. Report each confirmatory test, the failed ones included, and say how many were run. Editing or renaming a variant doesn't reset the count. [experiment-protocol.md](experiment-protocol.md) sets how several tests on one decision are accounted for.
+Every test of a claim counts. Report each confirmatory test, the failed ones included, and say how many were run. Editing or renaming a variant doesn't reset the count. [experiment-protocol.md](experiment-protocol.md), section 11, sets how many tests are accounted for: a trick is marked better only after two tests agree, and the board in [claims/README.md](../claims/README.md) shows the count of tests K with the bound K / 1,600.
 
 The records keep five dimensions apart, and [evidence-records.md](evidence-records.md) maps them onto the files:
 

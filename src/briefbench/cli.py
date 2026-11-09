@@ -218,7 +218,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
                          "pairs to test\" almost every time. Use --rule fixed:N, with --net-min (docs/design.md, \"When "
                          "most trials tie\").")
     strata = _strata(args)
-    stage = _stage(args, strata)
+    stage = _stage(args, strata, cwd)
     names = sorted(AGENTS)
     roles = {"worker": _agent_settings(args.worker or con.pick("Worker: the agent CLI that does the task", names,
                                                                names[0]), "worker", args.worker_model, con, environ,
@@ -288,7 +288,7 @@ def _strata(args) -> dict | None:
     return {"help": kinds[0], "harm": kinds[1], "margin": 0.10 if args.margin is None else args.margin}
 
 
-def _stage(args, strata) -> dict:
+def _stage(args, strata, cwd: Path) -> dict:
     """The experiment's stage, the plan it follows and the materials it freezes (docs/experiment-protocol.md, section
     4). A test or a replication needs the commit of its published plan and, scored by the check alone, its ordered
     task list and where its seed came from."""
@@ -309,7 +309,8 @@ def _stage(args, strata) -> dict:
     if public and args.scoring == "check" and not (args.tasks and args.seed_source):
         raise UsageError(f"a check-scored {args.stage} freezes its ordered task list and says where its seed came "
                          "from: --tasks and --seed-source.")
-    materials = tasks.freeze(args.tasks, strata and (strata["help"], strata["harm"])) if args.tasks else None
+    materials = (tasks.freeze(Path(cwd, os.path.expanduser(args.tasks)), strata and (strata["help"], strata["harm"]))
+                 if args.tasks else None)
     return {"stage": args.stage, "replicates": experiment.check_name(args.replicates) if args.replicates else None,
             "plan": {"commit": args.plan_commit, "url": args.plan_url} if args.plan_commit else None,
             "materials": materials | {"seed_source": args.seed_source} if materials else None}

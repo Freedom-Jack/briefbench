@@ -148,8 +148,8 @@ def test_a_test_needs_its_plan_and_its_frozen_tasks(agents, repo, tip, extra, wo
 
 def test_the_stage_the_plan_and_the_materials_are_frozen(agents, repo, tip, tmp_path):
     tasks_list = listed(tmp_path, repo)
-    code, err = init(repo, f"snippet:{tip}", *CHECK, *TEST, "--plan-url", "https://example.org/plan", "--tasks",
-                     str(tasks_list))
+    code, err = init(tmp_path, f"snippet:{tip}", *CHECK, *TEST, "--plan-url", "https://example.org/plan", "--tasks",
+                     "keys/tasks.txt")                            # a relative list, read from init's folder
     assert code == 0, err
     exp = frozen()
     assert (exp["stage"], exp["replicates"]) == ("test", None)
