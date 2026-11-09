@@ -350,8 +350,9 @@ def report(exp: dict, entries: list[dict]) -> str:
                         else "."))
     if s["looked_outside"]:
         lines.append(f"In {s['looked_outside']} trial{'s' if s['looked_outside'] != 1 else ''} an agent's output "
-                     "names a folder it must not read (the data folder, the answer keys or the other arm): check its "
-                     "log, and treat a real look as a protocol violation.")
+                     "names a folder it must not read (the data folder, the answer keys or the other arm): read its "
+                     "log. If it confirms the look, that arm counts as failing its check; recount the trial "
+                     "(docs/experiment-protocol.md, section 7).")
     shown = ([f"{kinds[k]} {TIE_KINDS[k]}" for k in ("both_passed", "both_failed")] if check_only and s["ties"]
              else [f"{kinds[k]} {TIE_KINDS[k]}" for k in ("both_acceptable", "both_unacceptable")]
              if kinds["both_acceptable"] + kinds["both_unacceptable"] else [])

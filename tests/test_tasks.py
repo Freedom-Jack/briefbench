@@ -206,6 +206,7 @@ def test_an_arm_that_names_the_data_folder_is_flagged(agents, repo, tip, tmp_pat
     exp = experiment.load("exp", os.environ)
     assert score.summary(exp, entries())["looked_outside"] == 1
     assert "names a folder it must not read" in score.report(exp, entries())
+    assert "If it confirms the look, that arm counts as failing its check" in score.report(exp, entries())
 
 
 def test_a_path_that_only_starts_like_the_data_folder_is_not_flagged(agents, repo, tip, tmp_path, monkeypatch):
