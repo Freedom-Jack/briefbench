@@ -257,6 +257,7 @@ The unit is one trial, on one task. Over the trials the rule uses, W is B's wins
 | --- | --- | --- |
 | Net preference, the primary effect | (W − L) / N; a tie counts zero | `net_preference` |
 | Its conservative 95% interval | See below | `net_interval` |
+| Tango's 95% interval for the same difference | See below; it never contradicts the sign test (added 2026-11-09). Under check scoring the report calls the difference "the difference in pass rate" and gives it in points | `difference_interval` |
 | Sign test | Exact two-sided p on decided pairs: `min(1, 2 * sum(comb(D, k) for k in 0..min(W, L)) / 2**D)` | `sign_test_p` |
 | Conditional win rate | W / D, labelled "among decided pairs" | `win_rate` |
 | Its 95% interval | Exact Clopper–Pearson | `win_rate_interval` |

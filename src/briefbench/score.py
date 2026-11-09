@@ -5,7 +5,7 @@ from statistics import median
 
 from . import __version__
 from .experiment import rule_kind
-from .stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test
+from .stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test, tango_interval
 
 
 # Tie kinds and how the report names them. Your picks give the first two, in decision.tie; a check-scored experiment
@@ -52,6 +52,11 @@ def _until_verdict(trials, rule) -> list:
         if decide(winners, n, rule)[0] in ("adopt", "stop", "no-difference"):
             return trials[:n]
     return trials
+
+
+def _points(x: float) -> str:
+    """A difference in pass rate, in whole percentage points with a sign: 0.153 is +15."""
+    return f"{x * 100:+.0f}"
 
 
 def _pct(part: int, whole: int) -> str:
@@ -120,6 +125,7 @@ def summary(exp: dict, entries: list[dict]) -> dict:
         "pass_rates": _pass_rates(used) if exp.get("scoring") == "check" and used and not interim else None,
         "net_preference": (wins - losses) / len(used) if used and not interim else None,
         "net_interval": list(net_interval(wins, losses, len(used))) if used and not interim else None,
+        "difference_interval": list(tango_interval(wins, losses, len(used))) if used and not interim else None,
         "sign_test_p": None if interim else sign_test(wins, losses),
         "win_rate": wins / (wins + losses) if wins + losses and not interim else None,
         "win_rate_interval": list(interval(wins, wins + losses)) if wins + losses and not interim else None,
@@ -183,7 +189,10 @@ def _verdict(s: dict, exp: dict) -> str:
                     "all are in.")
         return {
             "no-difference": f"no difference shown. Over {planned} trials B won {s['wins_b']} and A won {s['wins_a']} "
-                             f"(p = {p:.4f}). That means no large effect was found, not that there is none.",
+                             f"(p = {p:.4f}). That means no large effect was found, not that there is none"
+                             + (f". The 95% interval for the difference in pass rate runs from "
+                                f"{_points(s['difference_interval'][0])} to {_points(s['difference_interval'][1])} "
+                                "points." if s["scoring"] == "check" else "."),
             "harm": f"B is worse. A won {s['wins_a']} to B's {s['wins_b']} over {planned} trials (p = {p:.4f}).",
             "below-threshold": f"not adopted. B won {s['wins_b']} to {s['wins_a']} (p = {p:.4f}), but its net "
                                f"preference, {s['net_preference']:+.2f}, is under the frozen {rule['net_min']:g}.",
@@ -239,10 +248,13 @@ def report(exp: dict, entries: list[dict]) -> str:
         lines.append("Pass rates under the check, with exact 95% intervals: " + ", ".join(
             f"{side.upper()} {r['passed']} of {r['of']} ({r['interval'][0]:.0%} to {r['interval'][1]:.0%})"
             for side, r in rates.items()) + ".")
-    if s["net_preference"] is not None:
-        lo, hi = s["net_interval"]
-        lines.append(f"Net preference for B (wins minus losses, over all trials): {s['net_preference']:+.2f}, "
-                     f"conservative 95% interval {lo:+.2f} to {hi:+.2f}.")
+    if (net := s["net_preference"]) is not None:
+        (lo, hi), (t_lo, t_hi) = s["net_interval"], s["difference_interval"]
+        lines.append(f"Difference in pass rate (B minus A): {_points(net)} points, 95% interval {_points(t_lo)} to "
+                     f"{_points(t_hi)} points (Tango); conservative interval {_points(lo)} to {_points(hi)} points."
+                     if check_only else
+                     f"Net preference for B (wins minus losses, over all trials): {net:+.2f}, 95% interval {t_lo:+.2f} "
+                     f"to {t_hi:+.2f} (Tango); conservative 95% interval {lo:+.2f} to {hi:+.2f}.")
     decided = s["wins_b"] + s["wins_a"]
     if not s["interim"]:
         lines.append(f"Sign test on {decided} decided pairs: p = {s['sign_test_p']:.4f}; B's win rate "

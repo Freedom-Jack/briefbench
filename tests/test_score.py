@@ -2,12 +2,13 @@
 import json
 from importlib import resources
 from math import comb
+from statistics import NormalDist
 
 import pytest
 
 from briefbench import judge, score
 from briefbench.experiment import RULE, fixed_rule
-from briefbench.stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test
+from briefbench.stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test, tango_interval
 
 
 def test_sign_test_and_interval_match_hand_computed_values():
@@ -110,7 +111,8 @@ def test_score_matches_hand_computed_results_on_a_fixture_log():
     assert lines[1:] == [
         "Trials: 20. B won 16, A won 4, 0 ties.",
         "3 more trials came after the rule's verdict; they are not part of the test.",
-        "Net preference for B (wins minus losses, over all trials): +0.60, conservative 95% interval +0.05 to +0.91.",
+        "Net preference for B (wins minus losses, over all trials): +0.60, 95% interval +0.17 to +0.84 (Tango); "
+        "conservative 95% interval +0.05 to +0.91.",
         "Sign test on 20 decided pairs: p = 0.0118; B's win rate 80%, 95% interval 56% to 94%.",
         "Verdict: adopt B. It won 16 of 20 decided pairs, which the rule fixed in advance accepts, and its extra "
         "cost is within your cap.",
@@ -203,6 +205,53 @@ def test_each_arms_pass_rate_has_its_exact_interval():
         in score.report(CHECKED, entries)
     assert score.summary(CHECKED, entries[:9])["pass_rates"] is None          # the fixed rule hasn't looked yet
     assert score.summary(EXPERIMENT, fixture_log())["pass_rates"] is None    # your picks: no pass rates
+
+
+@pytest.mark.parametrize("wins,losses,trials,lower,upper", [
+    (1, 7, 21, -0.5172, -0.0260),       # AHR before and after stem cell transplantation, in the ratesci vignette
+    (6, 16, 161, -0.1240, -0.0054),     # Cavo et al. 2012, asserted by the contingencytables package's tests
+    (3, 0, 3, -0.1230, 1.0),            # and the same tests' edge cases
+    (0, 3, 3, -1.0, 0.1230),
+])
+def test_tangos_interval_matches_published_values(wins, losses, trials, lower, upper):
+    lo, hi = tango_interval(wins, losses, trials)
+    assert lo == pytest.approx(lower, abs=5e-5) and hi == pytest.approx(upper, abs=5e-5)
+
+
+def test_tangos_interval_never_contradicts_a_significant_exact_test():
+    """Whenever the exact sign test is significant, the interval excludes zero, at 5% and at 1%. The converse can fail
+    with few decided pairs: at 7 wins to 1 the interval excludes zero, but p = 0.070, and the exact test decides."""
+    for level in (0.95, 0.99):
+        for decided in range(1, 101):
+            for wins in range(decided + 1):
+                if sign_test(wins, decided - wins) <= 1 - level:
+                    lo, hi = tango_interval(wins, decided - wins, decided + 7, level)
+                    assert lo > 0 or hi < 0, (wins, decided, level)
+    assert sign_test(7, 1) > 0.05 and tango_interval(7, 1, 20)[0] > 0
+
+
+def test_tangos_interval_on_the_methods_examples():
+    lo, hi = tango_interval(8, 1, 50)                       # p = 0.039, and the conservative interval includes zero
+    assert (round(lo, 2), round(hi, 2)) == (0.03, 0.27) and net_interval(8, 1, 50)[0] < 0 < lo
+    z2 = NormalDist().inv_cdf(0.975) ** 2
+    for n in (5, 10, 30, 60, 80):                           # nothing decided: z² / (N + z²) either way
+        assert tango_interval(0, 0, n) == pytest.approx((-z2 / (n + z2), z2 / (n + z2)), abs=1e-9)
+    assert tango_interval(2, 9, 40) == pytest.approx(tuple(-x for x in reversed(tango_interval(9, 2, 40))))
+    assert tango_interval(0, 0, 0) == (-1.0, 1.0)
+
+
+def test_the_difference_in_pass_rate_has_tangos_interval():
+    entries = check_log(3, 1, 4, 2)
+    s = score.summary(CHECKED, entries)
+    assert s["difference_interval"] == list(tango_interval(3, 1, 10))
+    (lo, hi), (c_lo, c_hi) = tango_interval(3, 1, 10), net_interval(3, 1, 10)
+    text = score.report(CHECKED, entries)
+    assert (f"Difference in pass rate (B minus A): +20 points, 95% interval {lo * 100:+.0f} to {hi * 100:+.0f} points "
+            f"(Tango); conservative interval {c_lo * 100:+.0f} to {c_hi * 100:+.0f} points.") in text
+    assert (f"no difference shown. Over 10 trials B won 3 and A won 1 (p = 0.6250). That means no large effect was "
+            f"found, not that there is none. The 95% interval for the difference in pass rate runs from "
+            f"{lo * 100:+.0f} to {hi * 100:+.0f} points.") in text
+    assert score.summary(CHECKED, entries[:9])["difference_interval"] is None        # not before all N trials
 
 
 def test_a_declared_threshold_and_level_reach_the_verdict():

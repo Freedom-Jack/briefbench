@@ -279,7 +279,7 @@ So the skill grows one instruction per round, each tested against the current sk
 `briefbench score` prints, and `score --json` returns as numbers:
 - trials, with B's wins, A's wins and ties, and the tie kinds
 - under check scoring, each arm's pass rate with its exact 95% interval
-- the net preference over all trials, with a conservative 95% interval
+- the net preference over all trials, with Tango's 95% interval and a conservative one; under check scoring it is the difference in pass rate, in points
 - the sign test on decided pairs: p-value, B's win rate and its 95% interval
 - the verdict under the frozen rule, and what blocked adoption, if anything
 - fidelity reviews of each brief arm: how many failed, and how
@@ -340,7 +340,7 @@ src/briefbench/
   experiment.py             init's frozen settings, the decision rules, repo settings
   runner.py                 worktrees, setup, both arms, protected paths, checks, diffs
   judge.py, judge_prompt.md pairwise judge, both orders
-  stats.py                  sign test, Clopper-Pearson, net-preference interval, both rules
+  stats.py                  sign test, Clopper-Pearson, net-preference and Tango intervals, median interval, both rules
   score.py                  the report and its JSON
   cli.py                    init, ab, score, clean
 claims/                     claim cards, public

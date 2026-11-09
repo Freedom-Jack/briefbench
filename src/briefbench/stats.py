@@ -1,8 +1,9 @@
-"""The exact sign test, Clopper-Pearson intervals, the net-preference interval, an exact interval for a median and the
-two decision rules, in plain Python. Vendor-neutral."""
+"""The exact sign test, Clopper-Pearson intervals, the net-preference interval, Tango's interval for the difference,
+an exact interval for a median and the two decision rules, in plain Python. Vendor-neutral."""
 from __future__ import annotations
 
-from math import comb
+from math import comb, copysign, inf, sqrt
+from statistics import NormalDist
 
 
 def sign_test(wins: int, losses: int) -> float:
@@ -44,6 +45,32 @@ def net_interval(wins: int, losses: int, trials: int, level: float = 0.95) -> tu
     shares, rates = interval(wins + losses, trials, each), interval(wins, wins + losses, each)
     corners = [q * (2 * p - 1) for q in shares for p in rates]
     return min(corners), max(corners)
+
+
+def tango_interval(wins: int, losses: int, trials: int, level: float = 0.95) -> tuple[float, float]:
+    """Tango's score interval (1998) for the difference (wins - losses) / trials of paired trials, a tie counting zero:
+    every d with |T(d)| <= z (docs/experiment-protocol.md, section 8). Unlike net_interval, it excludes zero whenever
+    the exact sign test is significant at 1 - level."""
+    if trials == 0:
+        return -1.0, 1.0
+    z, n = NormalDist().inv_cdf(1 - (1 - level) / 2), trials
+
+    def t_stat(d: float) -> float:
+        b, c = (2 * n - wins + losses) * d - wins - losses, -losses * d * (1 - d)
+        a_wins = (-b + sqrt(max(b * b - 8 * n * c, 0.0))) / (4 * n)    # A's chance to win a trial, were the difference d
+        top, spread = wins - losses - n * d, n * (2 * a_wins + d * (1 - d))
+        return 0.0 if top == 0 else top / sqrt(spread) if spread > 0 else copysign(inf, top)
+
+    def bisect(inside: float, outside: float, keep) -> float:
+        for _ in range(60):
+            middle = (inside + outside) / 2
+            inside, outside = (middle, outside) if keep(middle) else (inside, middle)
+        return (inside + outside) / 2
+
+    estimate = (wins - losses) / n
+    lower = -1.0 if t_stat(-1.0) <= z else bisect(estimate, -1.0, lambda d: t_stat(d) <= z)
+    upper = 1.0 if t_stat(1.0) >= -z else bisect(estimate, 1.0, lambda d: t_stat(d) >= -z)
+    return lower, upper
 
 
 def median_interval(values: list[float], level: float = 0.95) -> tuple[float, float] | None:
