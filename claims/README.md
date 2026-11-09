@@ -31,7 +31,7 @@ The seed cards come from the project's research, read on 4 Nov 2026: the [value 
 | [A goal, scope and done brief instead of steps](goal-brief-over-steps.md) | Cherny's talk | specification | conditional | candidate | — | — | — | — |
 | [Open with an expert persona](expert-persona.md) | Common advice | wording | no | deferred | — | — | — | — |
 | [Emphasize rules with capitals and CRITICAL](caps-emphasis.md) | Common advice | wording | no | deferred | — | — | — | — |
-| [Test your belief against the raw data](test-your-belief.md) | Rieseberg's essay | specification | conditional | candidate | — | — | — | — |
+| [Test your belief against the raw data](test-your-belief.md) | Rieseberg's essay | specification | conditional | deferred | — | — | — | — |
 | [Let the agent interview you before it starts](ask-questions-first.md) | Claude Code's docs | specification | yes | candidate | — | — | — | — |
 | [Tell Claude to explore broadly before settling](explore-broadly.md) | Anthropic's Opus 5.5 guide | wording | no | deferred | — | — | — | — |
 | [Make the model write in controlled language](controlled-language.md) | LinkedIn post | wording | conditional | deferred | — | — | — | — |

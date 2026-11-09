@@ -406,12 +406,12 @@ Publish the useful skill and the evidence process before trying to support every
 | P0 Readiness | Real-use skill acceptance in two hosts; one real trial on each plan; public basics. No release at its end | Acceptance and real trials owed (they need your prompts and tasks); public basics drafted |
 | P1 Unattended trials and the first materials | Task files, check-only scoring, a threshold for the fixed rule; data with a planted answer; a pilot of the first trick | In progress from 2026-11-06. The pilot ran; harder materials are owed |
 | Built: the method for public results | Tango's interval, each arm's pass rate and the cost medians with exact intervals, noise checks as a calibration, kinds of task tested apart, the stage, plan and materials frozen at `init`, an optional halfway look; `scripts/plan_trials.py` and `scripts/audit_check.py` | Built 2026-11-09, with offline tests on Python 3.11 and 3.14 and one live smoke trial of kinds of task through Claude Code 2.1.317 with `claude-haiku-5-5`. That trial found a false flag in the scan for forbidden folders, fixed the same day: the scan now skips the CLI's own start-up report ([build-plan.md](build-plan.md), P1) |
-| P2 Posts under test | Each trick, one at a time, on its own materials, against the plain prompt, by the method for public results | Not started; the method was adopted on 2026-11-09 |
+| P2 Posts under test | Each trick, one at a time, on its own materials, against the plain prompt, by the method for public results | Started 2026-11-09: "test your belief" calibrated on three versions of its materials, with no room on Claude Code with Opus 5.5, so it wasn't tested ([card](../claims/test-your-belief.md)) |
 | P3 The skill grows from empty | The stand-in requester; growth rounds, questions first | Not started |
 | P4 First public release | The grown skill, with every round and every trick result published | Not started |
 | P5 Replication and upgrade checks | An outside reproduction; rerunning tasks after a model change | Not started |
 
-The [build plan](build-plan.md) gives the work packages and checks. No experiment has run, so no improvement is claimed. The first public release comes after this evidence, not at the end of P0: it ships the grown skill if a round has adopted anything. If nothing has been adopted yet, you decide whether 0.2.0 ships as experimental, with the results so far stated.
+The [build plan](build-plan.md) gives the work packages and checks. No test has run, only pilots and calibrations, which are development data, so no improvement is claimed. The first public release comes after this evidence, not at the end of P0: it ships the grown skill if a round has adopted anything. If nothing has been adopted yet, you decide whether 0.2.0 ships as experimental, with the results so far stated.
 
 ## Decisions
 

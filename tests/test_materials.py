@@ -48,7 +48,7 @@ def made(tmp_path):
 
 @pytest.fixture(scope="module")
 def big(tmp_path_factory):
-    """Twelve tasks, three in each cell of the 2x2, from all three domains: (the task files, each task's plan by id).
+    """Twelve tasks, six of each kind, from all three domains: (the task files, each task's plan by id).
     Made once for the module, since the analyses below read every file; making a set touches neither HOME nor the
     data folder."""
     folder = tmp_path_factory.mktemp("big")
