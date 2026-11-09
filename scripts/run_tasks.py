@@ -7,6 +7,10 @@ experiment must be scored by the check alone (`init --scoring check`). The runne
 line of the same kind in this experiment's log: a trial, or with --aa a noise check. So a stopped run picks up where
 it left off, and noise checks and trials never use up each other's tasks.
 
+With an experiment frozen with its task list (`init --tasks`), TASKS.txt must list the same files in the same order,
+and under a fixed rule the runner stops once all N trials are in, so reserve tasks run only in place of a task that
+failed twice.
+
 It stops, so that you can look before more plan usage is spent:
 - after --limit trials;
 - when a trial step fails, including an arm stopped by a usage limit or an outage. `ab` logs the trial as failed,
@@ -63,8 +67,15 @@ def main(argv=None) -> int:
         return 2
     files = [args.tasks.parent / line.strip() for line in args.tasks.read_text().splitlines() if line.strip()]
     tasks = [load(f) for f in files]           # checks every file before the first trial runs
-    ran = 0
+    if (frozen := exp.get("materials")) and [t["sha256"] for t in tasks] != frozen["tasks"]:
+        print(f"{args.tasks} doesn't list the task files frozen with experiment {exp['name']}, in their order.",
+              file=sys.stderr)
+        return 2
+    ran, planned = 0, exp["rule"].get("trials") if experiment.rule_kind(exp["rule"]) == "fixed" else None
     for task in tasks:
+        if planned and not args.aa and sum(e.get("kind") == "trial" for e in lines(exp)) >= planned:
+            print(f"All {planned} trials the rule tests are in; the tasks left are reserves.")
+            break
         counts = seen(lines(exp), task["sha256"], args.aa)
         if counts["done"] or counts["failed"] >= 2:      # done, or failed twice: a missing outcome
             continue

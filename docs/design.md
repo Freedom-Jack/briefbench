@@ -241,7 +241,7 @@ The hidden evaluation is protected by where things are kept, and checked after t
 - An arm whose output names a folder it can't read, in any spelling such as `~/` or `$HOME/`, is flagged (`looked_outside`), and `score` reports it. Since 2026-11-09 the rule for a flag is fixed in advance: read the arm's log, and if it confirms the look, count that arm as failing its check. Counting it as a fail keeps every task in the analysis, and it doesn't hide a trick that makes agents look around more. A flag the log doesn't confirm changes nothing. The log is never rewritten, so the report's author makes this recount, as for a trial stopped by an outage.
 - An arm stopped with an error, such as a usage limit, measured the service, not the prompt. Its trial is logged as failed and its task rerun once.
 
-`scripts/run_tasks.py` runs a list of task files one after another, unattended. It stops at a failed step, at a flagged look and at `--limit`, so that you can look before more plan usage is spent. For now a task file runs only `original` and `snippet:` treatments: a skill treatment's questions need the stand-in requester, which comes with the skill's first growth round.
+`scripts/run_tasks.py` runs a list of task files one after another, unattended. It stops at a failed step, at a flagged look and at `--limit`, so that you can look before more plan usage is spent, and once a fixed rule's N trials are in, so that reserve tasks run only in place of a task that failed twice. With a task list frozen at `init --tasks`, it runs that list only, in its order. For now a task file runs only `original` and `snippet:` treatments: a skill treatment's questions need the stand-in requester, which comes with the skill's first growth round.
 
 ### Decision rules
 
@@ -277,6 +277,7 @@ So the skill grows one instruction per round, each tested against the current sk
 ### What `score` reports
 
 `briefbench score` prints, and `score --json` returns as numbers:
+- in its first line, the experiment's stage and its plan's commit
 - trials, with B's wins, A's wins and ties, and the tie kinds
 - under check scoring, each arm's pass rate with its exact 95% interval
 - the net preference over all trials, with Tango's 95% interval and a conservative one; under check scoring it is the difference in pass rate, in points
@@ -367,7 +368,7 @@ trials/<id>/output/           each trial's prompts, diffs, logs, headless reques
 
 | Command | What it does |
 | --- | --- |
-| `briefbench init <name> [--a T] [--b T] [--judge CLI] [--rule two-step\|fixed:N]` | Asks for whatever you leave out: the worker, the rewriter (with a skill treatment), each model, the judge (Enter for none) and your cost cap. Shows the commands and asks before freezing (`-y` skips). Also `--worker`, `--rewriter`, `--<role>-model`, `--cap`, `--timeout MINUTES`. Defaults: `--a original --b brief`, no judge, two-step, 30 minutes per arm |
+| `briefbench init <name> [--a T] [--b T] [--judge CLI] [--rule two-step\|fixed:N]` | Asks for whatever you leave out: the worker, the rewriter (with a skill treatment), each model, the judge (Enter for none) and your cost cap. Shows the commands and asks before freezing (`-y` skips). Also `--worker`, `--rewriter`, `--<role>-model`, `--cap`, `--timeout MINUTES`; for a fixed rule `--net-min` and `--alpha`; for materials with an answer key `--scoring check`, `--strata HELP,HARM` with `--margin`, and `--tasks LIST` with `--seed-source`; and `--stage` with `--plan-commit`, `--plan-url` and `--replicates`. Defaults: `--a original --b brief`, no judge, two-step, 30 minutes per arm, stage `development` |
 | `briefbench ab "<prompt>" [--aa] [--experiment NAME]` | The prompt as an argument, from `--file`, or `-` to paste it. Eligibility, task type, goal and check, the skill's questions, both arms, check, blind pick, judge, fidelity review, one log line, how to keep the winner |
 | `briefbench score [<name>] [--json]` | The report above |
 | `briefbench clean` | Removes finished trial worktrees; diffs, prompts and logs stay |

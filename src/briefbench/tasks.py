@@ -11,7 +11,7 @@ from .experiment import TASK_TYPES
 
 FORMAT = 1
 _TEXT = ("id", "repo", "prompt", "type", "goal", "check")      # required, non-empty
-_OPTIONAL = ("set", "commit", "setup", "stratum")              # text, may be empty
+_OPTIONAL = ("set", "commit", "setup", "stratum", "generator_sha256", "checker_sha256")    # text, may be empty
 
 
 def load(path: Path) -> dict:
@@ -41,4 +41,29 @@ def load(path: Path) -> dict:
     return {"id": task["id"], "set": task.get("set") or None, "stratum": task.get("stratum") or None, "repo": str(repo),
             "commit": task.get("commit") or None, "prompt": task["prompt"].strip(), "type": task["type"],
             "goal": task["goal"].strip(), "check": task["check"].strip(), "setup": task.get("setup", "").strip(),
-            "protected": protected, "file": str(path.resolve()), "sha256": hashlib.sha256(data).hexdigest()}
+            "protected": protected, "file": str(path.resolve()), "sha256": hashlib.sha256(data).hexdigest(),
+            **{key: task.get(key) or None for key in ("generator_sha256", "checker_sha256")}}
+
+
+def freeze(list_path: Path, kinds=None) -> dict:
+    """The materials an experiment freezes from an ordered list of task files, one per line relative to the list's
+    folder, as scripts/run_tasks.py reads it: their set, the generator's and the checker's hashes as the files give
+    them, each file's sha256 in order (tasks), and the sha256 of that order (tasks_sha256). Every file must come from
+    one set and one generator, appear once and, with kinds, be of one of them."""
+    path = Path(list_path)
+    try:
+        names = [line.strip() for line in path.read_text().splitlines() if line.strip()]
+    except OSError as e:
+        raise UsageError(f"can't read the task list {path}: {e}") from None
+    found = [load(path.parent / name) for name in names]
+    sets, makers, checkers = ({t[key] for t in found} for key in ("set", "generator_sha256", "checker_sha256"))
+    if not found or None in sets | makers or len(sets) != 1 or len(makers) != 1 or len(checkers) != 1:
+        raise UsageError(f"the task list {path} must name task files of one set, made by one generator: each file "
+                         "gives the same set, generator_sha256 and checker_sha256.")
+    hashes = [t["sha256"] for t in found]
+    if len(set(hashes)) != len(hashes):
+        raise UsageError(f"the task list {path} names a task file twice.")
+    if kinds and (odd := [t["id"] for t in found if t["stratum"] not in kinds]):
+        raise UsageError(f"the task list {path} has tasks of no kind the experiment tests: {', '.join(odd[:3])}.")
+    return {"set": sets.pop(), "generator_sha256": makers.pop(), "checker_sha256": checkers.pop(),
+            "tasks_sha256": hashlib.sha256("\n".join(hashes).encode()).hexdigest(), "tasks": hashes}

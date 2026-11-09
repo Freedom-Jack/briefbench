@@ -78,6 +78,17 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
                         "kind where it could hurt, which needs a loss bound; task files name each task's kind")
     i.add_argument("--margin", type=_fraction, metavar="M",
                    help="with --strata: the largest loss in pass rate accepted where B could hurt (default 0.10)")
+    i.add_argument("--stage", choices=experiment.STAGES, default="development",
+                   help="development (the default: pilots and anything else, never evidence), calibration, test (a "
+                        "first public test) or replication (a second test of a named experiment)")
+    i.add_argument("--replicates", metavar="NAME", help="with --stage replication: the experiment it tests again")
+    i.add_argument("--plan-commit", metavar="SHA", help="the commit of the plan, published before the tasks existed; "
+                                                        "a test or a replication needs one")
+    i.add_argument("--plan-url", metavar="URL", help="with --plan-commit: where the plan can be read")
+    i.add_argument("--tasks", type=Path, metavar="LIST", help="with --scoring check: the ordered list of task files, "
+                                                              "frozen by hash, reserves included")
+    i.add_argument("--seed-source", metavar="TEXT", help="with --tasks: where the generator's seed came from, such as "
+                                                         "a public randomness beacon's round")
     i.add_argument("-y", "--yes", action="store_true", help="freeze without asking to confirm the commands")
     a = commands.add_parser("ab", allow_abbrev=False, help="run one trial in the current repo")
     a.add_argument("prompt", nargs="?", help="the task's prompt, in quotes, or - to paste it")
@@ -200,6 +211,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
                          "pairs to test\" almost every time. Use --rule fixed:N, with --net-min (docs/design.md, \"When "
                          "most trials tie\").")
     strata = _strata(args)
+    stage = _stage(args, strata)
     names = sorted(AGENTS)
     roles = {"worker": _agent_settings(args.worker or con.pick("Worker: the agent CLI that does the task", names,
                                                                names[0]), "worker", args.worker_model, con, environ,
@@ -226,7 +238,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         "Cost cap: the most extra time and tokens B may use, as a median % of A's (for example 50)"))
     frozen = {"format": experiment.FORMAT, "name": args.name, "created": utc_now(), "briefbench_version": __version__,
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
-              "rule": rule, "scoring": args.scoring, "strata": strata,
+              "rule": rule, "scoring": args.scoring, "strata": strata, **stage,
               "render": experiment.RENDER if roles["rewriter"] else None,
               "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
                             "judge": judge.prompt_sha256() if roles["judge"] else None}}
@@ -235,7 +247,10 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
             + (" Scored by the check alone: both arms passing or both failing is a tie, and no pick is asked."
                if args.scoring == "check" else "")
             + (f" Kinds of task, tested apart: {strata['help']}, where B should help, is tested; {strata['harm']}, "
-               f"where it could hurt, must show no loss over {strata['margin'] * 100:g} points." if strata else ""))
+               f"where it could hurt, must show no loss over {strata['margin'] * 100:g} points." if strata else "")
+            + f" Stage: {experiment.stage_text(stage)}."
+            + (f" Materials: {len(m['tasks'])} task files of {m['set']}, frozen by hash." if (m := stage["materials"])
+               else ""))
     for role, settings in roles.items():
         if settings:
             con.say(f"{ROLE_LABELS[role]} command:\n  {shlex.join(settings['argv'])}")
@@ -264,6 +279,33 @@ def _strata(args) -> dict | None:
     if args.margin is not None and args.margin <= 0:
         raise UsageError("--margin is the largest loss accepted where B could hurt, above 0 and at most 1.")
     return {"help": kinds[0], "harm": kinds[1], "margin": 0.10 if args.margin is None else args.margin}
+
+
+def _stage(args, strata) -> dict:
+    """The experiment's stage, the plan it follows and the materials it freezes (docs/experiment-protocol.md, section
+    4). A test or a replication needs the commit of its published plan and, scored by the check alone, its ordered
+    task list and where its seed came from."""
+    public = args.stage in ("test", "replication")
+    if (args.stage == "replication") != bool(args.replicates):
+        raise UsageError("--replicates NAME names the experiment a replication tests again: it goes with --stage "
+                         "replication, which needs it.")
+    if public and not args.plan_commit:
+        raise UsageError(f"a {args.stage} needs the commit of its plan, published before its tasks existed: "
+                         "--plan-commit.")
+    if args.plan_commit and not re.fullmatch(r"[0-9a-f]{7,40}", args.plan_commit):
+        raise UsageError("--plan-commit is a git commit: 7 to 40 hexadecimal characters.")
+    if args.plan_url and not (args.plan_commit and args.plan_url.startswith("https://")):
+        raise UsageError("--plan-url goes with --plan-commit, and starts with https://.")
+    if (args.tasks or args.seed_source) and not (args.tasks and args.scoring == "check"):
+        raise UsageError("--tasks freezes the task files of an experiment scored by the check alone; --seed-source "
+                         "goes with it.")
+    if public and args.scoring == "check" and not (args.tasks and args.seed_source):
+        raise UsageError(f"a check-scored {args.stage} freezes its ordered task list and says where its seed came "
+                         "from: --tasks and --seed-source.")
+    materials = tasks.freeze(args.tasks, strata and (strata["help"], strata["harm"])) if args.tasks else None
+    return {"stage": args.stage, "replicates": experiment.check_name(args.replicates) if args.replicates else None,
+            "plan": {"commit": args.plan_commit, "url": args.plan_url} if args.plan_commit else None,
+            "materials": materials | {"seed_source": args.seed_source} if materials else None}
 
 
 def _rule_text(rule: dict) -> str:
@@ -522,6 +564,11 @@ def _task_file(args, exp) -> dict | None:
     if (strata := exp.get("strata")) and task["stratum"] not in (strata["help"], strata["harm"]):
         raise UsageError(f"the task file {task['file']} is of kind {task['stratum']!r}, but experiment {exp['name']} "
                          f"tests only {strata['help']} and {strata['harm']}.")
+    if (materials := exp.get("materials")) and task["generator_sha256"] != materials["generator_sha256"]:
+        raise UsageError(f"the task file {task['file']} comes from another generator than the one frozen with "
+                         f"experiment {exp['name']}.")
+    if materials and task["sha256"] not in materials["tasks"]:
+        raise UsageError(f"the task file {task['file']} isn't in the task list frozen with experiment {exp['name']}.")
     return task
 
 

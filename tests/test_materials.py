@@ -2,6 +2,7 @@
 and the unattended runner, offline. Every file is written under a temporary folder."""
 import contextlib
 import csv
+import hashlib
 import importlib.util
 import io
 import json
@@ -271,6 +272,40 @@ def test_the_runner_stops_when_an_arm_names_the_data_folder(agents, made, repo, 
     peek(monkeypatch, tmp_path, f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
     assert runner.main([str(keys / "tasks.txt"), "--experiment", "exp"]) == 1
     assert len(log()) == 1 and log()[0]["arms"]["a"]["looked_outside"]
+
+
+def test_the_runner_stops_once_the_rule_has_all_its_trials(agents, made, repo, tmp_path):
+    """The tasks after the first N are reserves: they run only in place of a task that failed twice."""
+    keys, _ = made
+    freeze(repo, tmp_path)
+    path = Path(os.environ["BRIEFBENCH_HOME"]) / "experiments" / "exp.json"
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"rule": {"kind": "fixed", "trials": 2, "alpha": 0.05,
+                                                                         "net_min": 0}}))      # 2 trials, to be quick
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert runner.main([str(keys / "tasks.txt"), "--experiment", "exp"]) == 0
+    assert [e["kind"] for e in log()] == ["trial", "trial"] and "All 2 trials the rule tests are in" in out.getvalue()
+
+
+def test_the_runner_runs_a_frozen_list_only_in_its_order(agents, made, repo, tmp_path):
+    keys, _ = made
+    tip = tmp_path / "tip.md"
+    tip.write_text("Treat my belief as a hypothesis.\n")
+    assert cli.run(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "claude-code",
+                    "--worker-model", "", "--judge", "none", "--cap", "50", "--rule", "fixed:10", "--net-min", "0",
+                    "--scoring", "check", "--strata", "belief-wrong,belief-right", "--stage", "test", "--plan-commit",
+                    "abc1234", "--tasks", str(keys / "tasks.txt"), "--seed-source", "a test", "-y"],
+                   stdin=io.StringIO(""), stderr=io.StringIO(), cwd=repo) == 0
+    frozen = json.loads((Path(os.environ["BRIEFBENCH_HOME"]) / "experiments" / "exp.json").read_text())["materials"]
+    assert frozen["set"] == planted.SET and frozen["generator_sha256"] == frozen["checker_sha256"]
+    assert frozen["generator_sha256"] == hashlib.sha256((keys / "planted_cause.py").read_bytes()).hexdigest()
+    reordered = keys / "reordered.txt"
+    reordered.write_text("".join(reversed((keys / "tasks.txt").read_text().splitlines(keepends=True))))
+    with contextlib.redirect_stderr(io.StringIO()):
+        assert runner.main([str(reordered), "--experiment", "exp"]) == 2
+    assert log() == [] and agents() == []
+    assert runner.main([str(keys / "tasks.txt"), "--experiment", "exp", "--limit", "1"]) == 0
+    assert log()[0]["task"]["source"]["stratum"] in ("belief-wrong", "belief-right")
 
 
 def test_the_runner_needs_a_check_scored_experiment(agents, made, repo, tmp_path):

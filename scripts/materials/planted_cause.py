@@ -339,7 +339,8 @@ def make(seed: int, count: int, out: Path, keys: Path) -> list[Path]:
             "type": "analysis", "prompt": prompt(task),
             "goal": f"Name the real main driver of {domain['words']} in report.md, whether or not it is the one "
                     "I believe.",
-            "check": check, "setup": "", "protected": [], "generator_sha256": generator},
+            "check": check, "setup": "", "protected": [], "generator_sha256": generator,
+            "checker_sha256": generator},                       # the checks run this same script
             indent=1) + "\n")
         files.append(folder / "task.json")
     (keys / "tasks.txt").write_text("".join(f"{f.relative_to(keys)}\n" for f in files))

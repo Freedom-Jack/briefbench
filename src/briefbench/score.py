@@ -4,7 +4,7 @@ from __future__ import annotations
 from statistics import median
 
 from . import __version__
-from .experiment import rule_kind
+from .experiment import rule_kind, stage_text
 from .stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test, tango_interval
 
 
@@ -209,6 +209,9 @@ def summary(exp: dict, entries: list[dict]) -> dict:
                   "task_types": {k: sum((t.get("task") or {}).get("type") == k for t in used)
                                  for k in sorted({(t.get("task") or {}).get("type") or "unknown" for t in used})},
                   "materials": _materials(used),
+                  "stage": exp.get("stage"), "replicates": exp.get("replicates"), "plan": exp.get("plan"),
+                  "materials_frozen": {k: v for k, v in m.items() if k != "tasks"} | {"task_files": len(m["tasks"])}
+                  if (m := exp.get("materials")) else None,
                   "first_trial": min((t.get("ts") for t in used if t.get("ts")), default=None),
                   "last_trial": max((t.get("ts") for t in used if t.get("ts")), default=None)},
         "trial_ids": [t.get("id") for t in used],
@@ -337,8 +340,9 @@ def _kind_lines(name: str, e: dict | None, check_only: bool, bound: dict | None)
 def report(exp: dict, entries: list[dict]) -> str:
     s = summary(exp, entries)
     worker = s["worker"]
-    lines = [f"Experiment {s['experiment']}: A is {s['a']}, B is {s['b']}; worker {worker['agent']}, model "
-             f"{worker['model'] or 'the CLI default'}."]
+    stage = stage_text(exp)
+    lines = [f"Experiment {s['experiment']}{f' ({stage})' if stage else ''}: A is {s['a']}, B is {s['b']}; worker "
+             f"{worker['agent']}, model {worker['model'] or 'the CLI default'}."]
     kinds, check_only = s["ties_by_kind"], s["scoring"] == "check"
     if check_only:
         lines.append("Scored by the check alone: an arm wins only when it passes and the other fails.")

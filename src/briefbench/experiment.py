@@ -22,6 +22,19 @@ FIXED_TRIALS = (10, 1000)          # the planned number of trials a fixed rule m
 # check alone, for materials with an answer key; both arms passing or both failing is a tie (docs/design.md,
 # "Unattended trials"). Experiments frozen before 2026-11-06 have no scoring, which means pick.
 SCORINGS = ("pick", "check")
+# What an experiment is for (docs/experiment-protocol.md, section 4). development: pilots and anything else, never
+# evidence, the default; calibration: the plain prompt on calibration tasks, development data too; test: a first public
+# test under a published plan; replication: a second test of a named experiment. Before 2026-11-09 there was none.
+STAGES = ("development", "calibration", "test", "replication")
+
+
+def stage_text(exp: dict) -> str | None:
+    """How a report names an experiment's stage, with its plan's commit; None for one frozen before stages."""
+    if not (stage := exp.get("stage")):
+        return None
+    text = {"development": "development, not evidence", "calibration": "a calibration: development, not evidence",
+            "test": "a first test", "replication": f"a replication of {exp.get('replicates')}"}[stage]
+    return text + (f", plan {exp['plan']['commit'][:12]}" if exp.get("plan") else "")
 
 
 def fixed_rule(trials: int, alpha: float = 0.05, net_min: float = 0.15) -> dict:

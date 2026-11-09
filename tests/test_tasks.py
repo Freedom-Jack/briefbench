@@ -1,5 +1,6 @@
 """Unattended trials: init --scoring check, the fixed rule's declared threshold, and ab --task, through fake agent
 CLIs (tests/fake_agent.py). The fake worker writes "brief" into result.txt when its prompt holds BRIEF."""
+import hashlib
 import io
 import json
 import os
@@ -116,9 +117,83 @@ def test_an_experiment_without_kinds_records_none(agents, repo, tip, tmp_path):
     assert entries()[0]["task"]["source"]["stratum"] is None
 
 
+def listed(tmp_path, repo, count=2, **fields):
+    """A list of `count` task files from one generator, as init --tasks reads it."""
+    folder = tmp_path / "keys"
+    folder.mkdir(exist_ok=True)
+    for n in range(count):
+        (folder / f"t{n}.json").write_text(json.dumps({
+            "format": 1, "id": f"t-{n}", "set": "demo/1", "repo": str(repo), "prompt": "Make result.txt say what it is",
+            "type": "analysis", "goal": "Say what it is", "check": "grep -q brief result.txt",
+            "generator_sha256": "g" * 64, "checker_sha256": "c" * 64, **fields}))
+    (folder / "tasks.txt").write_text("".join(f"t{n}.json\n" for n in range(count)))
+    return folder / "tasks.txt"
+
+
+TEST = ("--stage", "test", "--plan-commit", "abc1234", "--seed-source", "drand quicknet round 1")
+
+
+@pytest.mark.parametrize("extra,words", [
+    (("--stage", "test"), "--plan-commit"),
+    (("--stage", "replication", "--plan-commit", "abc1234"), "--replicates"),
+    (("--replicates", "first-test"), "--replicates"),
+    (("--plan-commit", "not-a-commit"), "hexadecimal"),
+    (("--plan-url", "https://example.org/plan"), "--plan-url goes with --plan-commit"),
+    (("--stage", "test", "--plan-commit", "abc1234"), "--tasks and --seed-source"),
+])
+def test_a_test_needs_its_plan_and_its_frozen_tasks(agents, repo, tip, extra, words):
+    code, err = init(repo, f"snippet:{tip}", *CHECK, *extra)
+    assert code == 2 and words in err and not (Path(os.environ["BRIEFBENCH_HOME"]) / "experiments").exists()
+
+
+def test_the_stage_the_plan_and_the_materials_are_frozen(agents, repo, tip, tmp_path):
+    tasks_list = listed(tmp_path, repo)
+    code, err = init(repo, f"snippet:{tip}", *CHECK, *TEST, "--plan-url", "https://example.org/plan", "--tasks",
+                     str(tasks_list))
+    assert code == 0, err
+    exp = frozen()
+    assert (exp["stage"], exp["replicates"]) == ("test", None)
+    assert exp["plan"] == {"commit": "abc1234", "url": "https://example.org/plan"}
+    hashes = [hashlib.sha256((tasks_list.parent / f"t{n}.json").read_bytes()).hexdigest() for n in range(2)]
+    assert exp["materials"] == {"set": "demo/1", "generator_sha256": "g" * 64, "checker_sha256": "c" * 64,
+                                "tasks_sha256": hashlib.sha256("\n".join(hashes).encode()).hexdigest(),
+                                "tasks": hashes, "seed_source": "drand quicknet round 1"}
+    assert "Stage: a first test, plan abc1234. Materials: 2 task files of demo/1, frozen by hash." in err
+
+
+def test_ab_refuses_a_task_outside_the_frozen_list(agents, repo, tip, tmp_path):
+    tasks_list = listed(tmp_path, repo)
+    init(repo, f"snippet:{tip}", *CHECK, *TEST, "--tasks", str(tasks_list))
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, generator_sha256="g" * 64))], "", cwd=tmp_path)
+    assert code == 2 and "isn't in the task list frozen with experiment exp" in err
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, generator_sha256="h" * 64))], "", cwd=tmp_path)
+    assert code == 2 and "another generator" in err and entries() == [] and agents() == []
+    code, err = bench(["ab", "--task", str(tasks_list.parent / "t1.json")], "", cwd=tmp_path)
+    assert code == 0, err
+    from briefbench import experiment, score
+    exp = experiment.load("exp", os.environ)
+    assert score.report(exp, entries()).startswith("Experiment exp (a first test, plan abc1234): A is original")
+    scope = score.summary(exp, entries())["scope"]
+    assert scope["stage"] == "test" and scope["materials_frozen"]["task_files"] == 2
+    assert "tasks" not in scope["materials_frozen"]
+
+
+@pytest.mark.parametrize("change,words", [({"generator_sha256": "h" * 64}, "one generator"),
+                                          ({"set": "other/1"}, "one set"),
+                                          ({"stratum": "elsewhere"}, "no kind the experiment tests")])
+def test_a_task_list_comes_from_one_generator_and_the_frozen_kinds(agents, repo, tip, tmp_path, change, words):
+    tasks_list = listed(tmp_path, repo, stratum="belief-wrong")
+    first = tasks_list.parent / "t0.json"
+    first.write_text(json.dumps(json.loads(first.read_text()) | change))
+    code, err = init(repo, f"snippet:{tip}", *CHECK, *TEST, "--strata", "belief-wrong,belief-right", "--tasks",
+                     str(tasks_list))
+    assert code == 2 and words in err
+
+
 def test_an_experiment_records_pick_scoring_by_default(agents, repo, tip):
     assert init(repo, f"snippet:{tip}")[0] == 0
     assert frozen()["scoring"] == "pick"
+    assert (frozen()["stage"], frozen()["plan"], frozen()["materials"]) == ("development", None, None)
 
 
 def test_a_task_file_runs_a_trial_with_no_questions(agents, repo, tip, tmp_path):
