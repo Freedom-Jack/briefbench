@@ -286,7 +286,7 @@ So the skill grows one instruction per round, each tested against the current sk
 - median extra time and tokens of B over A, each with its exact 95% interval, against your cap
 - the judge's agreement with your picks, with its interval
 - how often the longer diff won, and how often your guesses of B were right
-- noise checks, exclusions and failed trials
+- noise checks, exclusions and failed trials; under check scoring the noise checks serve as a calibration, with how many plain runs passed and how often two disagreed, for each kind of task
 - a warning when the worker's model or CLI version changed during the experiment
 
 It never reports a single pair as evidence.

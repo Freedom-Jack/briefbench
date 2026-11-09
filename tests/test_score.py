@@ -254,6 +254,28 @@ def test_the_difference_in_pass_rate_has_tangos_interval():
     assert score.summary(CHECKED, entries[:9])["difference_interval"] is None        # not before all N trials
 
 
+def of_kind(entry, kind):
+    entry["task"] = {"type": "analysis", "source": {"id": "t", "set": "demo/1", "stratum": kind}}
+    return entry
+
+
+def test_noise_checks_give_a_calibration_for_each_kind_of_task():
+    """Plain against plain, under the check alone: how often the plain runs passed, and how often the two disagreed."""
+    wrong = ([checked("a", kind="aa"), checked("b", kind="aa")] * 2 + [checked("tie", "both_passed", kind="aa")] * 10
+             + [checked("tie", "both_failed", kind="aa")] * 6)           # 4 of 20 disagree; 24 of 40 runs pass
+    right = [checked("b", kind="aa")] + [checked("tie", "both_passed", kind="aa") for _ in range(9)]
+    entries = [of_kind(dict(e), "belief-wrong") for e in wrong]           # copies: the list repeats its entries
+    entries += [of_kind(e, "belief-right") for e in right]
+    noise = score.summary(CHECKED, entries)["noise_checks"]
+    assert noise == {"count": 30, "with_winner": 5, "runs": 60, "runs_passed": 43, "by_stratum": {
+        "belief-right": {"count": 10, "with_winner": 1, "runs": 20, "runs_passed": 19},
+        "belief-wrong": {"count": 20, "with_winner": 4, "runs": 40, "runs_passed": 24}}}
+    assert ("As a calibration: A's runs passed the check in 43 of 60, and its two runs disagreed on 5 of 30 tasks. "
+            "belief-right: 19 of 20 runs passed, 1 of 10 tasks disagreed. belief-wrong: 24 of 40 runs passed, 4 of 20 "
+            "tasks disagreed.") in score.report(CHECKED, entries)
+    assert score.summary(EXPERIMENT, fixture_log())["noise_checks"]["by_stratum"] == {}
+
+
 def test_a_declared_threshold_and_level_reach_the_verdict():
     """A check-scored experiment may declare a lower net preference: 12 wins and 3 losses in 100 trials is +0.09."""
     entries = fixed_log(12, 3, 85)

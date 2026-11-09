@@ -40,6 +40,24 @@ def _pass_rates(trials) -> dict:
             for s in "ab"}
 
 
+def _stratum(e: dict):
+    """The kind of task a line's task file named, such as belief-wrong; None for a task without one."""
+    return ((e.get("task") or {}).get("source") or {}).get("stratum")
+
+
+def _noise(checks) -> dict:
+    """Noise checks, A against A: how many, how many had a winner (under the check alone: the two plain runs
+    disagreed), and the plain runs, with how many passed the check; then the same for each kind of task. As a
+    calibration, these give the plain prompt's failure rate and its run-to-run noise (docs/experiment-protocol.md,
+    section 4)."""
+    def counts(group):
+        return {"count": len(group), "with_winner": sum(e["decision"]["winner"] != "tie" for e in group),
+                "runs": 2 * len(group),
+                "runs_passed": sum(bool((e["arms"][s].get("check") or {}).get("passed")) for e in group for s in "ab")}
+    kinds = sorted({kind for e in checks if (kind := _stratum(e))})
+    return counts(checks) | {"by_stratum": {kind: counts([e for e in checks if _stratum(e) == kind]) for kind in kinds}}
+
+
 def _task(e: dict) -> tuple:
     return (e.get("task", {}).get("prompt"), (e.get("repo") or {}).get("root"), (e.get("repo") or {}).get("commit"))
 
@@ -140,7 +158,7 @@ def summary(exp: dict, entries: list[dict]) -> dict:
         "longer_diff_won": {"won": longer, "of": len(sized)},
         "guesses": {"right": sum(t["decision"]["sides"][t["decision"]["guess"]] == "b" for t in guesses),
                     "of": len(guesses)},
-        "noise_checks": {"count": len(aa), "with_winner": sum(e["decision"]["winner"] != "tie" for e in aa)},
+        "noise_checks": _noise(aa),
         "excluded": sum(e.get("kind") == "excluded" for e in mine),
         "failed": {"trials": len(failed), "rerun": len(rerun),
                    "by_stage": {st: sum(f.get("stage") == st for f in failed) for st in ("questions", "rewrite", "run")},
@@ -283,8 +301,14 @@ def report(exp: dict, entries: list[dict]) -> str:
     if not check_only:                  # with the check alone nobody picks, so nobody guesses
         lines.append(f"Your guesses of which side got B: {_pct(s['guesses']['right'], s['guesses']['of'])} right; "
                      "about half means the blinding holds.")
-    lines.append(f"Noise checks (A against A): {s['noise_checks']['count']}, with a winner in "
-                 f"{s['noise_checks']['with_winner']}; often a winner there means high noise.")
+    noise = s["noise_checks"]
+    lines.append(f"Noise checks (A against A): {noise['count']}, with a winner in {noise['with_winner']}; often a "
+                 "winner there means high noise.")
+    if check_only and noise["count"]:                 # a calibration: the plain prompt's failures and its noise
+        lines.append(f"As a calibration: A's runs passed the check in {noise['runs_passed']} of {noise['runs']}, and "
+                     f"its two runs disagreed on {noise['with_winner']} of {noise['count']} tasks."
+                     + "".join(f" {kind}: {c['runs_passed']} of {c['runs']} runs passed, {c['with_winner']} of "
+                               f"{c['count']} tasks disagreed." for kind, c in noise["by_stratum"].items()))
     failed = s["failed"]
     considered = s["excluded"] + s["trials"] + s["beyond_plan"] + failed["trials"] - failed["rerun"]
     lines.append(f"Excluded tasks: {s['excluded']} of {considered} considered. Failed trials, where a step such as "
