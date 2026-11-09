@@ -5,7 +5,7 @@ from statistics import median
 
 from . import __version__
 from .experiment import rule_kind
-from .stats import decide, decide_fixed, interval, net_interval, sign_test
+from .stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test
 
 
 # Tie kinds and how the report names them. Your picks give the first two, in decision.tie; a check-scored experiment
@@ -26,12 +26,11 @@ def _cost(arm: dict, field: str):
     return None if brief.get(field) is None else value + brief[field]
 
 
-def _extra(trials, field) -> float | None:
-    """Median of B's extra cost over A's, in percent, over the trials where both arms report it. Briefing counts:
-    each arm's cost includes the headless calls its prompt needed."""
+def _changes(trials, field) -> list[float]:
+    """B's extra cost over A's, in percent, in each trial where both arms report it. Briefing counts: each arm's cost
+    includes the headless calls its prompt needed."""
     pairs = [(_cost(t["arms"]["a"], field), _cost(t["arms"]["b"], field)) for t in trials]
-    changes = [(b - a) / a * 100 for a, b in pairs if a and b is not None]
-    return median(changes) if changes else None
+    return [(b - a) / a * 100 for a, b in pairs if a and b is not None]
 
 
 def _pass_rates(trials) -> dict:
@@ -86,7 +85,8 @@ def summary(exp: dict, entries: list[dict]) -> dict:
         state, rule_wins, rule_pairs = decide_fixed(wins, losses, len(used), rule), wins, wins + losses
     else:
         state, rule_wins, rule_pairs = decide(winners, len(used), rule)
-    time, tokens = _extra(used, "seconds"), _extra(used, "tokens")
+    changes = {"time": _changes(used, "seconds"), "tokens": _changes(used, "tokens")}
+    time, tokens = (median(changes[name]) if changes[name] else None for name in ("time", "tokens"))
     over = [name for name, value in (("time", time), ("tokens", tokens)) if value is not None and value > exp["cap_percent"]]
     fidelity = {s: _fidelity(used, s) if _is_skill(exp[s]) else None for s in "ab"}
     order = {id(e): i for i, e in enumerate(mine)}
@@ -127,6 +127,8 @@ def summary(exp: dict, entries: list[dict]) -> dict:
                     "adopted": state in ("adopt", "benefit") and not blocked},
         "fidelity": fidelity,
         "extra_cost_median_percent": {"time": time, "tokens": tokens}, "cap_percent": exp["cap_percent"],
+        "extra_cost_interval_percent": None if interim else {
+            name: list(band) if (band := median_interval(values)) else None for name, values in changes.items()},
         "judge": {"judged": len(judged), "agreed": agree,
                   "interval": list(interval(agree, len(judged))) if judged else None} if exp.get("judge") else None,
         "longer_diff_won": {"won": longer, "of": len(sized)},
@@ -252,11 +254,12 @@ def report(exp: dict, entries: list[dict]) -> str:
             lines.append(f"Fidelity reviews of {side.upper()}'s briefs: "
                          + (f"{f['failed']} of {f['reviewed']} failed (added {f['added']}, dropped {f['dropped']}, "
                             f"changed {f['changed']})." if f["reviewed"] else "none yet."))
-    cost = s["extra_cost_median_percent"]
-    lines.append("Median extra cost of B over A, briefing included: " + ", ".join(
-        f"{value:+.0f}% {name}" if value is not None else f"{name} not reported"
-        for name, value in (("time", cost["time"]), ("tokens", cost["tokens"])))
-        + f" (your cap: {s['cap_percent']:g}%).")
+    cost, bands = s["extra_cost_median_percent"], s["extra_cost_interval_percent"] or {}
+    lines.append("Median extra cost of B over A, briefing included: " + "; ".join(
+        (f"{cost[name]:+.0f}% {name}" + (f", 95% interval {band[0]:+.0f}% to {band[1]:+.0f}%"
+                                          if (band := bands.get(name)) else ""))
+        if cost[name] is not None else f"{name} not reported" for name in ("time", "tokens"))
+        + f". Your cap: {s['cap_percent']:g}%.")
     if judge := s["judge"]:
         shown = (f"; 95% interval {judge['interval'][0]:.0%} to {judge['interval'][1]:.0%}" if judge["judged"] else "")
         lines.append(f"Judge, which never decides a trial: agreed with your pick in "

@@ -1,5 +1,5 @@
-"""The exact sign test, Clopper-Pearson intervals, the net-preference interval and the two decision rules, in plain
-Python. Vendor-neutral."""
+"""The exact sign test, Clopper-Pearson intervals, the net-preference interval, an exact interval for a median and the
+two decision rules, in plain Python. Vendor-neutral."""
 from __future__ import annotations
 
 from math import comb
@@ -44,6 +44,17 @@ def net_interval(wins: int, losses: int, trials: int, level: float = 0.95) -> tu
     shares, rates = interval(wins + losses, trials, each), interval(wins, wins + losses, each)
     corners = [q * (2 * p - 1) for q in shares for p in rates]
     return min(corners), max(corners)
+
+
+def median_interval(values: list[float], level: float = 0.95) -> tuple[float, float] | None:
+    """An exact interval for the median from order statistics, with no assumption about the shape of the data: from
+    the k-th smallest value to the k-th largest, where k is the largest whole number with P(Binomial(n, 1/2) <= k - 1)
+    at most (1 - level) / 2. It covers the median at least `level` of the time. None below 6 values, where no k is."""
+    values, n = sorted(values), len(values)
+    k, below = 0, 0                                  # below: the sum of C(n, i) for i < k
+    while k < n and (below + comb(n, k)) / 2 ** n <= (1 - level) / 2:
+        below, k = below + comb(n, k), k + 1
+    return (values[k - 1], values[n - k]) if k else None
 
 
 def decide(winners: list[str], trials: int, rule: dict) -> tuple[str, int, int]:

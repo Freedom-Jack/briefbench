@@ -7,7 +7,7 @@ import pytest
 
 from briefbench import judge, score
 from briefbench.experiment import RULE, fixed_rule
-from briefbench.stats import decide, decide_fixed, interval, net_interval, sign_test
+from briefbench.stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test
 
 
 def test_sign_test_and_interval_match_hand_computed_values():
@@ -115,7 +115,8 @@ def test_score_matches_hand_computed_results_on_a_fixture_log():
         "Verdict: adopt B. It won 16 of 20 decided pairs, which the rule fixed in advance accepts, and its extra "
         "cost is within your cap.",
         "Fidelity reviews of B's briefs: none yet.",
-        "Median extra cost of B over A, briefing included: +10% time, +20% tokens (your cap: 50%).",
+        "Median extra cost of B over A, briefing included: +10% time, 95% interval +10% to +10%; +20% tokens, 95% "
+        "interval +20% to +20%. Your cap: 50%.",
         "Judge, which never decides a trial: agreed with your pick in 8 of 10 (80%); 95% interval 44% to 97%.",
         "The longer diff won 16 of 20 (80%) decided pairs with diffs of different sizes.",
         "Your guesses of which side got B: 3 of 6 (50%) right; about half means the blinding holds.",
@@ -338,6 +339,29 @@ def test_briefing_costs_count_toward_the_cap():
     for t in entries:
         t["arms"]["b"]["brief"]["tokens"] = None                               # unknown: not counted at all
     assert score.summary(EXPERIMENT, entries)["extra_cost_median_percent"]["tokens"] is None
+
+
+@pytest.mark.parametrize("n,k", [(5, 0), (6, 1), (8, 1), (9, 2), (10, 2), (20, 6), (50, 18)])
+def test_the_median_interval_runs_between_the_order_statistics_the_binomial_picks(n, k):
+    """k is the largest whole number with P(Binomial(n, 1/2) <= k - 1) <= 2.5%, checked against the definition."""
+    cdf = lambda j: sum(comb(n, i) for i in range(j + 1)) / 2 ** n
+    assert (k == 0 or cdf(k - 1) <= 0.025) and cdf(k) > 0.025
+    values = [float(v) for v in range(n, 0, -1)]                 # unsorted on purpose: n, n - 1, ..., 1
+    assert median_interval(values) == (None if k == 0 else (float(k), float(n - k + 1)))
+    if n == 10:
+        assert 1 - 2 * cdf(k - 1) == pytest.approx(0.979, abs=5e-4)   # the coverage the protocol states
+
+
+def test_the_median_extra_cost_has_an_exact_interval():
+    extra = [-20, -5, 0, 5, 10, 14, 20, 30, 40, 60]                 # B's extra time in each of 10 trials, in percent
+    entries = [trial("b", seconds=(100, 100 + x)) for x in extra]
+    exp = EXPERIMENT | {"rule": fixed_rule(10, net_min=0)}
+    s = score.summary(exp, entries)
+    assert s["extra_cost_median_percent"]["time"] == 12 and s["extra_cost_interval_percent"]["time"] == [-5, 40]
+    assert "+12% time, 95% interval -5% to +40%; +20% tokens, 95% interval +20% to +20%. Your cap: 50%." in \
+        score.report(exp, entries)
+    assert score.summary(exp, entries[:9])["extra_cost_interval_percent"] is None     # no interval before N trials
+    assert score.summary(EXPERIMENT, entries[:5])["extra_cost_interval_percent"] == {"time": None, "tokens": None}
 
 
 def test_the_summary_names_the_findings_scope():

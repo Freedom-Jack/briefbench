@@ -283,7 +283,7 @@ So the skill grows one instruction per round, each tested against the current sk
 - the sign test on decided pairs: p-value, B's win rate and its 95% interval
 - the verdict under the frozen rule, and what blocked adoption, if anything
 - fidelity reviews of each brief arm: how many failed, and how
-- median extra time and tokens of B over A, against your cap
+- median extra time and tokens of B over A, each with its exact 95% interval, against your cap
 - the judge's agreement with your picks, with its interval
 - how often the longer diff won, and how often your guesses of B were right
 - noise checks, exclusions and failed trials
