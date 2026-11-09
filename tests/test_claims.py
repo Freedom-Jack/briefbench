@@ -136,7 +136,7 @@ def test_readme_table_matches_the_cards():
     assert sorted(rows) == [p.stem for p in CARDS]
     for path in CARDS:
         fields, _ = split(path.read_text(encoding="utf-8"))
-        title, _source, kind, fit, status = rows[path.stem]
+        title, _source, kind, fit, status, _stage, _plan, _trials, _result = rows[path.stem]    # then the board
         assert [title, kind, fit, status] == [fields["title"], fields["kind"], fields["skill_fit"],
                                               fields["status"]], path.name
 

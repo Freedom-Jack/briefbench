@@ -16,27 +16,35 @@ The seed cards come from the project's research, read on 4 Nov 2026: the [value 
 
 **Recent sources only.** Models change every few months, and advice written for older ones often stops holding. So the posts under test are recent: published within about three months, and about the models in use now ([design](../docs/design.md), "Posts under test"). An older card stays as a record. Its claim is tested only when a recent source repeats it, and the card then cites that source.
 
-| Card | From | Kind | Skill fit | Status |
-| --- | --- | --- | --- | --- |
-| [Ask for the outcome, not the task](outcome-over-task.md) | Rieseberg's essay | specification | conditional | candidate |
-| [Set unreasonable goals and insist they can be met](unreasonable-goals.md) | Rieseberg's essay | wording | no | deferred |
-| [Verify by something other than the model](outside-check.md) | Rieseberg's essay | harness | no | candidate |
-| [Have the model write a deeper version of the prompt](depth-rewrite.md) | Rieseberg's essay | domain-method | no | deferred |
-| [Bring in other fields](range-other-fields.md) | Rieseberg's essay | domain-method | no | deferred |
-| [Keep the reason prominent](reason-prominent.md) | Value report | specification | yes | candidate |
-| [State the user's scope boundary](scope-boundary.md) | Value report | specification | conditional | deferred |
-| [Carry the user's autonomy preference](autonomy-preference.md) | Value report | specification | conditional | deferred |
-| [Keep briefs short](short-briefs.md) | Value report | specification | yes | deferred |
-| [No model-specific variants of the skill](no-model-variants.md) | Value report | practice | no | deferred |
-| [A goal, scope and done brief instead of steps](goal-brief-over-steps.md) | Cherny's talk | specification | conditional | candidate |
-| [Open with an expert persona](expert-persona.md) | Common advice | wording | no | deferred |
-| [Emphasize rules with capitals and CRITICAL](caps-emphasis.md) | Common advice | wording | no | deferred |
-| [Test your belief against the raw data](test-your-belief.md) | Rieseberg's essay | specification | conditional | candidate |
-| [Let the agent interview you before it starts](ask-questions-first.md) | Claude Code's docs | specification | yes | candidate |
-| [Tell Claude to explore broadly before settling](explore-broadly.md) | Anthropic's Opus 5.5 guide | wording | no | deferred |
-| [Make the model write in controlled language](controlled-language.md) | LinkedIn post | wording | conditional | deferred |
+| Card | From | Kind | Skill fit | Status | Stage | Plan | N | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [Ask for the outcome, not the task](outcome-over-task.md) | Rieseberg's essay | specification | conditional | candidate | — | — | — | — |
+| [Set unreasonable goals and insist they can be met](unreasonable-goals.md) | Rieseberg's essay | wording | no | deferred | — | — | — | — |
+| [Verify by something other than the model](outside-check.md) | Rieseberg's essay | harness | no | candidate | — | — | — | — |
+| [Have the model write a deeper version of the prompt](depth-rewrite.md) | Rieseberg's essay | domain-method | no | deferred | — | — | — | — |
+| [Bring in other fields](range-other-fields.md) | Rieseberg's essay | domain-method | no | deferred | — | — | — | — |
+| [Keep the reason prominent](reason-prominent.md) | Value report | specification | yes | candidate | — | — | — | — |
+| [State the user's scope boundary](scope-boundary.md) | Value report | specification | conditional | deferred | — | — | — | — |
+| [Carry the user's autonomy preference](autonomy-preference.md) | Value report | specification | conditional | deferred | — | — | — | — |
+| [Keep briefs short](short-briefs.md) | Value report | specification | yes | deferred | — | — | — | — |
+| [No model-specific variants of the skill](no-model-variants.md) | Value report | practice | no | deferred | — | — | — | — |
+| [A goal, scope and done brief instead of steps](goal-brief-over-steps.md) | Cherny's talk | specification | conditional | candidate | — | — | — | — |
+| [Open with an expert persona](expert-persona.md) | Common advice | wording | no | deferred | — | — | — | — |
+| [Emphasize rules with capitals and CRITICAL](caps-emphasis.md) | Common advice | wording | no | deferred | — | — | — | — |
+| [Test your belief against the raw data](test-your-belief.md) | Rieseberg's essay | specification | conditional | candidate | — | — | — | — |
+| [Let the agent interview you before it starts](ask-questions-first.md) | Claude Code's docs | specification | yes | candidate | — | — | — | — |
+| [Tell Claude to explore broadly before settling](explore-broadly.md) | Anthropic's Opus 5.5 guide | wording | no | deferred | — | — | — | — |
+| [Make the model write in controlled language](controlled-language.md) | LinkedIn post | wording | conditional | deferred | — | — | — | — |
 
-`tests/test_claims.py` checks that this table matches each card's front matter.
+**The board.** Since 9 Nov 2026 this table is also the board of public results ([design](../docs/design.md), "A method for public results"). Its last four columns record each claim's tests:
+- *Stage*: `first test`, `replicated` (a second test agreed), `not replicated` (a second test didn't agree), or `—` before any test. Development runs, such as pilots and calibrations, never appear here.
+- *Plan*: a link to the commit of each test's published plan.
+- *N*: the trials of each kind of task, such as `130 + 100`.
+- *Result*: the decision label ([protocol](../docs/experiment-protocol.md), section 10), with each arm's pass rate and the difference with its 95% interval, for each kind of task.
+
+**Tests on the board: K = 0.** A trick is marked better only after a second test, on new tasks, agrees with the first ([protocol](../docs/experiment-protocol.md), section 11). If none of the tested tricks did anything, the expected number marked better by chance is at most K / 1,600, which is 0 now. Every test counts in K, null and harmful results included.
+
+`tests/test_claims.py` checks that the first five columns match each card's front matter, and that every row has the board's columns.
 
 ## Front matter
 
@@ -97,7 +105,7 @@ These states are the record model's claim triage ([docs/evidence-records.md](../
 A card names its experiments by the name given to `briefbench init`: 1 to 64 lower-case letters, digits, dots, dashes or underscores, starting with a letter or digit. When an experiment on the claim is complete:
 
 1. Add its name to `experiments`, for example `experiments: [essay-outcome]`.
-2. In the card's Status section, give the result: what was compared, the worker and host, the number of tasks, the wins, losses and ties, and whether they pass the significance check. Link the report if it is public, and say so if it is private.
+2. In the card's Status section, give the result: what was compared, the worker and host, the number of tasks of each kind, the wins, losses and ties, each arm's pass rate and the difference with its interval, and the decision label. Link the report and its plan if they are public, and say so if they are private. For a public test, fill in the card's row on the board and add the test to K.
 3. Set `status: tested`.
 4. When the result leads to a decision about the skill, add a `## Decision` section after Status: accept, reject, defer or revert, with the reasons, the conflicting evidence, and for an accepted change the new skill version and its rollback target. A significant result is not a decision by itself, and keeping the skill unchanged is a normal outcome.
 
@@ -129,7 +137,7 @@ A claim with three arms needs two experiments. Cards name variant folders such a
 
 ### Sample sizes
 
-With an exact two-sided sign test at the 5% level and 80% power, true win rates of 75%, 65% and 60% need at least 30, 90 and 199 decided pairs, not counting ties ([benchmarks report](../docs/research/prompting-technique-benchmarks/report.md); [protocol](../docs/experiment-protocol.md), section 8). At personal scale, most single techniques won't show.
+With an exact two-sided sign test at the 5% level and 80% power, true win rates of 75%, 65% and 60% need at least 30, 90 and 199 decided pairs, not counting ties ([benchmarks report](../docs/research/prompting-technique-benchmarks/report.md); [protocol](../docs/experiment-protocol.md), section 8). At personal scale, most single techniques won't show. A check-scored test plans its trials from a calibration of the plain prompt ([protocol](../docs/experiment-protocol.md), section 8): a 15-point gain in pass rate needs 72 to 183 trials where the trick should help, as the share of decided trials goes from 20% to 50%.
 
 ## Adding a card
 

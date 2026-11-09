@@ -1,6 +1,6 @@
 # Experiment protocol
 
-Status: specification, revised 2026-11-05 to match the built bench and [design.md](design.md), and on 2026-11-06 for check-only scoring on generated materials. No experiment has run, and nothing here claims that the `brief` skill improves results. It replaces the 2026-11-04 proposal, which was written without knowing the bench existed; [design-review.md](design-review.md) says what changed and why. The exact file formats are in [data-formats.md](data-formats.md), and the phases are in [build-plan.md](build-plan.md).
+Status: specification, revised 2026-11-05 to match the built bench and [design.md](design.md), on 2026-11-06 for check-only scoring on generated materials, and on 2026-11-09 for the method that every public result follows ([design.md](design.md), "A method for public results"; sections 4, 8, 10, 11 and 12 here). No experiment has run, and nothing here claims that the `brief` skill improves results. It replaces the 2026-11-04 proposal, which was written without knowing the bench existed; [design-review.md](design-review.md) says what changed and why. The exact file formats are in [data-formats.md](data-formats.md), and the phases are in [build-plan.md](build-plan.md).
 
 This protocol says how to run, judge and report experiments with `briefbench init`, `ab` and `score`. The first question is whether a brief, written by the skill from your answers to its own questions, gives a better result than your original prompt on your own repo tasks, at an acceptable cost. The bench judges results, not how polished a brief looks. Later experiments test candidate changes against the current grown skill, which starts empty ([design.md](design.md), "The skill grows from empty"). The skill only clarifies your request: it doesn't choose methods or do the task.
 
@@ -11,7 +11,8 @@ This protocol says how to run, judge and report experiments with `briefbench ini
 | Behavioural acceptance | P0 | The skill in two hosts, by hand ([skill-acceptance.md](skill-acceptance.md)) | The tested skill followed its contract in these cases |
 | Noise check | P1, and before each experiment | `ab --aa`: treatment A in both arms | Whether noise is grossly high; never that a brief helps |
 | Feasibility pilot | P1 | About ten trials on generated materials, unattended, plus noise checks | The measurement works on those materials, or needs changing |
-| Trick test | P2 | A recent post's trick as an add-on (`snippet:`) against your plain prompt, on materials that fit it, scored by the check alone | Scoped evidence about that advice, on those materials, with that worker |
+| Calibration | P2, before each trick test | The plain prompt twice on each of about 30 calibration tasks (`ab --aa`), under an experiment of its own (section 4) | How often the plain prompt fails and how noisy the runs are, which decide whether the materials leave the trick room and how many trials a test needs. Never evidence about a trick |
+| Trick test | P2 | A recent post's trick as an add-on (`snippet:`) against your plain prompt, on materials that fit it, scored by the check alone, under a plan published before the tasks exist (section 4). After a win, a second test on new tasks | Scoped evidence about that advice, on those materials, with that worker. "Better" only after the second test agrees (section 11) |
 | Workflow study | P3, as the first growth round | `original` against the skill's first instruction, letting the agent interview you, under a frozen rule | Scoped evidence about the one-shot handoff in this configuration |
 | Equal-information control | After a workflow result | `clarified` against the same skill | Scoped evidence about the rewrite, apart from the answers it carries |
 | Candidate development | P3 | A `skill:<folder>` variant on a few tasks | Exploratory: it can motivate a confirmation |
@@ -108,7 +109,7 @@ Judge the deliverables blind against the frozen goal, as in section 6, and repor
 
 **What each trial records** ([data-formats.md](data-formats.md)): the task package (section 2); each CLI's version at the time of the trial; each arm's run, with its exit code, timeout, seconds, tokens and model as reported, any error, any protected-path change, its diff size and its check result; the decision, with the blind sides, your guess and the tie kind; the judge's ruling; your fidelity review; and the trial's output folder.
 
-**What neither records goes in a study note**, written before the first trial and kept private unless you publish it: the question; whether the study is development or confirmation; the task types in scope and how tasks are chosen; under a fixed rule, why this N; the version policy (section 9); for P4, the campaign and its slot (section 11); related tasks and prior familiarity; and who acted as task owner, answerer and evaluator. Add deviations as they happen, with dates. A public study's note can live in its claim card.
+**What neither records goes in a study note**, written before the first trial and kept private unless you publish it: the question; whether the study is development or confirmation; the task types in scope and how tasks are chosen; under a fixed rule, why this N; the version policy (section 9); for a public test, its stage and its number on the board (section 11); related tasks and prior familiarity; and who acted as task owner, answerer and evaluator. Add deviations as they happen, with dates. A public study's note is its plan, committed to the public repository before the tasks exist ("Before a public test", below), in its claim card or a file the card links to.
 
 **Unknown stays unknown.** Claude Code reports which model answered each run. Codex doesn't, so its `model` is null and a Codex finding is about the dated CLI default. Tokens are null when a CLI doesn't report them. Never fill in a model from a UI label or a guess. Hidden routing in either service stays a stated limitation. Claude Code's `total_cost_usd` is a list-price estimate, not a charge on a plan, so the bench ignores it.
 
@@ -118,6 +119,45 @@ Judge the deliverables blind against the frozen goal, as in section 6, and repor
 - the CLI versions and models, which are recorded with each trial (section 9).
 
 Keep the old experiment, and explain the change in the study note. A change made before any outcome exists can simply start a new experiment that supersedes the old one.
+
+### Before a public test
+
+Adopted 2026-11-09, from the [benchmark-methodology report](research/benchmark-methodology/report.md) ([design.md](design.md), "A method for public results"). A test whose result will be posted, a trick test or a growth round, takes these steps before its first trial. Steps 3, 5 and 6 are in section 8, the decision labels in section 10, step 7 in section 11, and the template for a post in section 12.
+
+**Step 1. Name what is measured**, with the five attributes of an estimand from ICH E9(R1), the international guideline for clinical trials:
+
+| Attribute | For a trick test |
+| --- | --- |
+| Population | Tasks from one set of materials, named by the generator's version and hash, and split into kinds fixed in advance. For "test your belief": tasks whose stated belief is wrong, where the trick should help, and tasks whose stated belief is right, where it could hurt |
+| Treatments | A: the plain prompt. B: the same prompt plus the trick's text, named by its hash |
+| Outcome | Whether one run of the worker passes the hidden check. The worker is named by its CLI, version, model and settings |
+| Events that interfere | An arm stopped by a usage limit or an outage: rerun the task once, then it is a missing outcome. A failed trial step: rerun once (section 5). An arm flagged for naming a forbidden folder: read its log, and if the log confirms the look, count that arm as failing the check. Counting it as a fail keeps every task in the analysis, and it does not hide a trick that makes agents look around more |
+| Summary | The difference in pass rate, B minus A, for each kind of task separately |
+
+Under check scoring, the difference in pass rate equals the net preference, (W − L) / N.
+
+**Step 2. Calibrate the materials, on the plain prompt only.** A test can fail for a reason that has nothing to do with the trick: in the first pilot the plain prompt never failed, so the trick had nothing to fix. Check this first.
+- Generate calibration tasks from a seed used only for calibration, and run them under a calibration experiment of their own (`init --stage calibration`), so they never mix with a test.
+- Run the plain prompt twice on each task: `scripts/run_tasks.py --aa` gives treatment A to both arms. About 20 tasks where the trick should help and 10 where it could hurt: 60 runs.
+- Measure, in each kind of task, the share of plain runs that failed, *f*, and the share of tasks where the two plain runs disagreed, *d*. *d* is the run-to-run noise: the noise check the bench already has, now used for planning. `score` reports both for each kind of task (section 8).
+- Go ahead only if, where the trick should help, the plain prompt fails at least twice as often as the smallest gain worth detecting. With the default smallest gain of 15 points, that means f ≥ 30%. The best possible trick can raise the pass rate by at most f, so when f is below the gain no number of trials can show it; the factor of two leaves room for a trick that fixes only some of the failures. Otherwise make the tasks harder and calibrate again, with a new calibration seed.
+- Check the checker: read 20 calibration reports without seeing the check's verdict, label each as naming the planted answer or not, and compare with the check (`scripts/audit_check.py`). Both SWE-bench Verified and the Agentic Benchmark Checklist found that flawed checks change results. Fix the checker now, never after a test.
+- Freeze: when both conditions hold, record the hashes of the generator and the checker. From then on, any change to either makes a new version of the materials, and its calibration starts again.
+
+Changes made while looking only at the plain prompt's results can't favour either arm, because no comparison of the two arms has been seen. That is what makes it safe to tune the materials during a calibration, and only then. Calibration results are development data, never part of a test.
+
+**Step 3. Choose the number of trials** from the calibration (section 8, "Planning a check-scored test").
+
+**Step 4. Publish the plan before the tasks exist.** Before the test's tasks are generated, commit a plan to the public repository, in the claim card or a file it links to. The plan holds:
+- the estimand (step 1), the stage (a first test, or the replication of a named test) and the test's number on the board ([claims/README.md](../claims/README.md));
+- the materials: the set's version, the generator's and the checker's hashes, and the calibration's numbers;
+- N for each kind of task, α = 0.05 two-sided, the smallest gain worth detecting and the largest acceptable loss, with the planning figures from step 3;
+- the decision labels (section 10), how failed trials and flagged arms are handled, and the halfway look if one is used (section 8);
+- where the seed comes from: a future round of a public randomness beacon, such as drand's quicknet (League of Entropy; a new verifiable value every 3 seconds since 16 Oct 2023, read with `curl`). Take a round about an hour after the commit, and turn its value into the generator's seed by a rule written in the plan.
+
+Then generate the tasks and freeze the experiment with the plan's commit, the generator's hash and the hash of the ordered task list, with about 10% reserve tasks for reruns (`init --stage test`). The commit's date shows that the plan existed before the beacon's value. The value shows that nobody could choose or try out the tasks in advance, and anyone can regenerate the tasks from the published generator and seed. A fallback without the network: commit the sha256 of a secret seed, and reveal the seed with the results. That is weaker, because it can't show that only one seed was tried.
+
+Calibration runs and pilots are labelled "development, not evidence" wherever they appear, and are never pooled with a test.
 
 ## 5. Execution and resources
 
@@ -162,7 +202,7 @@ The bench measures only part of this. Each arm's worker time and tokens are logg
 - A tie records its kind. `both_acceptable`: both are good enough to keep, with no material difference. `both_unacceptable`: neither is. Don't reward the more polished failure.
 - Your goal is the authority. A brief never redefines success.
 
-**Scoring by the check alone** (added 2026-11-06). Materials with an answer key, such as hidden tests or data with a planted answer, are scored by the check alone: `init --scoring check`, frozen with the experiment. Exactly one arm passing wins. Both passing or both failing is a tie, recorded as `both_passed` or `both_failed`, and nobody picks. These materials run from task files (`ab --task`), unattended. A result holds for its materials: it says nothing about tasks the check can't judge. Choose the materials before the treatment ([design.md](design.md), "Tricks need matching materials"). Generate fresh tasks for each experiment from a published generator and a new seed. A set that anyone has inspected is development data. Tune a generator's difficulty on noise checks of the plain prompt only, never on the treatment under test. Before reading a verdict, read both arms' final lines in every decided pair, since a checker error there decides the trial; a checker fixed after that applies to every trial of the experiment, both arms alike, and is recorded as a deviation.
+**Scoring by the check alone** (added 2026-11-06). Materials with an answer key, such as hidden tests or data with a planted answer, are scored by the check alone: `init --scoring check`, frozen with the experiment. Exactly one arm passing wins. Both passing or both failing is a tie, recorded as `both_passed` or `both_failed`, and nobody picks. These materials run from task files (`ab --task`), unattended. A result holds for its materials: it says nothing about tasks the check can't judge. Choose the materials before the treatment ([design.md](design.md), "Tricks need matching materials"). Generate fresh tasks for each experiment from a published generator and a new seed; for a public test, the seed comes from a public randomness beacon (section 4, "Before a public test"). A set that anyone has inspected is development data. Tune a generator's difficulty during a calibration of the plain prompt only, never on the treatment under test, and freeze the generator and the checker by hash before the test. Before reading a verdict, read both arms' final lines in every decided pair, since a checker error there decides the trial; a checker fixed after that applies to every trial of the experiment, both arms alike, and is recorded as a deviation.
 
 For research and design deliverables, weigh fidelity to the request, grounding in the sources, the handling of consequential uncertainty and alternatives, usefulness for the decision, and clarity. These guide the pick; the bench records no scores. It records whether each arm was acceptable only through the check and the tie kinds.
 
@@ -191,6 +231,7 @@ Any yes is a fidelity failure, and a skipped question is not a pass. In a confir
 | Tie, neither good enough | `winner` = `tie`, `tie` = `both_unacceptable` | A tie; its kind is kept |
 | Arm failure: timeout, non-zero exit, a reported error, a protected path changed, no change | `arms.a`, `arms.b`; the trial is still compared | An observed outcome. It normally loses to an acceptable result; two failures are a `both_unacceptable` tie |
 | Arm stopped by a usage limit or an outage | `arms.a.error` or `arms.b.error`; marked by you | Infrastructure-invalid: rerun once, and recompute without it |
+| Arm flagged for naming a forbidden folder, in a task-file trial | `arms.a.looked_outside` or `arms.b.looked_outside`; `score` counts the trials | Read the arm's log. If it confirms the look, that arm counts as failing the check, and the report's author recounts the trial; a flag the log doesn't confirm changes nothing (adopted 2026-11-09) |
 | Failed trial | `failed` line, with `stage` and `error` | Not compared, but counted. Rerun once as a new trial on the same prompt, repo and commit; both lines stay. Until it is rerun it blocks adoption, because a later task silently taking its place would favour the arm whose step failed |
 | Noise check | `aa` line | A diagnostic, never part of the comparison |
 | Exclusion | `excluded` line, with `reasons` | Outside the sample; counted |
@@ -199,7 +240,7 @@ Any yes is a fidelity failure, and a skipped question is not a pass. In a confir
 | Trial cancelled after its arms ran | Nothing logged; recorded by you | A missing outcome |
 | Protocol violation | Recorded by you, in the study note | Invalid, with its reason; never relabelled as a tie |
 
-The bench can't see protocol violations such as these: answers to the skill's questions shaped by an outcome; a goal or a check changed after seeing results; prompts or `a.*` and `b.*` files opened before the pick; a task chosen after its brief was seen; an agent that read outside its worktree; trials from different configurations pooled.
+The bench can't see protocol violations such as these: answers to the skill's questions shaped by an outcome; a goal or a check changed after seeing results; prompts or `a.*` and `b.*` files opened before the pick; a task chosen after its brief was seen; an agent that read outside its worktree (in a task-file trial, a confirmed look counts as a fail for that arm instead, as in the table); trials from different configurations pooled.
 
 **Missing outcomes.** Keep every line. Don't replace an unlucky task after seeing its result. A task with no valid compared trial after its one rerun is a missing outcome, and so is a trial cancelled after its arms ran or voided by an isolated violation. A missing outcome is never a tie.
 - Under the two-step rule, failed trials don't count; the rule waits for decided pairs.
@@ -225,11 +266,20 @@ It also returns the verdict and what blocked adoption (`verdict`), the fidelity 
 
 **The net-preference interval** is conservative. Take exact 97.5% Clopper–Pearson intervals for the decided share D / N and for the win rate W / D. The interval runs from the smallest to the largest value of share × (2 × rate − 1) over the four corners. By the union bound it covers the true net preference at least 95% of the time, under the assumptions below. With no decided pairs the rate's interval is 0 to 1, so the net interval is symmetric around zero: with 20 trials and none decided, −0.20 to +0.20. Its exact coverage, checked on 2026-11-05 for every case tried at 20 and 50 trials, was 98% to 99.9%: valid, and wide. Label it apart from the conditional interval.
 
+**Tango's interval for the difference** (added 2026-11-09). The conservative interval can include zero while the exact test is significant: 50 trials, B won 8 and A won 1, p = 0.039, conservative interval −0.02 to +0.33. So `score` also gives the score interval of Tango (1998) for the same difference, (W − L) / N, one of the three intervals that Fagerland, Lydersen and Laake (2014) recommend for paired pass rates. It is every δ for which |T(δ)| ≤ 1.96, where
+
+```text
+T(δ) = (W − L − N·δ) / √( N · (2·p̃ + δ·(1 − δ)) )
+p̃   = (−b + √(b² − 4·a·c)) / (2·a),   a = 2N,   b = (2N − W + L)·δ − W − L,   c = −L·δ·(1 − δ)
+```
+
+p̃ is the most likely chance that A wins a trial if the true difference were δ. At δ = 0, T is McNemar's statistic, (W − L) / √(W + L), whatever the number of ties. Whenever the exact test is significant, Tango's interval excludes zero (checked by exact calculation for every D from 1 to 2,000 at α = 0.05, 0.025 and 0.01), so "significant, but the interval includes zero" can't happen: in the example above it runs from +0.03 to +0.27. The opposite can still happen with few decided pairs: at 7 wins to 1, Tango's interval excludes zero but the exact test gives p = 0.070. The exact test decides, and the report says the result is not significant. With no decided pair, the interval is ±z² / (N + z²): ±11 points at 30 trials, ±6 at 60, ±5 at 80. Tango's interval is a large-sample method, and its coverage is not guaranteed to be 95% in every case. The bench's implementation matches four published values to four decimals ([benchmark-methodology report](research/benchmark-methodology/report.md), status note).
+
 **With no decided pairs** (D = 0), p is 1, and the win rate and its interval are not estimable: `score --json` gives null, and the text says n/a. Never show 50%. The sign test conditions on non-ties and tests whether wins and losses are equally likely. It doesn't test whether the outputs are equivalent. [NIST's sign-test reference](https://www.itl.nist.gov/div898/software/dataplot/refman1/auxillar/signtest.htm) describes the construction.
 
 **The two rules.** Both are frozen at `init`, use an exact two-sided sign test, and were checked by exact calculation on 2026-11-05.
 
-*Two-step*, the default, for your own adoption decisions. On decided pairs, in the order they ran: adopt B at 16 or more wins of the first 20; stop at 10 or fewer; otherwise go on to 40 decided pairs and adopt at 27 or more. If 40 trials leave fewer than 20 decided, the verdict is no practical difference. Each adoption threshold is significant at the 5% level on its own (p = 0.012 at 16 of 20, 0.038 at 27 of 40); together they give the rates below. With no effect, the rule wrongly adopts B 2.2% of the time and stops at 20 pairs 59% of the time.
+*Two-step*, the default, for your own adoption decisions. On decided pairs, in the order they ran: adopt B at 16 or more wins of the first 20; stop at 10 or fewer; otherwise go on to 40 decided pairs and adopt at 27 or more. If 40 trials leave fewer than 20 decided, the verdict is "too few decided pairs to test", and the sign test is shown only as a description. Until 2026-11-09 that verdict read "no practical difference", which was wrong for a result in which B won almost every decided pair. The two-step rule is never used for public claims. Each adoption threshold is significant at the 5% level on its own (p = 0.012 at 16 of 20, 0.038 at 27 of 40); together they give the rates below. With no effect, the rule wrongly adopts B 2.2% of the time and stops at 20 pairs 59% of the time.
 
 | True win rate among decided pairs | Adopts B | Adopts at the first 20 |
 | --- | --- | --- |
@@ -256,12 +306,43 @@ Ties don't raise these rates; a high tie rate lowers them, through the 40-trial 
 With no effect, 50 trials and 25% ties, it also reports harm wrongly 1.7% of the time. Set N from the pilot's tie rate, before the first trial.
 
 *When most trials tie* (added 2026-11-06). Under check-only scoring, a trial is decided only when exactly one arm passes, so ties dominate, and the net preference equals B's pass rate minus A's. Two consequences, checked by exact calculation and by simulation with `stats.py` on 2026-11-06:
-- The two-step rule can't be used. It returns no practical difference whenever 40 trials leave fewer than 20 decided: 96% of the time with 35% of trials decided, almost always below that. `init` refuses it with check scoring.
-- The fixed rule's default threshold of 0.15 would demand a 15-point gain in pass rate. A check-scored experiment declares its own with `--net-min`; 0.05 is the planning default. At 100 trials or more, significance at 5% already implies about +0.07, so this threshold rarely binds and the sign test decides.
+- The two-step rule can't be used. It returns "too few decided pairs to test" whenever 40 trials leave fewer than 20 decided: 96% of the time with 35% of trials decided, almost always below that. `init` refuses it with check scoring.
+- The fixed rule's default threshold of 0.15 would demand a 15-point gain in pass rate. A check-scored experiment declares its own with `--net-min`. Since 2026-11-09 a public test declares `--net-min 0`: the smallest gain worth detecting plans N (below), and the lower end of the interval says how large the gain is at least. A fixed minimum such as 0.05 can make a real gain impossible to show, because the gain can never exceed the plain prompt's failure rate.
 
-Trials for an 80% chance to find a real gain, two-sided 5%: +15 points needs 75, 115 or 150 trials when 20%, 30% or 40% of trials are decided; +10 points needs 170, 250 or 330; +5 points is out of reach. At a campaign slot's 2.5%: +15 needs 85, 135 or 175; +10 needs 200, 300 or 395. At 150 trials, a real 10-point loss is found 45–75% of the time and a 5-point loss 13–21%. So a passed test shows that no large regression was found, not that nothing got worse. Set N from the pilot's decided share, taking the upper end of its range.
+**Planning a check-scored test** (step 3 of the method, adopted 2026-11-09). Two inputs are fixed before the test: *d*, the share of calibration tasks whose two plain runs disagreed (section 4), and Δmin, the smallest gain in pass rate worth detecting, 15 points by default. The expected share of decided pairs is about q = d + Δmin. That slightly overstates q when the trick only fixes failures, so the N it gives is on the safe side. For a true gain Δ, planned as Δmin, B wins a trial with chance p₁ = (q + Δ) / 2, and A with chance p₂ = (q − Δ) / 2. The chance that the test finds the gain, its power, is calculated exactly: D follows Binomial(N, q), W given D follows Binomial(D, p₁ / q), and the exact two-sided sign test at 5% either finds B better or not. `scripts/plan_trials.py` does this from the calibration's counts. Connor's approximation (1987) gives nearly the same N:
 
-Under either rule, B is not adopted if its median extra time or tokens exceed the cap, if any of its briefs failed the fidelity review, or if a failed trial wasn't rerun on the same task; `score` lists each in `verdict.blocked_by`. Not adopting means no large effect was found, not that there is none.
+```text
+N ≈ ( z(1−α/2) · √q  +  z(power) · √(q − Δ²) )² / Δ²        z = 1.96 for α = 0.05, 0.84 for 80% power
+```
+
+Trials needed where the trick should help, for an 80% chance to find the gain, by exact calculation on 2026-11-09 (the first N from which the chance stays at 80% or more):
+
+| Gain to detect | No noise (q = gain) | q = 0.20 | q = 0.30 | q = 0.40 | q = 0.50 |
+| --- | --- | --- | --- | --- | --- |
+| +10 points | 78 | 168 | 249 | 329 | 408 |
+| +15 points | 52 | 72 | 112 | 147 | 183 |
+| +20 points | 39 | 39 | 61 | 84 | 103 |
+
+- **Even a perfect trick needs about 8 / Δ trials.** With no noise, every decided pair is a win for B, and the test needs at least 6 of them (6 to 0 gives p = 0.031). An 80% chance of at least 6 decided pairs needs about 8 expected ones.
+- **Noise matters as much as the size of the gain.** At +15 points, going from no noise to q = 0.50 multiplies the trials by 3.5. With no noise, halving the gain from +20 to +10 points multiplies them by 2.
+
+**Where the trick could hurt**, the plain prompt nearly always passes, so fewer trials are needed. Their check is a bound: the lower end of the difference's 95% interval (Tango's) must be above −m, where m is the largest acceptable loss, 10 points by default. When no trial is decided, that lower end is −11 points at 30 tasks, −6 at 60 and −5 at 80. Trials for an 80% chance to show "no loss over 10 points" when the trick does no harm, by exact calculation: 53 when two plain runs disagree on 2% of tasks, 69 at 5%, 100 at 10% and 165 at 20%.
+
+**One run per arm, not several.** With n tasks and K runs per task, the variance of the mean is (σ²task + σ²run / K) / n. For a fixed number of runs R = n·K this is (K·σ²task + σ²run) / R, which is smallest at K = 1. So when new tasks cost nothing to generate, more tasks beat more runs per task. Repeats help when tasks are scarce, as on a fixed benchmark.
+
+**Optional: one look halfway, to save runs.** A plan may say: after half of the trials where the trick should help, stop if B has not won more decided pairs than A. It is frozen with the experiment (`init --futility-at`), and `score` reports the stop. It can't add false wins, since it only ever stops without one. By exact calculation with 130 trials and 35% of them decided, it stops 54% of the tests of a useless trick (95 trials expected instead of 130), and lowers the chance of finding a real 15-point gain only from 80.7% to 80.4%. An early stop *for* a win would need an α-spending function (Lan and DeMets, 1983), which isn't worth it at this scale.
+
+**Analysing a check-scored test** (step 5, adopted 2026-11-09). The kinds of task are frozen with the experiment (`init --strata`), and `score` reports each kind separately:
+1. each arm's pass rate, x / N, with its exact Clopper–Pearson 95% interval;
+2. the difference in pass rate, (W − L) / N, with Tango's interval;
+3. the exact McNemar test, which is the bench's sign test, unchanged;
+4. B's share of the decided pairs, W / D, with its Clopper–Pearson interval. This interval excludes 50% exactly when p ≤ 0.05, so it is the test's own interval.
+
+The rule tests the kind where the trick should help, and reports a bound for the kind where it could hurt: "no loss over m points shown" when the lower end of Tango's interval there is above −m, otherwise "a loss of up to X points is not ruled out". B is adopted only when both hold. Requiring both results needs no correction for two tests: when a claim needs both, a false claim needs at least one of the tests to be wrong, so each can keep its 5% level (Berger's intersection–union principle, 1982). A significant loss in either kind is a "worse" result. Results by domain, or by any other split, are description only; a pattern found there is a question for a new test.
+
+**Costs** (step 6). For each trial, the change in time and in tokens is (B − A) / A, briefing included. `score` reports the median with its exact 95% interval from order statistics, which needs no assumption about the shape of the data: sort the n changes; the interval runs from the k-th smallest to the k-th largest, where k is the largest whole number with P(Binomial(n, ½) ≤ k − 1) ≤ 0.025. For 10 trials k = 2, and the interval covers the true median with 97.9% probability. Below 6 trials no such interval exists. A post also gives the runs the whole test used, so readers see what the result cost.
+
+Under either rule, B is not adopted if its median extra time or tokens exceed the cap, if any of its briefs failed the fidelity review, if a failed trial wasn't rerun on the same task, or, with kinds of task frozen, if a loss larger than the plan accepts is not ruled out where the trick could hurt; `score` lists each in `verdict.blocked_by`. Not adopting means no large effect was found, not that there is none.
 
 **The practical threshold.** The fixed rule's 0.15 means at least 15 more preferred results than losses per 100 trials. It is an initial product threshold, not a constant from the literature. The bench fixes it. A different threshold must be declared in the study note before the first trial, and the report applies it to `net_preference`. A significant result above the threshold supports a positive effect of useful observed size. It doesn't prove that the true effect exceeds 0.15; the net interval shows the difference.
 
@@ -310,7 +391,19 @@ Keep four things apart: the rule's verdict and what blocked adoption, which `sco
 | Any verdict that a recount of missing outcomes changes | `incomplete` | Both recounts (section 7) |
 | Any verdict, from a design or an execution that can't support it | `protocol_invalid` | The violations |
 
-**`benefit_supported`** needs all of these: a complete study, with every planned trial compared and both recounts leaving the label standing; no protocol violation that touches the comparison; the version policy kept; nothing blocking adoption; and, in a P4 campaign, the slot's stricter threshold (section 11).
+**Decision labels for a public test** (adopted 2026-11-09). A public test's plan writes these labels in advance (section 4), and its post uses them. They follow from `score`'s verdict for each kind of task:
+
+| Label | When | Study label |
+| --- | --- | --- |
+| Better in one test | Where the trick should help: p ≤ 0.05 and W > L, and where it could hurt: "no loss over m points shown", because the lower end of Tango's interval there is above −m. If the bound fails instead, the post says "a loss of up to X points is not ruled out", B is not adopted, and the test doesn't count toward "better" | `benefit_supported`, scoped to these materials; `inconclusive` when the bound fails |
+| Better, replicated | The same result in a second pre-registered test, on new tasks from the same frozen generator with a new seed, under the same rule (section 11). Quote the replication's estimate of the size: the first test's estimate tends to be too high, because only tricks that won it get a second test (Ioannidis, 2008) | `benefit_supported` in both tests. The board marks the trick better |
+| Worse | p ≤ 0.05 and L > W in either kind of task. Published after one test, marked "not replicated": nobody needs a second test to decide not to use a trick | `harm_supported` |
+| No difference shown | Otherwise. The interval then says how large a gain or loss is still possible: "a gain above X points is unlikely" | `inconclusive` |
+| No room on these materials | The calibration's condition failed (section 4), so the trick was not tested. This is a finding about the materials, not about the trick | None: no test ran |
+
+A label holds only for a complete test, with every planned trial compared and the recounts of missing outcomes (section 7) and of confirmed looks leaving it standing.
+
+**`benefit_supported`** needs all of these: a complete study, with every planned trial compared and both recounts leaving the label standing; no protocol violation that touches the comparison; the version policy kept; and nothing blocking adoption. On the public board, a trick is marked better only when a second test agrees (section 11).
 
 **`harm_supported`** means a significant result in A's favour. The two-step rule has no harm verdict, so this protocol fixes one in advance: B at 5 or fewer wins of the first 20 decided pairs. It is tested once, at the rule's first look, where 5 of 20 gives an exact two-sided p of 0.041; with no effect it fires 2.1% of the time. Read it from `verdict.rule_wins` and `verdict.rule_pairs` in `score --json`.
 
@@ -339,15 +432,17 @@ Only `specification` and `wording` changes that keep the skill's contract can en
 
 **Confirmation.** `briefbench init <name> --a <incumbent> --b skill:variants/<name>`, where the incumbent is `original` until the first adoption and then a frozen copy of the grown skill, on fresh tasks, with the rule chosen before the first trial. Run it to the rule's verdict. Record the decision in the card: accept, reject, defer or revert, with the reasons and any conflicting evidence ([build-plan.md](build-plan.md), P4).
 
-**Multiplicity.** A release decision is a campaign, with the error budget of one two-sided test at 5%. Reserve its confirmation slots in the card before any result:
-- *The default is two fixed-rule slots*, each at a two-sided α of 0.025: a [Bonferroni allocation](https://itl.nist.gov/div898/handbook/prc/section4/prc473.htm). The bench's fixed rule tests at 0.05, so check that `sign_test_p` is at most 0.025 in `score --json`; the verdict line alone isn't enough. At 0.025, 50 trials with 25% ties find a true 75% win rate 79% of the time, and 60 trials 86%.
-- *Or one two-step slot.* Its 2.2% rate of false adoption and the 2.1% rate of false harm from section 10 use nearly the whole budget, so a two-step campaign has one slot.
-- *Another finite maximum* of m fixed slots gives each an α of 0.05 / m, frozen before any result. Unused α isn't reassigned.
-- Report raw p-values and adjusted ones, min(1, m × p), failures included.
-- The second slot is optional, and it can test a revised candidate only on a fresh confirmation set.
-- Don't relabel a failed candidate as a new campaign to reset its allowance. Edited variants for the same release decision share a campaign. Once its slots are used, further work stays exploratory and can't produce another `benefit_supported` adoption under this protocol. A larger or continuing programme needs its own error-budget protocol, reviewed before it starts. Growing the skill from empty is such a programme, and so is a public table of trick results: each decides its error budget before its first test ([design.md](design.md), "The skill grows from empty").
+**Multiplicity: the two-trials rule** (step 7 of the method, adopted 2026-11-09). One rule covers the whole public board of trick results and the skill's growth rounds. A trick, or a candidate instruction for the skill, is marked "better" only after two pre-registered tests on separate sets of fresh tasks both find B better at p ≤ 0.05, two-sided. The second test runs only if the first one is won, so most tricks cost one test. This is the two-trials rule that drug regulators have long used ([Held, 2023](https://arxiv.org/abs/2307.04548), describes it and its alternatives).
+- *The error statement.* When a trick does nothing, one test finds B better with a chance of at most 2.5%. By exact calculation it is about 1.4% to 2.1% at the sizes planned in section 8, because the exact test is conservative. Both tests must agree, so a useless trick is marked better with a chance of at most 0.025² = 1 in 1,600. After K tricks tested, the expected number of false "better" marks is at most K / 1,600: 0.0125 after 20 tricks, 0.05 after 80. The board shows K and this bound ([claims/README.md](../claims/README.md)).
+- *Why not the usual corrections.* Each of them shrinks every test's level, which multiplies the trials needed. For a 15-point gain with 30% of trials decided, one test at the 5% level needs 112 trials for 80% power; at 1%, 158; at 0.25%, which is 5% spread over 20 planned tests (Bonferroni), 201. Under the two-trials rule a useless trick costs about 112 trials, since its second test is almost never needed, and a real one about 224, with a 64% chance of passing both tests at 80% power each. Planning the second test for 90% power raises that chance to 72%. Most tricks are expected to do little, so the rule costs fewer trials on average than one strict test, and it also shows that the result held on new tasks.
+- *The second test* uses the same frozen generator with a new seed, a plan of its own committed before its tasks exist, and the same rule. A revised trick is a new treatment and starts again from a first test; every test of every version counts in K.
+- *Skill growth rounds* follow the same rule: a candidate instruction enters a released skill only after a replicated win. The periodic test of the whole grown skill against the empty one stays, as a check of the instructions together.
+- *"Worse" results* are published after one test, marked "not replicated".
+- *Every test goes on the board,* null and harmful results included. The bound holds only if every test is published and both tests run as planned. It can't repair a flawed checker or a badly chosen question, which steps 1 and 2 address (section 4).
 
-**Holdouts.** Prefer choosing one candidate on development data and confirming it once on fresh tasks. If a confirmation fails and the variant changes, collect a genuinely new confirmation set and count the new test in the campaign. Don't keep questioning an old holdout: adaptive reuse leaks information even when authors see only scores, as the [reusable-holdout research](https://research.google/blog/the-reusable-holdout-preserving-validity-in-adaptive-data-analysis/) explains. Keep confirmation tasks and judgments away from the variant's author until the variant and the analysis are frozen. For a solo maintainer, tasks collected after the freeze are the practical default; record any prior familiarity. Pilot and development tasks can't be confirmation tasks. A public sample corpus serves mechanics and development; it isn't an unseen holdout for anyone who can read it.
+This replaces the campaign slots of 2026-11-05, which spread one 5% error budget over two fixed-rule tests at 2.5% each. They gave each test a smaller level, and so needed more trials, without showing that a result held on new tasks.
+
+**Holdouts.** Prefer choosing one candidate on development data and confirming it once on fresh tasks. If a confirmation fails and the variant changes, collect a genuinely new confirmation set and count the new test on the board. Don't keep questioning an old holdout: adaptive reuse leaks information even when authors see only scores, as the [reusable-holdout research](https://research.google/blog/the-reusable-holdout-preserving-validity-in-adaptive-data-analysis/) explains. Keep confirmation tasks and judgments away from the variant's author until the variant and the analysis are frozen. For a solo maintainer, tasks collected after the freeze are the practical default; record any prior familiarity. Pilot and development tasks can't be confirmation tasks. A public sample corpus serves mechanics and development; it isn't an unseen holdout for anyone who can read it.
 
 **Conditional instructions** are allowed only when their condition is visible before execution and concerns the brief's job: for example, keeping a known autonomy preference, asking about a missing decision criterion, or leaving out redundant context. A subgroup found after the results is a hypothesis. Freeze its trigger, and test the conditional variant on fresh tasks, including tasks off the trigger, for regressions. "For analysis, use regression" is a domain method and can't enter `brief`, whatever a benchmark says.
 
@@ -369,15 +464,52 @@ Only `specification` and `wording` changes that keep the skill's contract can en
 - the question, the frozen experiment and its deviations;
 - how tasks were chosen, their types and dates, and which were excluded or failed;
 - the wins, losses and ties with their kinds, and the missing outcomes with both recounts;
-- the net preference with its conservative interval, the sign test, and the conditional win rate with its interval;
-- the verdict under the frozen rule, what blocked adoption, and the study label; in a campaign, raw and adjusted p-values;
-- the operating and measurement burden: the extra time and tokens against the cap, and your timed effort;
+- the net preference with Tango's interval and the conservative one, the sign test, and the conditional win rate with its interval; under check scoring, each arm's pass rate with its exact interval; with kinds of task, all of these for each kind;
+- the verdict under the frozen rule, what blocked adoption, and the study label; for a public test, its stage, its plan, its decision label (section 10), and the board's count of tests K with the bound K / 1,600;
+- the operating and measurement burden: the median extra time and tokens with their intervals, against the cap, the runs used, and your timed effort;
 - fidelity failures, the judge's agreement if it was on, how often the longer diff won, and how often your guesses were right;
 - the noise checks, and the CLI versions and models;
 - the limits of the blinding, the overlap of roles, and limits on publication and reproduction;
 - the reviewed decision, with its version and rollback target.
 
 Unresolved uncertainty is part of the result. No single pair or run is ever presented as an improvement.
+
+**A post's methodology section** (adopted 2026-11-09). Every public post of a result carries this section, filled in from the plan, the frozen experiment and `score --json`. Fill each part in angle brackets. The [benchmark-methodology report](research/benchmark-methodology/report.md) shows it filled in for the first pilot.
+
+```markdown
+## Methodology
+
+**Claim tested.** <one sentence>, from <author, title, date> (claim card: <link>).
+**Question.** Does adding <trick, text sha256> to a plain prompt raise the share of tasks that <worker> gets right on <materials>?
+**What was measured.** <CLI and version>, model <id>, <settings>; one run per arm per task. Outcome: pass or fail on a hidden
+automatic check that reads <what>, with the answer key out of the agent's reach. Summary: B's pass rate minus A's, separately for
+<kind 1> and <kind 2>.
+**Tasks.** <N1> + <N2> tasks from <generator, version, sha256>, seed <seed> from <beacon round>, drawn after the plan was published.
+Calibrated beforehand on <n> separate tasks: the plain prompt failed <f>% of <kind 1> runs; two plain runs disagreed on <d>% of tasks.
+**Design.** Paired: both arms ran each task at the same time on separate copies, sides assigned at random. Neither prompt contained
+the goal or the check. Stage: <first test | replication of test k>; test <number> on the board.
+**Plan, fixed in advance.** Published <date> at <commit link>, before the tasks existed. N = <N1> and <N2>, for an 80% chance to
+detect a gain of <Δmin> points. Rule: exact two-sided McNemar test at 5% on <kind 1>; on <kind 2>, "no loss over <m> points" when
+the lower end of the 95% interval is above −<m>.
+**Flow.** <generated> tasks; <failed> trial steps failed and were rerun once; <flagged> arms flagged for naming a forbidden folder
+(<what was done>); <compared> trials compared; <missing> missing.
+**Results.**
+| | <kind 1> | <kind 2> |
+| --- | --- | --- |
+| A passed (exact 95% CI) | <x of N (lo–hi)> | |
+| B passed (exact 95% CI) | | |
+| B wins / A wins / ties | | |
+| Difference, points (95% CI, Tango) | | |
+| Exact McNemar p | | |
+**Decision under the plan.** <label>.
+**Cost.** Median change per trial, B against A: time <x%> (95% CI <lo to hi>), tokens <…>. Runs used: <…>.
+**All tests so far.** <K> tests on the board. A trick is marked better only after a replication; if none of them worked, the
+expected number marked better by chance is at most K/1,600 = <…>.
+**Checks of the measurement.** Checker against hand labels: <a of b> agreed. A/A noise: <…>. Worker version changes: <none>.
+**What this does not show.** These materials, this worker and model, on <dates>; not other tasks, models or hosts. "No difference
+shown" is not proof of no effect: the interval gives the effect sizes still possible.
+**Reproduce.** Generator, seed, frozen experiment and `score --json`: <links>.
+```
 
 **Privacy.** Prompts, answers, briefs, outputs, diffs, source documents and judge comments stay under `~/.briefbench/`, outside the repository. Review a `score --json` before publishing it: a treatment typed as an absolute path carries your local path. Public tasks are synthetic, written for publication, or independently public with a suitable license, and synthetic results stay labelled synthetic. A private trial never becomes a public fixture by removing a name, or through a generic permission statement; a proposal to publish material derived from private trials needs its own explicit review. Hashes and aggregates don't make sensitive data safe on their own. [community.md](community.md) covers contribution review and publication, and [evidence-records.md](evidence-records.md) maps claims, trials and findings onto these files.
 
@@ -402,8 +534,9 @@ What the offline tests check on 2026-11-05 (`uv run pytest`). Their fixtures are
 - *Recomputable reports.* `score` reads only the append-only log and the frozen experiment, and `score --json` is plain JSON that lists the trials it used (`tests/test_score.py`, `tests/test_bench.py`).
 
 **Open**
-- *Multiplicity* has no code. The report's author applies a slot's α to `sign_test_p`; a fixed rule with its own α isn't built.
-- *Study labels*, the recount of missing outcomes and the two-step harm threshold are applied by the report's author, with no code or tests.
+- *The two-trials rule* has no code: the board's count of tests, K, and which tests replicate which, are kept by hand in [claims/README.md](../claims/README.md).
+- *Study labels*, the decision labels of a public test, the recount of missing outcomes and the two-step harm threshold are applied by the report's author, with no code or tests.
+- *A confirmed look* can't be recorded in the log, which is never rewritten; the report's author recounts the trial with that arm failing, as for an infrastructure-invalid trial.
 - *Repeated tasks* aren't detected, so a task run twice would count twice.
 - *A trial marked infrastructure-invalid* can't be set aside in `score`; the report recomputes by hand.
 - *Code paths without a test*: a failed setup logged as `failed`; a changed snippet or command template refused; the warning when the worker's model changes; the report when time or tokens aren't reported.
