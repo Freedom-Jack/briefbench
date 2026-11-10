@@ -33,6 +33,6 @@ First growth round: `original` against `skill:variants/questions-first`, a skill
 
 ## Status
 
-candidate: its materials need the stand-in requester, which isn't built yet ([build plan](../docs/build-plan.md), P3).
+candidate: the stand-in requester was built on 10 Nov 2026 and checked live through Claude Code; its materials with gaps, and a fidelity review made apart from the outcomes, are still owed before a round ([build plan](../docs/build-plan.md), P3).
 
 briefbench evidence: none yet.
