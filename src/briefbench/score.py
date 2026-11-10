@@ -4,7 +4,7 @@ from __future__ import annotations
 from statistics import median
 
 from . import __version__
-from .experiment import rule_kind, stage_text
+from .experiment import RENDER_STAND_IN, rule_kind, stage_text
 from .stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test, tango_interval
 
 
@@ -172,9 +172,14 @@ def summary(exp: dict, entries: list[dict]) -> dict:
     failed = [e for e in mine if e.get("kind") == "failed" and not e.get("aa")]
     rerun = [f for f in failed if any(_task(t) == _task(f) and order[id(t)] > order[id(f)] for t in trials)]
     unresolved = len(failed) - len(rerun)
+    # With the stand-in requester nobody reviews a brief during the trial, so each waits for your review apart from the
+    # outcomes, and until every one of B's briefs has had it, B can't be adopted (added 2026-11-10).
+    waiting = (sum(not any(v is not None for v in ((t.get("fidelity") or {}).get("b") or {}).values()) for t in used)
+               if exp.get("render") == RENDER_STAND_IN and _is_skill(exp["b"]) else 0)
     blocked = ([f"its median extra {' and '.join(over)} is over your {exp['cap_percent']:g}% cap"] if over else []) \
         + ([f"{fidelity['b']['failed']} of its briefs failed your fidelity review"]
            if fidelity["b"] and fidelity["b"]["failed"] else []) \
+        + ([f"{waiting} of its briefs {'have' if waiting != 1 else 'has'} no fidelity review yet"] if waiting else []) \
         + ([f"{unresolved} trial{'s' if unresolved != 1 else ''} failed before a comparison and "
             f"{'were' if unresolved != 1 else 'was'} not rerun on the same task"] if unresolved else []) \
         + ([f"a loss of up to {-bound['lower'] * 100:.0f} points on {bound['stratum']} is not ruled out, and at most "

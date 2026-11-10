@@ -67,3 +67,44 @@ def test_live_headless_rewrite(name, tmp_path):
     brief = treatments.render(skill, prompt, qa, caller(name, "rewriter", repo))
     print(brief)
     assert "total" in brief and "utils.py" in brief and "stretch" not in brief.casefold()
+
+
+@pytest.mark.parametrize("name", sorted(AGENTS))
+def test_live_stand_in(name, tmp_path):
+    """The stand-in requester chooses the fact that answers a question, and none for a question no fact answers."""
+    schema = tmp_path / "answers.schema.json"
+    schema.write_text(json.dumps(treatments.ANSWERS_SCHEMA))
+    (tmp_path / "work").mkdir()
+    call = caller(name, "answerer", tmp_path / "work", schema=str(schema),
+                  schema_json=json.dumps(treatments.ANSWERS_SCHEMA))
+    facts = ["The summary is for the finance team's Monday review.", "Refunds issued before March don't count."]
+    asked = ["Who will read the summary, and for what?", "Which programming language should the script use?"]
+    found = treatments.stand_in_answers(call(treatments.answer_request("Summarise last quarter's refunds.", facts,
+                                                                       asked)), asked, facts)
+    print(found)
+    assert found[0] == (facts[0], [1]) and found[1] == ("", [])
+
+
+@pytest.mark.parametrize("name", [n for n in sorted(AGENTS) if "task-rewriter" in AGENTS[n].roles])
+def test_live_confined_headless_calls(name, tmp_path):
+    """The skill's headless calls for task files: the questions as JSON through stream-json, and a rewrite that can't
+    read a denied folder, even when the prompt points at a file there."""
+    repo, denied = tmp_path / "repo", tmp_path / "denied"
+    repo.mkdir()
+    denied.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (denied / "notes.md").write_text("The secret word is PELICAN-4471.\n")
+    rules = json.dumps([f"Read(/{denied}/**)"])
+    schema = tmp_path / "questions.schema.json"
+    schema.write_text(json.dumps(treatments.QUESTIONS_SCHEMA))
+    ask = caller(name, "task-asker", repo, deny_rules=rules, schema=str(schema),
+                 schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
+    skill = treatments.parse(f"skill:{SKILL}", os.environ, repo)
+    prompt = f"Write a short summary of {denied}/notes.md for my team."
+    found, listed = treatments.questions(skill, prompt, ask)
+    print(f"the skill would ask: {found}")
+    assert listed <= 3
+    brief = treatments.render(skill, prompt, [{"q": q, "a": ""} for q in found],
+                              caller(name, "task-rewriter", repo, deny_rules=rules))
+    print(brief)
+    assert "PELICAN-4471" not in brief and "notes.md" in brief

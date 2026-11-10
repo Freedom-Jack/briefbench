@@ -7,7 +7,9 @@ role was added, checked against Claude Code 2.1.317: the worker of experiments s
 it can't read the answer key, the records or the other arm. Its stream-json output ends with the same result object
 that json prints, so one parser reads both. On 2026-11-09 each arm got its own temporary folder, checked live against
 2.1.317: before, both arms' sandboxes used the one temporary folder that every Claude Code session on the machine
-shares, and in one pilot trial an arm ran a script the other had just written there.
+shares, and in one pilot trial an arm ran a script the other had just written there. On 2026-11-10 came the stand-in
+requester (answerer), which answers a skill's questions from a task file's facts, and confined forms of the skill's
+two headless calls for task files (task-asker, task-rewriter).
 """
 from __future__ import annotations
 
@@ -43,6 +45,11 @@ PRIVATE_PLACES = ("~/.claude/projects", "~/.codex/sessions", "/tmp/claude-{uid}"
 _SANDBOX = ('{"sandbox": {"enabled": true, "autoAllowBashIfSandboxed": true, "failIfUnavailable": true, '
             '"allowUnsandboxedCommands": false, "filesystem": {"denyRead": {deny}}}, '
             '"permissions": {"allow": ["Bash"], "deny": {deny_rules}}}')
+# The skill's two headless calls in a task-file trial, added 2026-11-10: their replies, the questions and the brief,
+# reach an arm, so they are kept from reading the same {deny_rules} places as the worker. They have only the file tools,
+# whose reads Claude Code checks against Read rules (for Grep and Glob, as its docs say, as best it can), and their
+# steps come back as stream-json, which the bench scans like the worker's.
+_READ_DENY = '{"permissions": {"deny": {deny_rules}}}'
 _SLOT = re.compile(r"\{(\w+)\}")
 
 
@@ -81,7 +88,9 @@ class Agent:
     login: tuple[str, ...]                    # arguments that report the login
     on_plan: Callable[[str], bool]            # that report -> logged in with a subscription
     login_fix: str
-    roles: Mapping[str, tuple[str, ...]]      # worker, task-worker, rewriter, asker (the skill's questions), judge
+    # worker, rewriter, asker (the skill's questions) and judge; for task files task-worker, task-asker and
+    # task-rewriter, kept out of the {deny} places, and answerer, the stand-in requester, with no tools
+    roles: Mapping[str, tuple[str, ...]]
     parse: Callable[[str], Reply]             # stdout -> Reply
     default_model: str = ""                   # "" leaves the model to the CLI
     confines_reads: bool = False              # its task-worker can be kept out of the {deny} folders
@@ -202,7 +211,18 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
                      "--permission-prompts", "none", "--disable-slash-commands", "--no-session-persistence",
                      "?--model={model}", "--", "{prompt}"),
            "judge": ("-p", "--output-format", "json", "--tools", "", "--json-schema", "{schema_json}",
-                     "--disable-slash-commands", "--no-session-persistence", "?--model={model}", "--", "{prompt}")},
+                     "--disable-slash-commands", "--no-session-persistence", "?--model={model}", "--", "{prompt}"),
+           "task-asker": ("-p", "--output-format", "stream-json", "--verbose", "--tools", "Read,Grep,Glob",
+                          "--json-schema", "{schema_json}", "--permission-prompts", "none", "--settings", _READ_DENY,
+                          "--strict-mcp-config", "--setting-sources", "project,local", "--disable-slash-commands",
+                          "--no-session-persistence", "?--model={model}", "--", "{prompt}"),
+           "task-rewriter": ("-p", "--output-format", "stream-json", "--verbose", "--tools", "Read,Grep,Glob",
+                             "--permission-prompts", "none", "--settings", _READ_DENY, "--strict-mcp-config",
+                             "--setting-sources", "project,local", "--disable-slash-commands",
+                             "--no-session-persistence", "?--model={model}", "--", "{prompt}"),
+           "answerer": ("-p", "--output-format", "json", "--tools", "", "--json-schema", "{schema_json}",
+                        "--strict-mcp-config", "--setting-sources", "project,local", "--disable-slash-commands",
+                        "--no-session-persistence", "?--model={model}", "--", "{prompt}")},
           _claude_reply, default_model="claude-opus-5-5", confines_reads=True, temp_env="CLAUDE_CODE_TMPDIR",
           actions=_claude_actions),
     Agent("codex", "openai", ("codex",),
@@ -216,6 +236,8 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
            "asker": ("exec", "--json", "--ephemeral", "-s", "read-only", "--output-schema", "{schema}",
                      "?--model={model}", "--", "{prompt}"),
            "judge": ("exec", "--json", "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "--output-schema",
-                     "{schema}", "?--model={model}", "--", "{prompt}")},
+                     "{schema}", "?--model={model}", "--", "{prompt}"),
+           "answerer": ("exec", "--json", "--ephemeral", "-s", "read-only", "--skip-git-repo-check",
+                        "--output-schema", "{schema}", "?--model={model}", "--", "{prompt}")},
           _codex_reply),
 )}

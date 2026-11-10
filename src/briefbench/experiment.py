@@ -52,6 +52,9 @@ def rule_kind(rule: dict) -> str:
 # ask, `ab` puts them to you, and the rewriter then writes the brief from your answers. Experiments frozen before it
 # have no render, and their skill treatments used three fixed questions; `ab` no longer runs those.
 RENDER = "skill-questions/1"
+# The same for task files, since 2026-11-10: the stand-in requester answers the questions from the task's facts,
+# instead of you, and the skill's headless calls are kept from reading the places an arm may not read.
+RENDER_STAND_IN = "skill-questions/1+stand-in/1"
 TASK_TYPES = ("code", "writing", "research", "analysis", "other")
 _NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 

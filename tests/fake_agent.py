@@ -1,6 +1,7 @@
 """A stand-in agent CLI for offline tests, put on PATH as `claude` and `codex`. FAKE_* variables choose what it does;
 each call appends its role, argv and API key variable names to $FAKE_CALLS. Its role is worked out from its flags
-and prompt: the asker lists the skill's questions, the rewriter writes the brief, the worker edits files."""
+and prompt: the asker lists the skill's questions, the answerer (the stand-in requester) chooses facts by number,
+the rewriter writes the brief, the worker edits files."""
 import json
 import os
 import sys
@@ -38,8 +39,8 @@ if args == ["--version"]:
 
 prompt = args[args.index("--") + 1]
 schema = "--json-schema" in args or "--output-schema" in args
-role = ("asker" if schema and "<skill>" in prompt else "judge" if schema
-        else "worker" if "acceptEdits" in args or "workspace-write" in args else "rewriter")
+role = ("asker" if schema and "<skill>" in prompt else "answerer" if schema and "<facts>" in prompt
+        else "judge" if schema else "worker" if "acceptEdits" in args or "workspace-write" in args else "rewriter")
 with open(env["FAKE_CALLS"], "a") as calls:
     calls.write(json.dumps({"name": name, "role": role, "argv": args, "cwd": os.getcwd(),
                             "keys": sorted(k for k in env if k.endswith(("_API_KEY", "_BASE_URL"))),
@@ -51,6 +52,8 @@ if name == "claude" and "stream-json" in args:        # Claude Code's start-up r
 
 if role == "asker":
     mode = env.get("FAKE_ASKER", "one")
+    if mode == "peek":                          # a headless call that looked somewhere: $FAKE_PEEK_FILE says where
+        print(Path(env["FAKE_PEEK_FILE"]).read_text(), file=sys.stderr)
     if mode == "fail":
         print("asker crashed", file=sys.stderr)
         sys.exit(1)
@@ -61,6 +64,14 @@ if role == "asker":
     else:
         found = {"none": [], "many": [f"Question {i}?" for i in range(1, 6)]}.get(mode, ["What is the result for?"])
         say("", 30, {"questions": found})
+elif role == "answerer":
+    mode, asked = env.get("FAKE_ANSWERER", "first"), prompt.split("<questions>\n", 1)[1].split("\n</questions>")[0]
+    count = len(asked.splitlines())
+    if mode == "bad":
+        say("The first fact answers it.", 20)
+    else:
+        chosen = {"first": [1], "none": [], "range": [1, 99, 0, True]}[mode if mode != "short" else "first"]
+        say("", 20, {"answers": [{"facts": chosen} for _ in range(count - (mode == "short"))]})
 elif role == "rewriter":
     mode = env.get("FAKE_REWRITER", "ok")
     if mode == "fail":

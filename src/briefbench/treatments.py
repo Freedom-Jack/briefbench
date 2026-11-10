@@ -51,6 +51,31 @@ and treat a skipped question as left open. Return the brief in one fenced code b
 {answers}
 </answers>"""
 
+# The stand-in requester, for task files (added 2026-11-10): it answers the skill's questions from the task's facts,
+# which only it sees. It answers by choosing facts by number, so its reply can carry nothing but their own words; a
+# question no fact answers is skipped, as when you skip it. Its reply is held to ANSWERS_SCHEMA.
+ANSWER_REQUEST = """\
+You stand in for the person who wrote the prompt below. An assistant that will rewrite the prompt for another AI has \
+asked them the questions below. You know only the numbered facts. For each question, give the numbers of the facts \
+that answer it, as that person would answer it: only the facts that answer that question, and none when no fact does. \
+Return JSON with one entry for each question, in order: {{"answers": [{{"facts": [2]}}, {{"facts": []}}]}}.
+
+<prompt>
+{prompt}
+</prompt>
+
+<facts>
+{facts}
+</facts>
+
+<questions>
+{questions}
+</questions>"""
+_FACTS = {"type": "object", "additionalProperties": False, "required": ["facts"],
+          "properties": {"facts": {"type": "array", "items": {"type": "integer"}}}}
+ANSWERS_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["answers"],
+                  "properties": {"answers": {"type": "array", "items": _FACTS}}}
+
 # The clarified treatment: the original prompt, then the same questions and answers word for word, unrewritten.
 # A skipped question is listed too, as the brief's rewriter also sees it, so both arms get the same information.
 CLARIFIED = "Clarifying questions about this request, with my answers:\n{answers}\n"
@@ -138,6 +163,35 @@ def templates_sha256() -> str:
     sample = [{"q": "Q1?", "a": "A1"}, {"q": "Q2?", "a": ""}]
     parts = (QUESTIONS_REQUEST, REWRITE_REQUEST, json.dumps(QUESTIONS_SCHEMA, sort_keys=True), str(MAX_QUESTIONS),
              _answers(sample), _answers([]), render({"kind": "clarified"}, "P", sample, None))
+    return _sha256("\0".join(parts).encode())
+
+
+def answer_request(prompt: str, facts: list[str], asked: list[str]) -> str:
+    return ANSWER_REQUEST.format(prompt=prompt, facts="\n".join(f"{n}. {f}" for n, f in enumerate(facts, 1)),
+                                 questions="\n".join(f"{n}. {q}" for n, q in enumerate(asked, 1)))
+
+
+def stand_in_answers(reply: str, asked: list[str], facts: list[str]) -> list[tuple[str, list[int]]]:
+    """Each question's answer from the stand-in's reply, in order, with the numbers of the facts it chose: those facts
+    word for word, in their own order, joined by spaces, or an empty answer, as when you skip a question, when it
+    chose none. Numbers outside the list are left out. The reply must be the JSON asked for, an entry per question."""
+    try:
+        chosen = [sorted({n for n in item["facts"] if type(n) is int and 1 <= n <= len(facts)})
+                  for item in json.loads(reply)["answers"]]
+    except (ValueError, KeyError, TypeError):
+        chosen = None
+    if chosen is None or len(chosen) != len(asked):
+        raise AgentError("the stand-in requester didn't answer each question as the JSON asked for; its reply is kept "
+                         "in the trial's output folder.")
+    return [(" ".join(facts[n - 1] for n in numbers), numbers) for numbers in chosen]
+
+
+def answers_sha256() -> str:
+    """Everything that shapes the stand-in's answers: its request template and schema, and how its reply becomes
+    answers, shown on a sample. `init` freezes this hash for an experiment that uses the stand-in."""
+    facts, asked = ["F1.", "F2."], ["Q1?", "Q2?"]
+    parts = (ANSWER_REQUEST, json.dumps(ANSWERS_SCHEMA, sort_keys=True), answer_request("P", facts, asked),
+             json.dumps(stand_in_answers('{"answers": [{"facts": [2, 1]}, {"facts": [3]}]}', asked, facts)))
     return _sha256("\0".join(parts).encode())
 
 

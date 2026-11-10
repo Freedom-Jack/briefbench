@@ -27,9 +27,11 @@ def load(path: Path) -> dict:
         raise UsageError(f"{path} is not a task file this briefbench reads (format {FORMAT}).")
     missing = [key for key in _TEXT if not isinstance(task.get(key), str) or not task[key].strip()]
     wrong = [key for key in _OPTIONAL if not isinstance(task.get(key, ""), str)]
-    protected = task.get("protected", [])
-    if not isinstance(protected, list) or not all(isinstance(p, str) for p in protected):
-        wrong.append("protected")
+    for key in ("protected", "facts"):            # facts: what the stand-in requester knows (added 2026-11-10)
+        given = task.get(key, [])
+        if not isinstance(given, list) or not all(isinstance(p, str) and (p.strip() or key == "protected")
+                                                  for p in given):
+            wrong.append(key)
     if missing or wrong:
         raise UsageError(f"the task file {path} has " + "; ".join(
             ([f"no {', '.join(missing)}"] if missing else []) + ([f"a bad {', '.join(wrong)}"] if wrong else [])) + ".")
@@ -41,7 +43,8 @@ def load(path: Path) -> dict:
     return {"id": task["id"], "set": task.get("set") or None, "stratum": task.get("stratum") or None, "repo": str(repo),
             "commit": task.get("commit") or None, "prompt": task["prompt"].strip(), "type": task["type"],
             "goal": task["goal"].strip(), "check": task["check"].strip(), "setup": task.get("setup", "").strip(),
-            "protected": protected, "file": str(path.resolve()), "sha256": hashlib.sha256(data).hexdigest(),
+            "protected": task.get("protected", []), "facts": [f.strip() for f in task.get("facts", [])],
+            "file": str(path.resolve()), "sha256": hashlib.sha256(data).hexdigest(),
             **{key: task.get(key) or None for key in ("generator_sha256", "checker_sha256")}}
 
 

@@ -246,13 +246,140 @@ def test_a_task_file_can_pin_its_commit(agents, repo, tip, tmp_path):
     assert code == 3 and "has no commit" in err
 
 
-@pytest.mark.parametrize("a", ["original", "clarified"])
-def test_a_task_file_does_not_run_a_skill_treatment_yet(agents, repo, tmp_path, a):
-    assert bench(["init", "exp", "--a", a, "--b", f"skill:{SKILL}", "--worker", "claude-code", "--worker-model",
-                  "", "--rewriter", "codex", "--rewriter-model", "", "--judge", "none", "--cap", "50", "--rule",
-                  "fixed:10", "--net-min", "0.05", "--scoring", "check", "-y"], cwd=repo)[0] == 0
-    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)
-    assert code == 2 and "skill treatment" in err and entries() == [] and agents() == []
+FACTS = ["The report goes to the board on Monday.", "Only customers who signed up in 2026 count."]
+
+
+def stand_in(repo, a="original", b=None, *extra):
+    """An experiment scored by the check alone with a skill treatment, so the stand-in requester answers."""
+    return bench(["init", "exp", "--a", a, "--b", b or f"skill:{SKILL}", "--worker", "claude-code", "--worker-model",
+                  "", "--rewriter", "claude-code", "--rewriter-model", "", "--judge", "none", "--cap", "50", "-y",
+                  *CHECK, *extra], cwd=repo)
+
+
+def test_a_skill_scored_by_the_check_freezes_the_stand_in_and_confined_headless_calls(agents, repo):
+    from briefbench import experiment, treatments
+    code, err = stand_in(repo)
+    assert code == 0, err
+    exp = frozen()
+    assert exp["render"] == experiment.RENDER_STAND_IN and exp["templates"]["answerer"] == treatments.answers_sha256()
+    assert exp["answerer"]["agent"] == "claude-code" and "--tools" in exp["answerer"]["argv"]
+    assert exp["answerer"]["argv"][exp["answerer"]["argv"].index("--tools") + 1] == ""      # no tools at all
+    for role in ("asker", "rewriter"):                    # kept out of the places an arm may not read
+        argv = exp[role]["argv"]
+        assert "stream-json" in argv and '{"permissions": {"deny": {deny_rules}}}' in argv
+    assert "stand-in requester, from each task file's facts" in err and "Stand-in requester" in err
+    code, err = bench(["init", "exp2", "--a", "original", "--b", f"skill:{SKILL}", "--worker", "claude-code",
+                       "--worker-model", "", "--rewriter", "codex", "--rewriter-model", "", "--judge", "none", "--cap",
+                       "50", "-y", *CHECK], cwd=repo)
+    assert code == 2 and "can't yet be kept from reading other folders" in err
+
+
+def test_the_stand_in_answers_from_the_facts_and_the_brief_gets_them_word_for_word(agents, repo, tmp_path):
+    stand_in(repo)
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)
+    assert code == 0, err
+    [t] = entries()
+    assert t["task"]["answered_by"] == "stand-in"
+    assert t["task"]["questions"] == [{"skill": f"skill:{SKILL}", "q": "What is the result for?", "a": FACTS[0],
+                                       "facts": [1]}]
+    out = Path(t["output"])
+    asked = (out / "answers.request.md").read_text()
+    assert all(f in asked for f in FACTS) and "What is the result for?" in asked
+    assert "Say what it is" not in asked and "grep" not in asked              # never the goal or the check
+    assert f"Answer: {FACTS[0]}" in (out / "rewrite-b.request.md").read_text()
+    assert t["prompts"]["a"] == "Make result.txt say what it is" and t["prompts"]["b"].startswith("BRIEF:")
+    assert all("Say what it is" not in p and "grep" not in p for p in t["prompts"].values())
+    steps = {c["step"]: c for c in t["task"]["headless"]}
+    assert steps["answers"]["skill"] is None                                  # the stand-in is not the arm's cost
+    assert t["arms"]["b"]["brief"]["tokens"] == steps["questions-1"]["tokens"] + steps["rewrite-b"]["tokens"]
+    assert t["fidelity"] == {"b": {"added": None, "dropped": None, "changed": None}}   # waits for your review
+    assert "waits for your fidelity review" in err
+    meta, calls = json.loads((out / "meta.json").read_text()), agents()
+    rules = lambda c: set(json.loads(c["argv"][c["argv"].index("--settings") + 1])["permissions"]["deny"])
+    arm_a = next(c for c in calls if c["role"] == "worker" and c["cwd"] == meta["clones"]["a"])
+    for role in ("asker", "rewriter"):           # confined as arm A, in its clone, and kept out of arm A's temp folder
+        call = next(c for c in calls if c["role"] == role)
+        assert rules(call) == rules(arm_a) | {f"Read(/{meta['temps']['a']}/**)"} and not call["data_home"]
+        assert call["cwd"] == meta["clones"]["a"] and call["env"]["TMPDIR"] == meta["temps"]["h"]
+    assert f"Read(/{meta['temps']['h']}/**)" in rules(arm_a)          # arms can't read the headless calls' temp
+    assert next(c for c in calls if c["role"] == "answerer")["cwd"] not in meta["clones"].values()
+
+
+def test_clarified_gets_the_stand_ins_answers_word_for_word(agents, repo, tmp_path):
+    stand_in(repo, "clarified")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    assert f"Q: What is the result for?\nA: {FACTS[0]}" in t["prompts"]["a"]
+    assert t["arms"]["a"]["brief"]["tokens"] == next(c["tokens"] for c in t["task"]["headless"]
+                                                     if c["step"] == "questions-1")
+
+
+def test_without_facts_every_question_is_skipped_and_the_stand_in_is_not_called(agents, repo, tmp_path):
+    stand_in(repo)
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    assert t["task"]["questions"][0] | {"skill": None} == {"skill": None, "q": "What is the result for?", "a": "",
+                                                           "facts": []}
+    assert "answerer" not in {c["role"] for c in agents()}
+    assert "Answer: (skipped)" in (Path(t["output"]) / "rewrite-b.request.md").read_text()
+
+
+def test_the_stand_in_can_only_choose_facts_by_number(agents, repo, tmp_path, monkeypatch):
+    stand_in(repo)
+    monkeypatch.setenv("FAKE_ANSWERER", "range")             # 99 and 0 are outside the list, and true isn't a number
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
+    assert entries()[-1]["task"]["questions"][0]["facts"] == [1]
+    for mode in ("bad", "short"):                            # not the JSON asked for, or an answer missing
+        monkeypatch.setenv("FAKE_ANSWERER", mode)
+        code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)
+        assert code == 4 and "stand-in requester didn't answer" in err
+        assert entries()[-1]["kind"] == "failed" and entries()[-1]["stage"] == "questions"
+
+
+def test_a_headless_call_that_names_a_denied_place_flags_the_arms_it_reached(agents, repo, tmp_path, monkeypatch):
+    stand_in(repo)
+    monkeypatch.setenv("FAKE_ASKER", "peek")
+    peek(monkeypatch, tmp_path, f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    assert t["arms"]["b"]["looked_outside"] and not t["arms"]["a"]["looked_outside"]
+    assert next(c for c in t["task"]["headless"] if c["step"] == "questions-1")["looked_outside"]
+
+
+def test_an_older_skill_experiment_without_the_stand_in_cant_run_task_files(agents, repo, tmp_path):
+    from briefbench import experiment
+    stand_in(repo)
+    path = Path(os.environ["BRIEFBENCH_HOME"]) / "experiments" / "exp.json"
+    path.write_text(json.dumps(frozen() | {"render": experiment.RENDER, "answerer": None}))
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)
+    assert code == 2 and "no stand-in requester" in err and entries() == []
+
+
+def test_a_changed_stand_in_request_needs_a_new_experiment(agents, repo, tmp_path, monkeypatch):
+    from briefbench import treatments
+    stand_in(repo)
+    monkeypatch.setattr(treatments, "ANSWER_REQUEST", treatments.ANSWER_REQUEST + "\nBe generous.")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)
+    assert code == 3 and "stand-in requester's request" in err and entries() == []
+
+
+def test_a_stand_in_experiment_adopts_nothing_until_its_briefs_are_reviewed(agents, repo, tmp_path):
+    """The fake brief makes result.txt say brief, so B wins all 10 trials; without a single fidelity review, the rule's
+    benefit is blocked."""
+    from briefbench import experiment, score
+    stand_in(repo)
+    for _ in range(10):
+        assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
+    verdict = score.summary(experiment.load("exp", os.environ), entries())["verdict"]
+    assert verdict["state"] == "benefit" and not verdict["adopted"]
+    assert "10 of its briefs have no fidelity review yet" in verdict["blocked_by"]
+
+
+def test_a_task_file_with_bad_facts_is_refused(agents, repo, tmp_path):
+    stand_in(repo)
+    for facts in ("one fact", [""], [1]):
+        code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=facts))], "", cwd=tmp_path)
+        assert code == 2 and "a bad facts" in err
 
 
 def test_a_task_file_needs_check_scoring(agents, repo, tip, tmp_path):

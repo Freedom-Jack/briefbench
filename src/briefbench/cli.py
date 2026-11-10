@@ -20,7 +20,7 @@ from .log import append, data_dir, display_path, header, prepare, read_entries, 
 from .presets import AGENTS, PRIVATE_PLACES, agent_env, secret_values
 from .redact import scrub, strip_controls
 
-TIMEOUT_S = {"rewriter": 600, "asker": 600, "setup": 900, "check": 900, "judge": 600}
+TIMEOUT_S = {"rewriter": 600, "asker": 600, "answerer": 600, "setup": 900, "check": 900, "judge": 600}
 ELIGIBILITY = (("leans_on_chat", "Does the task lean on earlier chat that the prompt leaves out?"),
                ("side_effects", "Could it change anything outside the repo, such as a deploy, a message or a payment?"),
                ("steered", "Will you want to steer the agent midway?"))
@@ -29,6 +29,7 @@ FIDELITY = (("added", "Does it add a requirement, method, scope or authority you
             ("dropped", "Does it drop or change a requirement, name, number or other detail you gave?"),
             ("changed", "Does it change what you asked for: the deliverable, or the purpose behind it?"))
 ROLE_LABELS = {"worker": "Worker", "rewriter": "Rewriter", "asker": "Rewriter, listing the skill's questions",
+               "answerer": "Stand-in requester, answering the skill's questions from each task file's facts",
                "judge": "Judge"}
 
 
@@ -222,17 +223,24 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     names = sorted(AGENTS)
     roles = {"worker": _agent_settings(args.worker or con.pick("Worker: the agent CLI that does the task", names,
                                                                names[0]), "worker", args.worker_model, con, environ,
-                                       template_role=_worker_role(args.scoring))}
+                                       template_role=_role("worker", args.scoring))}
     if args.scoring == "check" and not AGENTS[roles["worker"]["agent"]].confines_reads:
         raise UsageError(f"{roles['worker']['agent']} can't yet be kept from reading other folders, such as the answer "
                          "keys or the other arm, so it doesn't run experiments scored by the check alone. Choose "
                          "another worker.")
     roles["rewriter"] = None
     if "skill" in (sides["a"]["kind"], sides["b"]["kind"]):
-        roles["rewriter"] = _agent_settings(args.rewriter or con.pick(
-            "Rewriter: the agent CLI that runs the skill headless", names, roles["worker"]["agent"]),
-            "rewriter", args.rewriter_model, con, environ)
-    roles["asker"] = _asker(roles["rewriter"]) if roles["rewriter"] else None
+        name = args.rewriter or con.pick("Rewriter: the agent CLI that runs the skill headless", names,
+                                         roles["worker"]["agent"])
+        if args.scoring == "check" and not AGENTS[name].confines_reads:
+            raise UsageError(f"{name} can't yet be kept from reading other folders, such as the answer keys, so it "
+                             "can't run the skill headless for task files, whose questions and brief reach an arm. "
+                             "Choose another rewriter.")
+        roles["rewriter"] = _agent_settings(name, "rewriter", args.rewriter_model, con, environ,
+                                            template_role=_role("rewriter", args.scoring))
+    roles["asker"] = _asker(roles["rewriter"], args.scoring) if roles["rewriter"] else None
+    # Task files have nobody to answer the skill's questions: the stand-in requester answers from each one's facts.
+    roles["answerer"] = _answerer(roles["rewriter"]) if roles["rewriter"] and args.scoring == "check" else None
     judge_name = args.judge or con.pick("Judge: an agent CLI from a third vendor, or none", names + ["none"], "none")
     roles["judge"] = None
     if judge_name != "none":
@@ -246,15 +254,19 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     frozen = {"format": experiment.FORMAT, "name": args.name, "created": utc_now(), "briefbench_version": __version__,
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
               "rule": rule, "scoring": args.scoring, "strata": strata, **stage, "bench": _bench_commit(),
-              "render": experiment.RENDER if roles["rewriter"] else None,
+              "render": (experiment.RENDER_STAND_IN if roles["answerer"] else experiment.RENDER)
+              if roles["rewriter"] else None,
               "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
-                            "judge": judge.prompt_sha256() if roles["judge"] else None}}
+                            "judge": judge.prompt_sha256() if roles["judge"] else None,
+                            "answerer": treatments.answers_sha256() if roles["answerer"] else None}}
     con.say(f"\nExperiment {args.name}: A is {args.a}, B is {args.b}. {_rule_text(rule)} B is adopted only if it also "
             f"passes your fidelity reviews and its median extra time and tokens stay within {cap:g}% of A's."
             + (" Scored by the check alone: both arms passing or both failing is a tie, and no pick is asked."
                if args.scoring == "check" else "")
             + (f" Kinds of task, tested apart: {strata['help']}, where B should help, is tested; {strata['harm']}, "
                f"where it could hurt, must show no loss over {strata['margin'] * 100:g} points." if strata else "")
+            + (" The skill's questions are answered by a stand-in requester, from each task file's facts, and its "
+               "briefs wait for a fidelity review you make apart from the outcomes." if roles["answerer"] else "")
             + f" Stage: {experiment.stage_text(stage)}."
             + (f" Materials: {len(m['tasks'])} task files of {m['set']}, frozen by hash." if (m := stage["materials"])
                else ""))
@@ -402,14 +414,21 @@ def _names(text: str, places: list[str], tokens: list[str], environ) -> bool:
             or any(re.search(before + re.escape(t) + after, text) for t in tokens))
 
 
-def _worker_role(scoring: str) -> str:
-    """Scored by the check alone, the worker may run any command, confined, and never the check itself."""
-    return "task-worker" if scoring == "check" else "worker"
+def _role(role: str, scoring: str) -> str:
+    """The template a role runs with. Scored by the check alone, from task files, the worker may run any command,
+    confined, and never the check itself; the skill's two headless calls are confined like it."""
+    return f"task-{role}" if scoring == "check" and role in ("worker", "asker", "rewriter") else role
 
 
-def _asker(rewriter: dict) -> dict:
+def _asker(rewriter: dict, scoring: str = "pick") -> dict:
     """The rewriter's agent and model, held to a schema: it lists the questions the skill would ask."""
-    return rewriter | {"argv": _template(AGENTS[rewriter["agent"]], rewriter["argv"][0], "asker",
+    return rewriter | {"argv": _template(AGENTS[rewriter["agent"]], rewriter["argv"][0], _role("asker", scoring),
+                                         rewriter["model"] or "")}
+
+
+def _answerer(rewriter: dict) -> dict:
+    """The stand-in requester: the rewriter's agent and model, with no tools, held to a schema."""
+    return rewriter | {"argv": _template(AGENTS[rewriter["agent"]], rewriter["argv"][0], "answerer",
                                          rewriter["model"] or "")}
 
 
@@ -443,21 +462,23 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     exp = experiment.load(args.experiment, environ)
     for side in ("a", "b"):
         treatments.check_unchanged(exp[side])
-    if exp.get("rewriter") and exp.get("render") != experiment.RENDER:
+    if exp.get("rewriter") and exp.get("render") not in (experiment.RENDER, experiment.RENDER_STAND_IN):
         raise ConfigError(f"experiment {exp['name']} was frozen by an older briefbench, whose headless brief used three "
                           "fixed questions instead of the skill's own. Start a new experiment with `briefbench init`.")
     frozen = exp.get("templates") or {}                     # missing from experiments frozen before 2026-11-05
-    for name, now in (("render", treatments.templates_sha256()), ("judge", judge.prompt_sha256())):
+    labels = {"render": "headless request templates", "judge": "judge prompt",
+              "answerer": "stand-in requester's request"}
+    for name, now in (("render", treatments.templates_sha256()), ("judge", judge.prompt_sha256()),
+                      ("answerer", treatments.answers_sha256())):
         if frozen.get(name) and frozen[name] != now:
-            raise ConfigError(f"the {'headless request templates' if name == 'render' else 'judge prompt'} differ "
-                              f"from those frozen in experiment {exp['name']}, perhaps after an update of briefbench. "
-                              "Start a new experiment.")
+            raise ConfigError(f"the {labels[name]} differ from those frozen in experiment {exp['name']}, perhaps "
+                              "after an update of briefbench. Start a new experiment.")
     agents, versions = {}, {}
     scoring = exp.get("scoring", "pick")
-    for role in ("worker", "rewriter", "asker", "judge"):
+    for role in ("worker", "rewriter", "asker", "answerer", "judge"):
         if exp.get(role):
             agent, executable = _ready(exp[role]["agent"], environ)
-            template = _worker_role(scoring) if role == "worker" else role
+            template = _role(role, scoring)
             if _template(agent, executable, template, exp[role]["model"] or "")[1:] != exp[role]["argv"][1:]:
                 raise ConfigError(f"the {role} command differs from the one frozen in experiment {exp['name']}, "
                                   "perhaps after an update of briefbench. Start a new experiment.")
@@ -512,9 +533,10 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
         # Materials with an answer key: each arm gets its own clone in a randomly named folder under
         # ~/.cache/briefbench-runs, outside the data folder and outside temp, so no git link, sibling or parent leads
         # to the key, the other arm or the records, and a sandboxed worker can't write to the other arm. Each arm also
-        # gets a temporary folder of its own, so the two can't see each other's scratch files.
+        # gets a temporary folder of its own, so the two can't see each other's scratch files, and so do the skill's
+        # headless calls (h).
         worktrees = runner.add_clones(root, commit, _runs_folder(environ))
-        temps = {s: runner.temp_folder() for s in "ab"}
+        temps = {s: runner.temp_folder() for s in ("a", "b", "h")}
         meta = {"root": str(root), "commit": commit, "clones": {s: str(p) for s, p in worktrees.items()},
                 "temps": {s: str(p) for s, p in temps.items()}}
         experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
@@ -528,17 +550,26 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     task = {"type": task_type, "prompt": prompt, "answers": answers, "questions": [], "listed": {}, "headless": []}
     if task_file:
         task["source"] = {key: task_file[key] for key in ("id", "set", "file", "sha256", "stratum")}
-    stage = "questions"
+    stage, keys, confine = "questions", Path(task_file["file"]).parent.parent if task_file else None, None
+    if task_file and exp.get("rewriter"):        # the skill's headless calls run in arm A's folder, confined as arm A
+        found, rewriter = _confinement(worktrees, temps, keys, environ), AGENTS[exp["rewriter"]["agent"]]
+        confine = {"deny": found["a"]["deny"] + [str(temps["a"])], "tokens": found["a"]["tokens"] + [temps["a"].name],
+                   "env": found["env"] | {"TMPDIR": str(temps["h"])}
+                   | ({rewriter.temp_env: str(temps["h"])} if rewriter.temp_env else {})}
     try:
         try:
-            _skill_questions(task, specs, exp, agents, worktrees["a"], out, environ, con)
+            _skill_questions(task, specs, exp, agents, worktrees["a"], out, environ, con,
+                             facts=task_file["facts"] if task_file else None, confine=confine)
             stage = "rewrite"
-            prompts = _render(specs, task, agents, exp, worktrees["a"], out, environ, con)
+            prompts = _render(specs, task, agents, exp, worktrees["a"], out, environ, con, confine=confine)
             stage = "run"
             arms = _run_arms(prompts, agents["worker"], exp, settings, answers["check"], worktrees, commit, out,
-                             environ, con, role=_worker_role(scoring),
-                             keys=Path(task_file["file"]).parent.parent if task_file else None,
+                             environ, con, role=_role("worker", scoring), keys=keys,
                              temps=temps if task_file else None)
+            if confine:                          # a headless call that named such a place marks the arms it reached
+                for s in "ab":
+                    arms[s]["looked_outside"] |= any(c.get("looked_outside") for c in _calls_for(specs[s], exp,
+                                                                                                task["headless"]))
             # An arm stopped at the timeout is an outcome; one that ended in an error, such as a usage limit or a
             # sandbox that didn't start, measured the service.
             if scoring == "check" and (hit := [s for s in "ab" if arms[s]["error"] and not arms[s]["timed_out"]]):
@@ -558,7 +589,7 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
         verdict = None
         if "judge" in agents and decision["by"] == "you" and _judge_allowed(exp, root, settings, con, environ):
             verdict = _judge(exp, agents["judge"], answers["why"], arms, sides, out, environ, con)
-        fidelity = _fidelity(specs, prompts, out, con)
+        fidelity = _fidelity(specs, prompts, out, con, ask=scoring != "check")
     finally:
         experiment.write_private(out / "meta.json", meta | {"pid": None})
     trial |= {"task": task,
@@ -573,8 +604,8 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
 
 
 def _task_file(args, exp) -> dict | None:
-    """The task in `ab --task FILE`, or None without one. A skill treatment's questions need someone to answer them,
-    so for now a task file runs only original and snippet treatments (docs/design.md, "Unattended trials")."""
+    """The task in `ab --task FILE`, or None without one. A skill treatment's questions need someone to answer them:
+    the stand-in requester, frozen with an experiment scored by the check alone since 2026-11-10."""
     if not args.task:
         return None
     if args.prompt or args.file:
@@ -582,9 +613,10 @@ def _task_file(args, exp) -> dict | None:
     if exp.get("scoring", "pick") != "check":
         raise UsageError(f"experiment {exp['name']} is scored by your pick, which a task file can't give. Run task "
                          "files under an experiment frozen with --scoring check.")
-    if any(exp[side]["kind"] in ("skill", "clarified") for side in "ab"):
-        raise UsageError(f"experiment {exp['name']} has a skill treatment, whose questions need someone to answer "
-                         "them, so a task file can't run it yet; task files run original and snippet treatments.")
+    if (any(exp[side]["kind"] in ("skill", "clarified") for side in "ab")
+            and exp.get("render") != experiment.RENDER_STAND_IN):
+        raise UsageError(f"experiment {exp['name']} has a skill treatment but no stand-in requester to answer its "
+                         "questions, so a task file can't run it. Freeze a new experiment with --scoring check.")
     task = tasks.load(args.task)
     if (strata := exp.get("strata")) and task["stratum"] not in (strata["help"], strata["harm"]):
         raise UsageError(f"the task file {task['file']} is of kind {task['stratum']!r}, but experiment {exp['name']} "
@@ -649,28 +681,41 @@ def _protected(root: Path, text) -> list[str]:
 
 
 def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, name: str, environ, spent=None,
-          skill=None, **slots):
-    """One run of an agent CLI as rewriter, asker or judge. Raises AgentError if it fails. With `spent`, a list,
-    appends the call's {step, skill, seconds, tokens}, so briefing time and tokens count in the arm's cost."""
+          skill=None, confine=None, **slots):
+    """One run of an agent CLI as rewriter, asker, stand-in requester or judge. Raises AgentError if it fails. With
+    `spent`, a list, appends the call's {step, skill, seconds, tokens}, so briefing time and tokens count in the arm's
+    cost. With `confine`, {deny, tokens, env} in a task file's trial, it may not read the denied places, runs in that
+    environment, and its output is searched for them afterwards: its entry's looked_outside records a hit."""
     agent, executable = pair
+    env = agent_env(environ)
+    if confine:
+        slots |= {"deny": json.dumps(confine["deny"]),
+                  "deny_rules": json.dumps([f"Read(/{p}/**)" for p in confine["deny"]])}
+        env = confine["env"]
     [done] = runner.wait([runner.start(agent.argv(executable, role, prompt=prompt, model=model or "", **slots), cwd,
-                                       agent_env(environ), out / f"{name}.out", out / f"{name}.err")],
-                         TIMEOUT_S[role])
-    reply = agent.parse((out / f"{name}.out").read_text(errors="replace"))
+                                       env, out / f"{name}.out", out / f"{name}.err")],
+                         TIMEOUT_S[role.removeprefix("task-")])
+    stdout = (out / f"{name}.out").read_text(errors="replace")
+    reply = agent.parse(stdout)
+    entry = {"step": name, "skill": skill, "seconds": done.seconds, "tokens": reply.tokens}
+    if confine:
+        entry["looked_outside"] = _names(agent.actions(stdout) + (out / f"{name}.err").read_text(errors="replace"),
+                                         confine["deny"], confine["tokens"], environ)
     if spent is not None:
-        spent.append({"step": name, "skill": skill, "seconds": done.seconds, "tokens": reply.tokens})
+        spent.append(entry)
     if done.code != 0 or reply.error:
         why = reply.error or ("stopped at the timeout" if done.code is None else f"exit {done.code}")
         raise AgentError(f"the {what} failed ({why}); see {out / name}.err")
     return reply
 
 
-def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con) -> None:
+def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con, facts=None, confine=None) -> None:
     """The questions each skill treatment would ask, listed headless by the rewriter in a worktree it may only read,
-    then put to you. clarified gets those of the experiment's skill treatment. With two skills, all their questions
-    are listed first and asked once each, in random order, without saying which skill asked: knowing that would
-    unblind your pick. task["questions"] gets {skill, q, a} for each skill's questions, in that skill's order, and
-    task["listed"] how many questions each skill listed."""
+    then put to you, or with a task file's facts to the stand-in requester. clarified gets those of the experiment's
+    skill treatment. With two skills, all their questions are listed first and asked once each, in random order,
+    without saying which skill asked: knowing that would unblind your pick. task["questions"] gets {skill, q, a} for
+    each skill's questions, in that skill's order, with the numbers of the facts the stand-in chose (facts), and
+    task["listed"] how many questions each skill listed; task["answered_by"] says who answered."""
     sources = {t["spec"]: t for t in specs.values() if t["kind"] == "skill"}
     if any(t["kind"] == "clarified" for t in specs.values()):
         sources |= {t["spec"]: t for t in (exp["a"], exp["b"]) if t["kind"] == "skill"}
@@ -685,8 +730,9 @@ def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con)
 
         def ask(request, n=n, spec=spec):
             (out / f"questions-{n}.request.md").write_text(request)
-            reply = _call(agents["asker"], "asker", "headless list of the skill's questions", exp["rewriter"]["model"],
-                          request, readonly_tree, out, f"questions-{n}", environ, spent=task["headless"], skill=spec,
+            reply = _call(agents["asker"], _role("asker", exp.get("scoring", "pick")),
+                          "headless list of the skill's questions", exp["rewriter"]["model"], request, readonly_tree,
+                          out, f"questions-{n}", environ, spent=task["headless"], skill=spec, confine=confine,
                           schema=str(schema), schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
             if runner.changed(readonly_tree):
                 raise AgentError("the rewriter changed files, which it must not do; the trial was stopped.")
@@ -700,12 +746,42 @@ def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con)
         random.shuffle(unique)
     con.say(("The skill asks:" if len(sources) == 1 else "The skills ask, in random order:") if unique
             else "No question to ask.")
-    answers = {q: con.ask(f"{q}\n  Your answer (Enter to skip)") for q in unique}
-    task["questions"].extend({"skill": spec, "q": q, "a": answers[q]}      # each skill's questions in its own order
+    if facts is None:
+        answers = {q: (con.ask(f"{q}\n  Your answer (Enter to skip)"), None) for q in unique}
+    else:
+        answers = _stand_in(task, exp, agents, unique, facts, out, environ, con)
+    task["answered_by"] = "you" if facts is None else "stand-in"
+    task["questions"].extend({"skill": spec, "q": q, "a": answers[q][0]}      # each skill's questions in its own order
+                             | ({"facts": answers[q][1]} if facts is not None else {})
                              for spec, questions in found.items() for q in questions)
 
 
-def _render(specs, task, agents, exp, readonly_tree, out, environ, con) -> dict[str, str]:
+def _stand_in(task, exp, agents, asked, facts, out, environ, con) -> dict:
+    """The stand-in requester's answers to the skill's questions, from a task file's facts, which only it sees:
+    {question: (answer, the numbers of the facts it chose)}. It runs headless in an empty folder of its own, with no
+    tools; its call isn't part of an arm's cost, as your answers aren't. With no facts there's nothing to ask it."""
+    if not asked or not facts:
+        return {q: ("", []) for q in asked}
+    con.say(f"The stand-in requester answers from the task's {len(facts)} facts, headless with "
+            f"{exp['answerer']['agent']}...")
+    work = Path(tempfile.mkdtemp(prefix="briefbench-stand-in-"))
+    schema, request = work / "schema.json", treatments.answer_request(task["prompt"], facts, asked)
+    schema.write_text(json.dumps(treatments.ANSWERS_SCHEMA))
+    (out / "answers.request.md").write_text(request)
+    try:
+        (work / "work").mkdir()
+        reply = _call(agents["answerer"], "answerer", "stand-in requester", exp["answerer"]["model"], request,
+                      work / "work", out, "answers", environ, spent=task["headless"], schema=str(schema),
+                      schema_json=json.dumps(treatments.ANSWERS_SCHEMA))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    found = treatments.stand_in_answers(reply.text, asked, facts)
+    for q, (answer, _numbers) in zip(asked, found):
+        con.say(f"  {q}\n    {answer or '(no fact answers it, so it is skipped)'}")
+    return dict(zip(asked, found))
+
+
+def _render(specs, task, agents, exp, readonly_tree, out, environ, con, confine=None) -> dict[str, str]:
     """Each arm's prompt. A skill treatment is run headless once, by the rewriter, in a worktree it may only read."""
     rendered, prompts, prompt, asked = {}, {}, task["prompt"], task["questions"]
     source = next((t["spec"] for t in (exp["a"], exp["b"]) if t["kind"] == "skill"), None)
@@ -714,9 +790,9 @@ def _render(specs, task, agents, exp, readonly_tree, out, environ, con) -> dict[
             def rewrite(request, side=side):
                 (out / f"rewrite-{side}.request.md").write_text(request)
                 con.say(f"Writing the headless brief with {exp['rewriter']['agent']}...")
-                reply = _call(agents["rewriter"], "rewriter", "headless rewrite", exp["rewriter"]["model"], request,
-                              readonly_tree, out, f"rewrite-{side}", environ, spent=task["headless"],
-                              skill=specs[side]["spec"])
+                reply = _call(agents["rewriter"], _role("rewriter", exp.get("scoring", "pick")), "headless rewrite",
+                              exp["rewriter"]["model"], request, readonly_tree, out, f"rewrite-{side}", environ,
+                              spent=task["headless"], skill=specs[side]["spec"], confine=confine)
                 if runner.changed(readonly_tree):
                     raise AgentError("the rewriter changed files, which it must not do; the trial was stopped.")
                 return reply.text
@@ -726,17 +802,21 @@ def _render(specs, task, agents, exp, readonly_tree, out, environ, con) -> dict[
     return prompts
 
 
-def _briefing(t, exp, headless) -> dict | None:
-    """The headless calls an arm's prompt needed, as {seconds, tokens}: a skill's questions and its rewrite, or for
-    clarified the questions of the experiment's skill. tokens is null when a call didn't report them; None for
-    original and snippet, which need no call."""
+def _calls_for(t, exp, headless) -> list[dict]:
+    """The headless calls an arm's prompt needed: a skill's questions and its rewrite, or for clarified the questions
+    of the experiment's skill; none for original and snippet, and never the stand-in requester's."""
     if t["kind"] == "clarified":
         source = next(x["spec"] for x in (exp["a"], exp["b"]) if x["kind"] == "skill")
-        calls = [c for c in headless if c["skill"] == source and c["step"].startswith("questions-")]
-    elif t["kind"] == "skill":
-        calls = [c for c in headless if c["skill"] == t["spec"]]
-    else:
+        return [c for c in headless if c["skill"] == source and c["step"].startswith("questions-")]
+    return [c for c in headless if c["skill"] == t["spec"]] if t["kind"] == "skill" else []
+
+
+def _briefing(t, exp, headless) -> dict | None:
+    """The headless calls an arm's prompt needed (_calls_for), as {seconds, tokens}. tokens is null when a call didn't
+    report them; None for original and snippet, which need no call."""
+    if t["kind"] not in ("skill", "clarified"):
         return None
+    calls = _calls_for(t, exp, headless)
     tokens = [c["tokens"] for c in calls]
     return {"seconds": round(sum(c["seconds"] for c in calls), 1),
             "tokens": None if any(x is None for x in tokens) else sum(tokens)}
@@ -758,26 +838,14 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
             raise AgentError(f"the setup command failed; see {display_path(out, environ)}/a.setup.log and b.setup.log")
     agent, executable = worker
     con.say(f"Running both arms with {exp['worker']['agent']} (at most {exp['timeout_s'] / 60:g} minutes)...")
-    audit, other, env = keys is not None, {"a": "b", "b": "a"}, agent_env(environ)
+    audit, env = keys is not None, agent_env(environ)
     private, tokens, envs = {s: [] for s in "ab"}, {s: [] for s in "ab"}, {s: env for s in "ab"}
     if audit:
-        homes = [w.parent for w in worktrees.values()]
-        shared = [p for p in [data_dir(environ), Path(keys), _bench_source(), *_private_places(environ)]
-                  if p and not any(p == h or p in h.parents for h in homes)]    # never a folder an arm works in
-        # Nothing in the arm's environment points at those places: no BRIEFBENCH_HOME, no variable naming one, such as
-        # the bench's virtual environment, and no PATH entry inside one.
-        env = {k: v for k, v in env.items() if k not in ("BRIEFBENCH_HOME", "PWD", "OLDPWD")
-               and (k == "PATH" or not any(str(p) in v for p in shared))}
-        env["PATH"] = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep)
-                                      if not any(_inside(d, p) for p in shared))
+        found = _confinement(worktrees, temps, keys, environ)
         for s in "ab":
-            mine = worktrees[s].parent
-            places = [data_dir(environ), worktrees[other[s]].parent, temps[other[s]], *shared]
-            places += [p for p in mine.parent.iterdir() if p != mine]      # other trials' leftover clones
-            # never a folder the arm works in, such as a keys folder that happens to sit above the runs folder
-            private[s] = list(dict.fromkeys(str(p) for p in places if p != mine and p not in mine.parents))
-            tokens[s] = [data_dir(environ).name, worktrees[other[s]].parent.name, temps[other[s]].name]
-            envs[s] = env | {"TMPDIR": str(temps[s])} | ({agent.temp_env: str(temps[s])} if agent.temp_env else {})
+            private[s], tokens[s] = found[s]["deny"], found[s]["tokens"]
+            envs[s] = found["env"] | {"TMPDIR": str(temps[s])} | ({agent.temp_env: str(temps[s])}
+                                                                  if agent.temp_env else {})
     procs = [runner.start(agent.argv(executable, role, prompt=prompts[s], model=exp["worker"]["model"] or "",
                                      check=check, deny=json.dumps(private[s]),
                                      deny_rules=json.dumps([f"Read(/{p}/**)" for p in private[s]])),
@@ -807,6 +875,31 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
             arms[s]["check"] = {"exit_code": d.code, "seconds": d.seconds,
                                 "passed": d.code == 0 and not arms[s]["protected_changed"]}
     return arms
+
+
+def _confinement(worktrees, temps, keys, environ) -> dict:
+    """What each arm of a task file's trial may not read: the data folder, the keys, the other arm's folders and the
+    skill's headless calls' temporary folder (h), any other trial's leftover clone, the bench's own source and other
+    sessions' files (PRIVATE_PLACES). {side: {deny, tokens}}, where tokens are folder names that give those places
+    away, and under env the environment to start from, with nothing in it naming them."""
+    other, homes = {"a": "b", "b": "a"}, [w.parent for w in worktrees.values()]
+    shared = [p for p in [data_dir(environ), Path(keys), _bench_source(), *_private_places(environ), temps.get("h")]
+              if p and not any(p == h or p in h.parents for h in homes)]    # never a folder an arm works in
+    # Nothing in the environment points at those places: no BRIEFBENCH_HOME, no variable naming one, such as the
+    # bench's virtual environment, and no PATH entry inside one.
+    env = {k: v for k, v in agent_env(environ).items() if k not in ("BRIEFBENCH_HOME", "PWD", "OLDPWD")
+           and (k == "PATH" or not any(str(p) in v for p in shared))}
+    env["PATH"] = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep)
+                                  if not any(_inside(d, p) for p in shared))
+    found = {"env": env}
+    for s in "ab":
+        mine = worktrees[s].parent
+        places = [data_dir(environ), worktrees[other[s]].parent, temps[other[s]], *shared]
+        places += [p for p in mine.parent.iterdir() if p != mine]      # other trials' leftover clones
+        # never a folder the arm works in, such as a keys folder that happens to sit above the runs folder
+        found[s] = {"deny": list(dict.fromkeys(str(p) for p in places if p != mine and p not in mine.parents)),
+                    "tokens": [data_dir(environ).name, worktrees[other[s]].parent.name, temps[other[s]].name]}
+    return found
 
 
 def _decide(arms, sides, check, specs, out, con, scoring="pick") -> dict:
@@ -844,13 +937,19 @@ def _decide(arms, sides, check, specs, out, con, scoring="pick") -> dict:
             "guess": guess, "tie": tie}
 
 
-def _fidelity(specs, prompts, out, con) -> dict | None:
+def _fidelity(specs, prompts, out, con, ask=True) -> dict | None:
     """Your review of each brief against what you asked, after the pick so it can't sway it. Returns {side:
-    {added, dropped, changed}}, each True, False or None when skipped, or None when no arm got a brief."""
+    {added, dropped, changed}}, each True, False or None when skipped, or None when no arm got a brief. Without ask,
+    under the check alone, nobody is there: each brief is recorded unreviewed, every answer None, until you review it
+    apart from the outcomes."""
     review = {}
     for s in "ab":
         if specs[s]["kind"] != "skill" or (s == "b" and specs["b"]["spec"] == specs["a"]["spec"]):
             continue                                 # in a noise check, both arms got the same brief
+        if not ask:
+            con.say(f"Arm {s.upper()}'s brief ({specs[s]['spec']}) waits for your fidelity review: {out / f'{s}.prompt.md'}")
+            review[s] = {key: None for key, _question in FIDELITY}
+            continue
         con.say(f"\nNow check the brief that arm {s.upper()} got ({specs[s]['spec']}) against what you asked. It is "
                 f"also in {out / f'{s}.prompt.md'}. Answer y or n, or press Enter to skip a question.\n")
         con.say("  " + prompts[s].rstrip().replace("\n", "\n  ") + "\n")
