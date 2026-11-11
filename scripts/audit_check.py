@@ -7,7 +7,7 @@ NAME is usually the calibration experiment. ANSWERS.json gives each task's plant
 `explain` prints, whose items have an "id" and a "driver", or a JSON object mapping each task id to its answer. The
 script picks --count arms' reports at random from the experiment's noise checks and trials, reading each from the
 diff the bench kept, and shows it with its task's planted answer, never with its arm or its check's verdict. For
-each, you say whether the report names the planted answer as its main driver. Your labels go to
+each, you say whether the report's final answer is the planted one. Your labels go to
 audits/<NAME>.json in the data folder; then the script prints how often the check agreed with you, and where not.
 """
 from __future__ import annotations
@@ -81,7 +81,7 @@ def main(argv=None, stdin=None) -> int:
         print("  " + r["text"].rstrip().replace("\n", "\n  ") + "\n")
         said = ""
         while said not in ("y", "n"):
-            print("Does it name the planted answer as its main driver? (y/n): ", end="", flush=True)
+            print("Is the report's final answer the planted one? (y/n): ", end="", flush=True)
             line = stdin.readline()
             if not line:
                 print("\nInput ended: nothing was saved.", file=sys.stderr)
