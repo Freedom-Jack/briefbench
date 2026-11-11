@@ -1,6 +1,7 @@
 """briefbench score: one experiment's report, computed from the log. Vendor-neutral."""
 from __future__ import annotations
 
+import random
 from statistics import median
 
 from . import __version__
@@ -121,12 +122,76 @@ def _pct(part: int, whole: int) -> str:
     return f"{part} of {whole} ({part / whole:.0%})" if whole else "none yet"
 
 
-def _fidelity(trials, side: str) -> dict:
+def _fidelity(trials, side: str, made=None) -> dict:
     """Your fidelity reviews of one arm's briefs: how many were reviewed, how many failed, and on which question."""
-    reviews = [r for t in trials if (r := (t.get("fidelity") or {}).get(side))
-               and any(v is not None for v in r.values())]
+    reviews = [r for t in trials if _reviewed(r := _review(t, side, made or {}))]
     counts = {key: sum(r.get(key) is True for r in reviews) for key in ("added", "dropped", "changed")}
     return {"reviewed": len(reviews), "failed": sum(any(v is True for v in r.values()) for r in reviews), **counts}
+
+
+def _reviewed(review) -> bool:
+    return bool(review) and any(v is not None for v in review.values())
+
+
+def _review(trial: dict, side: str, made: dict):
+    """A brief's fidelity review: one made apart from the outcomes (a fidelity line), else the one made in the trial."""
+    return made.get((trial.get("id"), side)) or (trial.get("fidelity") or {}).get(side)
+
+
+def _reviews(mine: list[dict]) -> dict:
+    """Your fidelity reviews made apart from the outcomes, from fidelity lines, by (trial, side); a later line wins."""
+    return {(e["trial"], e["side"]): {k: e.get(k) for k in ("added", "dropped", "changed")}
+            for e in mine if e.get("kind") == "fidelity"}
+
+
+def _policy(exp: dict) -> dict | None:
+    """How B's briefs from task files are reviewed, apart from the outcomes: a random sample of them or all (null),
+    and how many may fail. An experiment with the stand-in frozen before the policy reviews all, and none may fail."""
+    if exp.get("render") != RENDER_STAND_IN or not _is_skill(exp["b"]):
+        return None
+    return exp.get("fidelity_policy") or {"sample": None, "max_unfaithful": 0}
+
+
+def _chosen(exp: dict, used: list[dict]) -> list[dict]:
+    """The trials whose brief for B the policy asks you to review: all of them, or a sample drawn from the
+    experiment's name and creation time, so nobody chooses which. A sample is fixed once all the rule's trials are in."""
+    sample = (_policy(exp) or {}).get("sample")
+    if not sample or sample >= len(used):
+        return list(used)
+    picked = set(random.Random(f"{exp['name']}:{exp.get('created')}").sample([t["id"] for t in used], sample))
+    return [t for t in used if t["id"] in picked]
+
+
+def _lines(exp: dict, entries: list[dict]) -> list[dict]:
+    created = exp.get("created")                    # lines from an older experiment of the same name don't count
+    return [e for e in entries if e.get("experiment") == exp["name"] and e.get("experiment_created", created) == created]
+
+
+def _used(exp: dict, mine: list[dict]):
+    """The experiment's trials, those its rule uses, and where a halfway look stopped it."""
+    trials = [e for e in mine if e.get("kind") == "trial"]
+    rule, kind = exp["rule"], rule_kind(exp["rule"])
+    stopped = _halfway(trials, rule, exp.get("strata")) if kind == "fixed" else None
+    used = (trials[:stopped["after_trials"]] if stopped else trials[:rule["trials"]] if kind == "fixed"
+            else _until_verdict(trials, rule))
+    return trials, used, stopped
+
+
+def review_queue(exp: dict, entries: list[dict]) -> tuple[list[dict], str | None]:
+    """The trials whose brief for B awaits your fidelity review apart from the outcomes, in an order drawn from the
+    experiment; or a reason there is nothing to review yet."""
+    if not (policy := _policy(exp)):
+        return [], (f"experiment {exp['name']} has no briefs to review apart from the outcomes: it has no skill "
+                    "treatment in arm B run from task files, and briefs made with your answers are reviewed in the trial.")
+    mine = _lines(exp, entries)
+    _trials, used, stopped = _used(exp, mine)
+    if policy["sample"] and rule_kind(exp["rule"]) == "fixed" and len(used) < exp["rule"]["trials"] and not stopped:
+        return [], (f"the {policy['sample']} briefs to review are drawn once all {exp['rule']['trials']} trials are in "
+                    f"({len(used)} so far): review them then, before you read the score.")
+    made = _reviews(mine)
+    queue = [t for t in _chosen(exp, used) if not _reviewed(_review(t, "b", made))]
+    random.Random(f"{exp['name']}:{exp.get('created')}:order").shuffle(queue)
+    return queue, None
 
 
 def _is_skill(t: dict) -> bool:
@@ -135,13 +200,9 @@ def _is_skill(t: dict) -> bool:
 
 def summary(exp: dict, entries: list[dict]) -> dict:
     """Every number in the report, from the log lines of one experiment. `score --json` prints this."""
-    created = exp.get("created")                    # lines from an older experiment of the same name don't count
-    mine = [e for e in entries if e.get("experiment") == exp["name"] and e.get("experiment_created", created) == created]
-    trials = [e for e in mine if e.get("kind") == "trial"]
+    mine = _lines(exp, entries)
+    trials, used, stopped = _used(exp, mine)
     rule, kind = exp["rule"], rule_kind(exp["rule"])
-    stopped = _halfway(trials, rule, exp.get("strata")) if kind == "fixed" else None
-    used = (trials[:stopped["after_trials"]] if stopped else trials[:rule["trials"]] if kind == "fixed"
-            else _until_verdict(trials, rule))
     interim = kind == "fixed" and len(used) < rule["trials"] and not stopped   # no test before all N are in
     winners = [t["decision"]["winner"] for t in used if t["decision"]["winner"] in ("a", "b")]
     wins, losses = winners.count("b"), winners.count("a")
@@ -167,19 +228,31 @@ def summary(exp: dict, entries: list[dict]) -> dict:
     changes = {"time": _changes(used, "seconds"), "tokens": _changes(used, "tokens")}
     time, tokens = (median(changes[name]) if changes[name] else None for name in ("time", "tokens"))
     over = [name for name, value in (("time", time), ("tokens", tokens)) if value is not None and value > exp["cap_percent"]]
-    fidelity = {s: _fidelity(used, s) if _is_skill(exp[s]) else None for s in "ab"}
+    made, policy = _reviews(mine), _policy(exp)
+    fidelity = {s: _fidelity(used, s, made) if _is_skill(exp[s]) else None for s in "ab"}
     order = {id(e): i for i, e in enumerate(mine)}
     failed = [e for e in mine if e.get("kind") == "failed" and not e.get("aa")]
     rerun = [f for f in failed if any(_task(t) == _task(f) and order[id(t)] > order[id(f)] for t in trials)]
     unresolved = len(failed) - len(rerun)
-    # With the stand-in requester nobody reviews a brief during the trial, so each waits for your review apart from the
-    # outcomes, and until every one of B's briefs has had it, B can't be adopted (added 2026-11-10).
-    waiting = (sum(not any(v is not None for v in ((t.get("fidelity") or {}).get("b") or {}).values()) for t in used)
-               if exp.get("render") == RENDER_STAND_IN and _is_skill(exp["b"]) else 0)
+    # With the stand-in requester nobody reviews a brief during the trial: the briefs the policy chooses wait for your
+    # review apart from the outcomes, and until each has it, or when more fail than the policy allows, B can't be
+    # adopted (added 2026-11-10; the policy since 2026-11-11).
+    review = None
+    if policy:
+        chosen = _chosen(exp, used)
+        review = {"policy": policy, "chosen": len(chosen),
+                  "waiting": sum(not _reviewed(_review(t, "b", made)) for t in chosen),
+                  "unfaithful": sum(any(v is True for v in (_review(t, "b", made) or {}).values()) for t in chosen)}
+        unfaithful = ([f"{review['unfaithful']} of the briefs chosen for review failed your fidelity review, and at "
+                       f"most {policy['max_unfaithful']} may"] if review["unfaithful"] > policy["max_unfaithful"] else [])
+        waiting = ([f"{review['waiting']} of the {len(chosen)} briefs chosen for review "
+                    f"{'have' if review['waiting'] != 1 else 'has'} no fidelity review yet"] if review["waiting"] else [])
+    else:
+        unfaithful = ([f"{fidelity['b']['failed']} of its briefs failed your fidelity review"]
+                      if fidelity["b"] and fidelity["b"]["failed"] else [])
+        waiting = []
     blocked = ([f"its median extra {' and '.join(over)} is over your {exp['cap_percent']:g}% cap"] if over else []) \
-        + ([f"{fidelity['b']['failed']} of its briefs failed your fidelity review"]
-           if fidelity["b"] and fidelity["b"]["failed"] else []) \
-        + ([f"{waiting} of its briefs {'have' if waiting != 1 else 'has'} no fidelity review yet"] if waiting else []) \
+        + unfaithful + waiting \
         + ([f"{unresolved} trial{'s' if unresolved != 1 else ''} failed before a comparison and "
             f"{'were' if unresolved != 1 else 'was'} not rerun on the same task"] if unresolved else []) \
         + ([f"a loss of up to {-bound['lower'] * 100:.0f} points on {bound['stratum']} is not ruled out, and at most "
@@ -210,7 +283,7 @@ def summary(exp: dict, entries: list[dict]) -> dict:
         "verdict": {"state": state, "rule_wins": rule_wins, "rule_pairs": rule_pairs, "blocked_by": blocked,
                     "adopted": state in ("adopt", "benefit") and not blocked, "harm_bound": bound,
                     "stopped": stopped},
-        "fidelity": fidelity,
+        "fidelity": fidelity, "fidelity_review": review,
         "extra_cost_median_percent": {"time": time, "tokens": tokens}, "cap_percent": exp["cap_percent"],
         "extra_cost_interval_percent": None if interim else {
             name: list(band) if (band := median_interval(values)) else None for name, values in changes.items()},
@@ -226,7 +299,7 @@ def summary(exp: dict, entries: list[dict]) -> dict:
                    "noise_checks": sum(e.get("kind") == "failed" and bool(e.get("aa")) for e in mine)},
         "worker_models": sorted({m for t in trials for m in (t["arms"]["a"]["model"], t["arms"]["b"]["model"]) if m}),
         "worker_versions": worker_versions,
-        "scope": {"experiment_created": created, "render": exp.get("render"), "templates": exp.get("templates"),
+        "scope": {"experiment_created": exp.get("created"), "render": exp.get("render"), "templates": exp.get("templates"),
                   "treatments": {s: {k: exp[s].get(k) for k in ("spec", "kind", "sha256", "version")} for s in "ab"},
                   "rewriter": _settings(exp.get("rewriter")), "judge": _settings(exp.get("judge")),
                   "task_types": {k: sum((t.get("task") or {}).get("type") == k for t in used)

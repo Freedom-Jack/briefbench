@@ -372,7 +372,7 @@ def test_a_stand_in_experiment_adopts_nothing_until_its_briefs_are_reviewed(agen
         assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
     verdict = score.summary(experiment.load("exp", os.environ), entries())["verdict"]
     assert verdict["state"] == "benefit" and not verdict["adopted"]
-    assert "10 of its briefs have no fidelity review yet" in verdict["blocked_by"]
+    assert "10 of the 10 briefs chosen for review have no fidelity review yet" in verdict["blocked_by"]
 
 
 def test_a_task_file_with_bad_facts_is_refused(agents, repo, tmp_path):

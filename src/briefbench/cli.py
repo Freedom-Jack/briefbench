@@ -93,6 +93,10 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
                                                               "frozen by hash, reserves included")
     i.add_argument("--seed-source", metavar="TEXT", help="with --tasks: where the generator's seed came from, such as "
                                                          "a public randomness beacon's round")
+    i.add_argument("--review-sample", type=int, metavar="N", help="with a skill treatment scored by the check alone: "
+                   "review the fidelity of a random N of B's briefs instead of all of them")
+    i.add_argument("--unfaithful-max", type=int, metavar="M", help="with a skill treatment scored by the check alone: "
+                   "the most of B's reviewed briefs that may fail the fidelity review (default 0)")
     i.add_argument("-y", "--yes", action="store_true", help="freeze without asking to confirm the commands")
     a = commands.add_parser("ab", allow_abbrev=False, help="run one trial in the current repo")
     a.add_argument("prompt", nargs="?", help="the task's prompt, in quotes, or - to paste it")
@@ -241,6 +245,14 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     roles["asker"] = _asker(roles["rewriter"], args.scoring) if roles["rewriter"] else None
     # Task files have nobody to answer the skill's questions: the stand-in requester answers from each one's facts.
     roles["answerer"] = _answerer(roles["rewriter"]) if roles["rewriter"] and args.scoring == "check" else None
+    review = None                     # how the briefs written for task files are reviewed, apart from the outcomes
+    if roles["answerer"]:
+        review = {"sample": args.review_sample, "max_unfaithful": args.unfaithful_max or 0}
+        if (args.review_sample is not None and args.review_sample < 1) or review["max_unfaithful"] < 0:
+            raise UsageError("--review-sample is at least 1 brief, and --unfaithful-max at least 0.")
+    elif args.review_sample is not None or args.unfaithful_max is not None:
+        raise UsageError("--review-sample and --unfaithful-max set how briefs written for task files are reviewed: "
+                         "they go with a skill treatment and --scoring check.")
     judge_name = args.judge or con.pick("Judge: an agent CLI from a third vendor, or none", names + ["none"], "none")
     roles["judge"] = None
     if judge_name != "none":
@@ -254,6 +266,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     frozen = {"format": experiment.FORMAT, "name": args.name, "created": utc_now(), "briefbench_version": __version__,
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
               "rule": rule, "scoring": args.scoring, "strata": strata, **stage, "bench": _bench_commit(),
+              "fidelity_policy": review,
               "render": (experiment.RENDER_STAND_IN if roles["answerer"] else experiment.RENDER)
               if roles["rewriter"] else None,
               "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
@@ -266,7 +279,9 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
             + (f" Kinds of task, tested apart: {strata['help']}, where B should help, is tested; {strata['harm']}, "
                f"where it could hurt, must show no loss over {strata['margin'] * 100:g} points." if strata else "")
             + (" The skill's questions are answered by a stand-in requester, from each task file's facts, and its "
-               "briefs wait for a fidelity review you make apart from the outcomes." if roles["answerer"] else "")
+               "briefs wait for a fidelity review you make apart from the outcomes, with scripts/review_briefs.py: "
+               + ("all of them" if not review["sample"] else f"a random {review['sample']} of them")
+               + f", of which at most {review['max_unfaithful']} may fail." if roles["answerer"] else "")
             + f" Stage: {experiment.stage_text(stage)}."
             + (f" Materials: {len(m['tasks'])} task files of {m['set']}, frozen by hash." if (m := stage["materials"])
                else ""))
@@ -947,7 +962,8 @@ def _fidelity(specs, prompts, out, con, ask=True) -> dict | None:
         if specs[s]["kind"] != "skill" or (s == "b" and specs["b"]["spec"] == specs["a"]["spec"]):
             continue                                 # in a noise check, both arms got the same brief
         if not ask:
-            con.say(f"Arm {s.upper()}'s brief ({specs[s]['spec']}) waits for your fidelity review: {out / f'{s}.prompt.md'}")
+            con.say(f"Arm {s.upper()}'s brief ({specs[s]['spec']}) waits for your fidelity review, made apart from the "
+                    "outcomes with scripts/review_briefs.py.")
             review[s] = {key: None for key, _question in FIDELITY}
             continue
         con.say(f"\nNow check the brief that arm {s.upper()} got ({specs[s]['spec']}) against what you asked. It is "
