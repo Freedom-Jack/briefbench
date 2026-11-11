@@ -27,12 +27,14 @@ Yes: it is the skill's core move. Version 0.2.0 asks up to three questions, only
 
 ## Proposed comparison
 
-Materials: requests with real gaps, a stand-in requester who knows the missing facts and answers only by quoting them, and a check that depends on those facts ([design](../docs/design.md), "Tricks need matching materials").
+Materials: requests with real gaps, a stand-in requester who knows the missing facts and answers only by quoting them, and a check that depends on those facts ([design](../docs/design.md), "Tricks need matching materials"). Since 11 Nov 2026, set `missing-fact/1`: a request for one rate from one table, which in `gap` tasks leaves out which group or from which month the requester means, and in `no-gap` tasks states it.
 
 First growth round: `original` against `skill:variants/questions-first`, a skill holding only the frame and this one instruction. Then `clarified` against the same variant, to tell the information in the answers apart from the rewrite. Scored by the check, with each brief's fidelity reviewed before you see any outcome. Run it on Claude Code and on Codex, and report each worker separately.
 
 ## Status
 
-candidate: the stand-in requester was built on 10 Nov 2026 and checked live through Claude Code; its materials with gaps, and a fidelity review made apart from the outcomes, are still owed before a round ([build plan](../docs/build-plan.md), P3).
+candidate: ready for round 1, waiting for the maintainer's yes. The stand-in requester was built on 10 Nov 2026, the materials with gaps and the fidelity review made apart from the outcomes on 11 Nov ([build plan](../docs/build-plan.md), P3). The round's plan is drafted, not yet published: [plans/questions-first-1.md](plans/questions-first-1.md).
+
+Calibration, development data, not evidence. On 11 Nov 2026 the plain prompt ran twice on each of 30 tasks from a calibration seed (Claude Code 2.1.321, `claude-opus-5-5`): it failed all 40 runs on `gap` tasks and passed all 20 on `no-gap` tasks, and two runs never disagreed. In 34 of the 40 failures the agent saw the gap, declined to guess, and asked for the missing fact; a one-shot handoff can't answer it. In the other 6 it guessed a start month. A smoke trial of the whole pipeline on two throwaway tasks found the variant asking for the missing month and passing where the plain prompt failed: one trial, so no evidence of an effect.
 
 briefbench evidence: none yet.
