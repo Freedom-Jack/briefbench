@@ -1,8 +1,8 @@
 # Plan: round 1 of the skill's growth, "let the agent interview you"
 
-**Draft, written 2026-11-11. Not yet published.** It becomes the published plan when the maintainer approves it, the
-beacon round below is filled in, and the commit is pushed to GitHub, all before any test task exists. Until then
-nothing here is final. Card: [Let the agent interview you before it starts](../ask-questions-first.md). Method:
+**Published 2026-11-11, before any test task existed.** The maintainer approved it on 2026-11-11; the commit that
+adds this line fixes the plan, and nothing in it changes once the tasks exist. Card: [Let the agent interview you
+before it starts](../ask-questions-first.md). Method:
 [docs/design.md](../../docs/design.md), "A method for public results", and
 [docs/experiment-protocol.md](../../docs/experiment-protocol.md), sections 4, 8, 10, 11 and 12.
 
@@ -39,7 +39,12 @@ Code 2.1.321, `claude-opus-5-5`):
 - `no-gap`: 20 of 20 passed; the two runs never disagreed (0 of 10 tasks).
 
 The plain prompt fails far more often than twice the smallest gain worth detecting (30%), so the materials leave room.
-Checker audit (20 calibration reports labelled blind to the check): **pending**.
+Checker audit, on 2026-11-11 (`scripts/audit_check.py`): the maintainer labelled 20 calibration reports drawn at
+random, without seeing the check's verdict, as giving the planted rate as their final answer or not. The check agreed
+with 19 of the 20 labels. The twentieth report had no `Answer:` line: it gave the rate for each of five possible start
+months, the planted one among them, and left the choice to the requester. The maintainer had labelled it as naming the
+planted answer; on reading it again, they judged that it gives no final answer, so the check was right to fail it. The
+checker is unchanged.
 
 ## Size, rule and labels
 
@@ -50,15 +55,25 @@ Checker audit (20 calibration reports labelled blind to the check): **pending**.
 - **Task list.** The generator writes 58 `gap` and 76 `no-gap` tasks in its interleaved order. The list frozen with the
   test holds the first 52 `gap` and the first 69 `no-gap` of them in that order, then the other 13 as reserves, run only
   in place of a task whose trial failed twice.
-- **Rule.** `briefbench init --a original --b skill:variants/questions-first --scoring check --rule fixed:121
-  --net-min 0 --strata gap,no-gap --margin 0.10 --futility-at 26 --stage test --plan-commit <this commit> --tasks <list>
-  --seed-source "<the beacon round>" --review-sample 40 --unfaithful-max 1`: the exact two-sided McNemar test at 5% on
+- **Rule.** `briefbench init questions-first-round1 --a original --b skill:variants/questions-first --worker
+  claude-code --worker-model claude-opus-5-5 --rewriter claude-code --rewriter-model claude-opus-5-5 --judge none
+  --cap 400 --timeout 20 --scoring check --rule fixed:121 --net-min 0 --strata gap,no-gap --margin 0.10 --futility-at 26
+  --stage test --plan-commit <this commit> --plan-url <its link> --tasks <list> --seed-source "<the beacon round>"
+  --review-sample 40 --unfaithful-max 1`: the exact two-sided McNemar test at 5% on
   `gap`; on `no-gap`, "no loss over 10 points" when the lower end of Tango's 95% interval is above -10 points. The
   smallest gain worth detecting is 15 points; the net-preference threshold is 0.
 - **Halfway look.** After 26 `gap` trials the test stops unless B has won more decided `gap` pairs than A. It can only
   stop without a win.
 - **Fidelity.** A random 40 of B's briefs, drawn from the experiment once all trials are in, are reviewed with
   `scripts/review_briefs.py` before anyone reads the score; B is adopted only if at most one of them fails.
+- **Cost cap.** 400%: B is not adopted if, over all trials, its median extra time or its median extra tokens is more
+  than four times A's, so B may use up to five times what A uses. B's cost includes the skill's two headless calls (its
+  questions and its brief), not the stand-in requester's answers. The cap is high because the two arms do different
+  amounts of work on `gap` tasks: there the plain prompt mostly stops early to ask for the missing fact (in the
+  calibration, a median of about 20 seconds and 0.09 million tokens), while B first runs three short headless calls
+  (about 70,000 tokens and 40 seconds in all) and then does the analysis, so B's median time could be about three
+  times A's even when B helps. A one-trial smoke test gave B about 210% more time and 60% more tokens than A on a
+  complete prompt.
 - **Before reading the verdict,** a person reads both arms' final `Answer:` lines in every decided pair, to catch a
   checker error.
 - **Labels** (protocol, section 10): "better in one test" (p ≤ 0.05 with B ahead on `gap`, and no loss over 10 points
@@ -71,7 +86,7 @@ Checker audit (20 calibration reports labelled blind to the check): **pending**.
 ## Seed
 
 From drand's quicknet beacon (chain `52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971`, a value every 3
-seconds, read with `curl`): round **R = to be filled in when this plan is published, about one hour after the push**.
+seconds, read with `curl`): round **33874640**, which the beacon publishes at 20:01:24 UTC on 11 November 2026, about one hour after this plan was pushed.
 The generator's seed is the first 8 hexadecimal digits of that round's `randomness`, read as a number. Anyone can
 regenerate the tasks from the published generator and the seed.
 
