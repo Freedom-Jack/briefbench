@@ -1,7 +1,7 @@
 # Plan: round 2 of the skill's growth, "let the agent interview you", with a fixed rule for skipped questions
 
-**Draft, not published.** Prepared on 2026-11-14 and waiting for the maintainer's decision. Nothing here is fixed until
-the commit that publishes it, which also writes in the beacon round below; nothing in it changes once the tasks exist.
+**Published 2026-11-14, before any test task existed.** The maintainer approved it on 2026-11-14; the commit that
+adds this line fixes the plan and writes in the beacon round below, and nothing in it changes once the tasks exist.
 Card: [Let the agent interview you before it starts](../ask-questions-first.md). Model: round 1's plan,
 [questions-first-1.md](questions-first-1.md). Method: [docs/design.md](../../docs/design.md), "A method for public
 results", and [docs/experiment-protocol.md](../../docs/experiment-protocol.md), sections 4, 8, 10, 11 and 12. Anything
@@ -198,10 +198,10 @@ it can't replace the check as the gate.
 ## Seed
 
 From drand's quicknet beacon (chain `52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971`, a value every 3
-seconds, read with `curl`): round **<R>**, which the beacon publishes about one hour after this plan is pushed. The
-commit that publishes the plan writes in R and its time; R is (t − 1692803367) / 3 + 1 for a publication time t in Unix
-seconds. The generator's seed is the first 8 hexadecimal digits of that round's `randomness`, read as a number. Anyone
-can regenerate the tasks from the published generator and the seed.
+seconds, read with `curl`): round **33964869**, which the beacon publishes at 23:12:51 UTC on 14 November 2026, about one
+hour after this plan was pushed (round r is published at Unix time 1692803367 + 3 × (r − 1)). The generator's seed is
+the first 8 hexadecimal digits of that round's `randomness`, read as a number. Anyone can regenerate the tasks from the
+published generator and the seed.
 
 ## Decisions settled for this round
 
