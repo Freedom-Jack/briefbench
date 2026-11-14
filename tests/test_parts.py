@@ -1,4 +1,5 @@
 """Unit tests: agent presets, treatments and the runner's timeout."""
+import json
 import sys
 from pathlib import Path
 
@@ -35,6 +36,12 @@ def test_replies_are_parsed_from_each_cli():
     structured = AGENTS["claude-code"].parse('{"result":"","structured_output":{"verdict":"[[A=B]]"}}')
     assert structured.text == '{"verdict": "[[A=B]]"}'
     assert AGENTS["claude-code"].parse('{"is_error":true,"subtype":"error_max_turns"}').error == "error_max_turns"
+    # A usage limit, as Claude Code 2.1.321 ended a run in round 1: subtype success, the message in result
+    limit = '{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"You\'ve hit it"}'
+    assert AGENTS["claude-code"].parse(limit).error == "HTTP 429: You've hit it"
+    errors = '{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["no sandbox"," "]}'
+    assert AGENTS["claude-code"].parse(errors).error == "error_during_execution: no sandbox"
+    assert AGENTS["claude-code"].parse('{"type":"result","subtype":"success","is_error":true}').error == "error"
     assert AGENTS["claude-code"].parse("not json").error
     cut = '{"type":"system","subtype":"init"}\n{"type":"assistant","message":{"content":[]}}\n'    # no result line
     assert AGENTS["claude-code"].parse(cut).error == "no JSON result on stdout"
@@ -47,6 +54,33 @@ def test_replies_are_parsed_from_each_cli():
         '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":8,"output_tokens":2}}\n')
     assert (codex.text, codex.tokens, codex.model, codex.error) == ("two", 12, None, None)
     assert AGENTS["codex"].parse('{"type":"turn.failed","error":{"message":"usage limit"}}').error == "usage limit"
+
+
+def test_the_scan_skips_the_path_in_claude_codes_notice_of_a_saved_output_but_not_a_use_of_it():
+    """Claude Code saves a tool's large output in the session's own folder under ~/.claude/projects and names that file
+    in the tool's result. Only that path leaves what the scan reads: the preview stays, and so does any other mention,
+    such as the agent opening the file."""
+    saved, actions = "/home/u/.claude/projects/-w/s-1/tool-results/toolu_1.txt", AGENTS["claude-code"].actions
+    notice = (f"<persisted-output>\nOutput too large (47.3KB). Full output saved to: {saved}\n\nPreview (first 2KB):"
+              "\n2:see /home/u/.briefbench/keys\n</persisted-output>")
+
+    def result(text, call="toolu_1", session="s-1", parts=False):
+        return json.dumps({"type": "user", "session_id": session, "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": call,
+             "content": [{"type": "text", "text": text}] if parts else text}]}})
+    for line in (result(notice), result(notice, parts=True)):
+        seen = actions(line)
+        assert ".claude/projects" not in seen and "saved to: [the CLI's own file]" in seen
+        assert "/home/u/.briefbench/keys" in seen               # what the tool returned is still scanned
+    # another call's file, another session's, a notice that isn't the whole result, and one that isn't a result
+    assistant = {"type": "assistant", "session_id": "s-1", "message": {"role": "assistant", "content": [
+        {"type": "text", "text": notice}]}}
+    for line in (result(notice, call="toolu_9"), result(notice, session="s-9"), result("Found:\n" + notice),
+                 json.dumps(assistant)):
+        assert saved in actions(line)
+    assistant["message"]["content"] = [{"type": "tool_use", "id": "toolu_2", "name": "Read",
+                                         "input": {"file_path": saved}}]
+    assert saved in actions(result(notice) + "\n" + json.dumps(assistant))      # opened afterwards: still a look
 
 
 def test_login_reports():

@@ -54,6 +54,16 @@ if role == "asker":
     mode = env.get("FAKE_ASKER", "one")
     if mode == "peek":                          # a headless call that looked somewhere: $FAKE_PEEK_FILE says where
         print(Path(env["FAKE_PEEK_FILE"]).read_text(), file=sys.stderr)
+    # A Grep's output too large for its result: Claude Code saved it in the session's own folder and said where, as
+    # 2.1.321 did in round 1. With saved-read, the call then opened that file.
+    if mode in ("saved", "saved-read"):
+        saved = f"{env['HOME']}/.claude/projects/{os.getcwd().replace('/', '-')}/s-1/tool-results/toolu_1.txt"
+        print(json.dumps({"type": "user", "session_id": "s-1", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "<persisted-output>\nOutput too large "
+             f"(47.3KB). Full output saved to: {saved}\n\nPreview (first 2KB):\n2:,2026-05,\n</persisted-output>"}]}}))
+        if mode == "saved-read":
+            print(json.dumps({"type": "assistant", "session_id": "s-1", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_2", "name": "Read", "input": {"file_path": saved}}]}}))
     if mode == "fail":
         print("asker crashed", file=sys.stderr)
         sys.exit(1)
@@ -85,9 +95,10 @@ elif role == "worker":
     mode = env.get("FAKE_WORKER", "good")
     if mode == "sleep":
         time.sleep(60)
-    if mode == "limit":                         # stopped by the plan's usage limit: the CLI reports a failed turn
-        if name == "claude":
-            print(json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": ""}))
+    if mode == "limit" or (mode == "limit-b" and "BRIEF" in prompt):     # stopped by the plan's usage limit, as
+        if name == "claude":                    # Claude Code 2.1.321 reported it in round 1: subtype success
+            print(json.dumps({"type": "result", "subtype": "success", "is_error": True, "api_error_status": 429,
+                              "result": env.get("FAKE_LIMIT", "You've hit your usage limit · resets 7pm")}))
         else:
             print(json.dumps({"type": "turn.failed", "error": {"message": "You've hit your usage limit."}}))
         sys.exit(1)
