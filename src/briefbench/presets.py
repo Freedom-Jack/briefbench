@@ -97,8 +97,8 @@ class Agent:
     # The variable that moves the CLI's own temporary folder, set to a folder of each arm's own. It needs a short path:
     # given a long one, Claude Code 2.1.317 falls back to the shared /tmp/claude-{uid} (checked on 2026-11-09).
     temp_env: str = ""
-    # stdout -> what the agent did and said, for the scan for forbidden folders: the CLI's own start-up report goes,
-    # since it names folders the CLI keeps for itself, such as the arm's own memory folder under ~/.claude/projects.
+    # stdout -> what the agent did and said, for the scan for forbidden folders: what the CLI says of itself goes, such
+    # as its start-up report, which names the arm's own memory folder under ~/.claude/projects.
     actions: Callable[[str], str] = lambda stdout: stdout
 
     def find(self) -> str | None:
@@ -127,16 +127,54 @@ def _int(value) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
+# Claude Code's notice, as a tool's whole result, that the output was too large, so it saved it in the session's own
+# folder: "<persisted-output>\nOutput too large (47.3KB). Full output saved to: ~/.claude/projects/<folder>/<session>/
+# tool-results/<tool call>.txt\n\nPreview (first 2KB): ...", as 2.1.321 printed it in round 1 (2026-11-11).
+_SAVED = re.compile(r"^(.*saved to: )(/.+)$", re.M)
+
+
 def _claude_actions(stdout: str) -> str:
-    """stream-json without its first event, the start-up report (type system, subtype init): it lists the session's
-    own folders, among them its memory folder under ~/.claude/projects, before the agent has done anything."""
-    def startup(line: str) -> bool:
+    """stream-json without what the CLI says of itself. Its start-up report goes (type system, subtype init): it lists
+    the session's own folders, among them its memory folder under ~/.claude/projects, before the agent has done
+    anything. So does the path in its notice that it saved a tool's large output in the session's own folder there:
+    in round 1 that notice flagged six trials, though no call opened the file (fixed 2026-11-14). The rest of the
+    notice stays, and the path still counts wherever else it appears, as when the agent reads the file."""
+    kept = []
+    for line in stdout.splitlines():
         try:
             event = json.loads(line)
         except ValueError:
-            return False
-        return isinstance(event, dict) and event.get("type") == "system" and event.get("subtype") == "init"
-    return "\n".join(line for line in stdout.splitlines() if not startup(line))
+            event = None
+        if not isinstance(event, dict):
+            kept.append(line)
+        elif not (event.get("type") == "system" and event.get("subtype") == "init"):
+            kept.append(json.dumps(event, ensure_ascii=False) if _unsaved(event) else line)
+    return "\n".join(kept)
+
+
+def _unsaved(event: dict) -> bool:
+    """Takes the path out of the CLI's saved-output notices in this event's tool results, in place, and says whether
+    it found one. A notice is a tool result that starts with <persisted-output>, and only its own file's path goes: in
+    the session's tool-results folder, named after the tool call whose result the notice is."""
+    message, session, found = event.get("message"), event.get("session_id"), False
+    content = message.get("content") if isinstance(message, dict) else None
+    if event.get("type") != "user" or not isinstance(content, list) or not session or not isinstance(session, str):
+        return False
+    for block in content:
+        call = block.get("tool_use_id") if isinstance(block, dict) and block.get("type") == "tool_result" else None
+        if not call or not isinstance(call, str):
+            continue
+        own = re.compile(rf"/projects/[^/]+/{re.escape(session)}/tool-results/{re.escape(call)}(\.\w+)?$")
+        inner = block.get("content")             # the result's text, or a list of parts
+        texts = ([(block, "content")] if isinstance(inner, str)
+                 else [(p, "text") for p in (inner if isinstance(inner, list) else []) if isinstance(p, dict)])
+        for holder, key in texts:
+            text = holder.get(key)
+            if isinstance(text, str) and text.startswith("<persisted-output>"):
+                holder[key] = _SAVED.sub(lambda m: m.group(1) + "[the CLI's own file]" if own.search(m.group(2))
+                                         else m.group(0), text)
+                found = found or holder[key] != text
+    return found
 
 
 def _claude_reply(stdout: str) -> Reply:
@@ -160,7 +198,19 @@ def _claude_reply(stdout: str) -> Reply:
     model = max(models, key=lambda m: _int((models[m] or {}).get("outputTokens"))) if models else None
     found = data.get("structured_output")
     text = json.dumps(found) if found is not None else str(data.get("result") or "")
-    return Reply(text, tokens or None, model, str(data.get("subtype") or "error") if data.get("is_error") else None)
+    return Reply(text, tokens or None, model, _claude_error(data) if data.get("is_error") else None)
+
+
+def _claude_error(data: dict) -> str:
+    """A failed run's own message: its result text, or an error subtype's errors, after the HTTP status of an API
+    error, such as "HTTP 429: You've hit your usage limit ...". The subtype alone says little: in round 1 a usage
+    limit ended with subtype success (2.1.321, 2026-11-11), so before 2026-11-14 the bench reported "(success)"."""
+    errors = data.get("errors") if isinstance(data.get("errors"), list) else []
+    said = (str(s).strip() for s in [data.get("result") or "", *errors])
+    message = "; ".join(dict.fromkeys(s for s in said if s))
+    status, subtype = data.get("api_error_status"), str(data.get("subtype") or "")
+    label = f"HTTP {status}" if _int(status) else "" if subtype == "success" else subtype
+    return f"{label}: {message}" if label and message else message or label or "error"
 
 
 def _codex_reply(stdout: str) -> Reply:

@@ -10,6 +10,7 @@ import pytest
 
 from briefbench import cli
 from briefbench.log import read_entries
+from conftest import KEY
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "brief"
 
@@ -346,6 +347,22 @@ def test_a_headless_call_that_names_a_denied_place_flags_the_arms_it_reached(age
     assert next(c for c in t["task"]["headless"] if c["step"] == "questions-1")["looked_outside"]
 
 
+def test_the_clis_own_notice_of_a_saved_output_is_not_a_look_but_opening_the_file_is(agents, repo, tmp_path,
+                                                                                    monkeypatch):
+    """Round 1's six false flags: a skill's headless call got a Grep output too large for its result, which Claude Code
+    saved under ~/.claude/projects and named in its notice, and no call opened the file."""
+    Path(os.environ["HOME"], ".claude", "projects").mkdir(parents=True)
+    stand_in(repo)
+    for mode in ("saved", "saved-read"):
+        monkeypatch.setenv("FAKE_ASKER", mode)
+        assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
+    notice, opened = entries()
+    assert "/.claude/projects/" in Path(notice["output"], "questions-1.out").read_text()    # kept there as printed
+    for t, flagged in ((notice, False), (opened, True)):
+        assert next(c for c in t["task"]["headless"] if c["step"] == "questions-1")["looked_outside"] is flagged
+        assert t["arms"]["b"]["looked_outside"] is flagged and t["arms"]["a"]["looked_outside"] is False
+
+
 def test_an_older_skill_experiment_without_the_stand_in_cant_run_task_files(agents, repo, tmp_path):
     from briefbench import experiment
     stand_in(repo)
@@ -440,6 +457,26 @@ def test_an_arm_stopped_by_the_service_fails_the_trial_instead_of_losing_it(agen
     assert code == 4 and "measures the service" in err
     [f] = entries()
     assert f["kind"] == "failed" and f["stage"] == "run" and "reported an error" in f["error"]
+
+
+def test_a_failed_trial_gives_each_arms_error_in_the_clis_words_without_keys(agents, repo, tip, tmp_path,
+                                                                             monkeypatch):
+    """In round 1 a usage limit ended both arms with subtype success, and the bench said "(success)", hiding the
+    message. Now the message says what the CLI said, after its HTTP status, with key values scrubbed."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
+    monkeypatch.setenv("FAKE_LIMIT", f"You've hit your usage limit · key {KEY} · resets 7pm (America/Toronto)")
+    monkeypatch.setenv("FAKE_WORKER", "limit")
+    init(repo, f"snippet:{tip}", "--rule", "fixed:10", "--net-min", "0.05", "--scoring", "check")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)
+    said = ("briefbench: arms A and B both reported an error: HTTP 429: You've hit your usage limit · key [redacted] · "
+            "resets 7pm (America/Toronto). With the check alone deciding, that measures the service")
+    assert code == 4 and said in err and entries()[-1]["error"] == said.removeprefix("briefbench: ") + (
+        ", not the prompt, so the trial is logged as failed: rerun its task once.")
+    monkeypatch.setenv("FAKE_WORKER", "limit-b")                    # only B's worker reached the limit
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)
+    assert code == 4 and "briefbench: arm B reported an error: HTTP 429: You've hit" in err and "arm A" not in err
+    log = Path(os.environ["BRIEFBENCH_HOME"], "log.jsonl").read_text()
+    assert KEY not in err + log and "(success)" not in log and [e["kind"] for e in entries()] == ["failed"] * 2
 
 
 def test_the_worker_never_gets_the_hidden_check_and_works_sandboxed(agents, repo, tip, tmp_path):

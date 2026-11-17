@@ -586,11 +586,14 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
                     arms[s]["looked_outside"] |= any(c.get("looked_outside") for c in _calls_for(specs[s], exp,
                                                                                                 task["headless"]))
             # An arm stopped at the timeout is an outcome; one that ended in an error, such as a usage limit or a
-            # sandbox that didn't start, measured the service.
-            if scoring == "check" and (hit := [s for s in "ab" if arms[s]["error"] and not arms[s]["timed_out"]]):
-                raise AgentError(f"arm {hit[0].upper()} reported an error ({arms[hit[0]]['error']}). With the check "
-                                 "alone deciding, that measures the service, not the prompt, so the trial is logged "
-                                 "as failed: rerun its task once.")
+            # sandbox that didn't start, measured the service. The message gives each arm's error in the CLI's words.
+            said = {s: " ".join(arms[s]["error"].split()).removesuffix(".") for s in "ab"
+                    if arms[s]["error"] and not arms[s]["timed_out"]}
+            if scoring == "check" and said:
+                cause = (f"arms A and B both reported an error: {said['a']}" if said.get("a") == said.get("b")
+                         else "; ".join(f"arm {s.upper()} reported an error: {e}" for s, e in said.items()))
+                raise AgentError(f"{scrub(cause, secrets)}. With the check alone deciding, that measures the service, "
+                                 "not the prompt, so the trial is logged as failed: rerun its task once.")
         except (AgentError, ConfigError) as e:   # kept, so a step that keeps failing on some tasks shows in score
             append(log_path, header("failed") | base | {"aa": args.aa, "stage": stage, "task": task, "error": str(e),
                                                        "treatments": {s: specs[s]["spec"] for s in "ab"},
