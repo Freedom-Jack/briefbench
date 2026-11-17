@@ -7,7 +7,7 @@ briefbench has two separate parts:
 - **`brief`**, an Agent Skill in [skills/brief/](skills/brief/). It improves a prompt, then stops. It keeps no records.
 - **`briefbench`**, a CLI in [src/briefbench/](src/briefbench/). It runs blind paired trials of two prompt treatments on your own repo tasks. It calls models only through agent CLIs logged in with your own plans, such as Claude Code and Codex, never through paid APIs.
 
-No experiment has been completed yet, so nothing here shows that the skill improves results. Finding out is part of the work.
+One experiment has been completed, round 1 of the skill's growth, and its result was "worse" ([card](claims/ask-questions-first.md)). Nothing here shows that the skill improves results. Finding out is part of the work.
 
 ## Two ways to help
 

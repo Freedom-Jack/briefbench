@@ -4,7 +4,7 @@ A claim card records one prompting claim: a single recommendation that can be tr
 
 Each card says who made the claim, what outside evidence exists, whether the claim could ever belong in the `brief` skill, and how briefbench could test it.
 
-**A card is not an endorsement.** It does not mean the claim is true, that briefbench recommends it, or that the skill will adopt it. **No card has briefbench evidence yet.** No briefbench experiment on any of these claims has run. The outside evidence on each card comes from the project's research reports.
+**A card is not an endorsement.** It does not mean the claim is true, that briefbench recommends it, or that the skill will adopt it. **One card has briefbench evidence so far:** [Let the agent interview you](ask-questions-first.md), tested once, in round 1 of the skill's growth, with the result "worse". No briefbench experiment on the other claims has run. The outside evidence on each card comes from the project's research reports.
 
 ## Where cards live
 
@@ -32,7 +32,7 @@ The seed cards come from the project's research, read on 4 Nov 2026: the [value 
 | [Open with an expert persona](expert-persona.md) | Common advice | wording | no | deferred | — | — | — | — |
 | [Emphasize rules with capitals and CRITICAL](caps-emphasis.md) | Common advice | wording | no | deferred | — | — | — | — |
 | [Test your belief against the raw data](test-your-belief.md) | Rieseberg's essay | specification | conditional | deferred | — | — | — | — |
-| [Let the agent interview you before it starts](ask-questions-first.md) | Claude Code's docs | specification | yes | candidate | — | — | — | — |
+| [Let the agent interview you before it starts](ask-questions-first.md) | Claude Code's docs | specification | yes | tested | first test | [fb23bc3](https://github.com/Freedom-Jack/briefbench/blob/fb23bc35940e3474fdf72bef17f1eb6d8e323983/claims/plans/questions-first-1.md) | 52 + 69 | Worse. `gap`: plain prompt 0% (0 of 52), variant 77% (40 of 52), +77 points (95% CI +64 to +86). `no-gap`: plain prompt 100% (69 of 69), variant 84% (58 of 69), −16 points (95% CI −26 to −9) |
 | [Tell Claude to explore broadly before settling](explore-broadly.md) | Anthropic's Opus 5.5 guide | wording | no | deferred | — | — | — | — |
 | [Make the model write in controlled language](controlled-language.md) | LinkedIn post | wording | conditional | deferred | — | — | — | — |
 | [Use the Karpathy-inspired CLAUDE.md](karpathy-claude-md.md) | Karpathy's post, as a CLAUDE.md file | harness | no | candidate | — | — | — | — |
@@ -43,7 +43,7 @@ The seed cards come from the project's research, read on 4 Nov 2026: the [value 
 - *N*: the trials of each kind of task, such as `130 + 100`.
 - *Result*: the decision label ([protocol](../docs/experiment-protocol.md), section 10), with each arm's pass rate and the difference with its 95% interval, for each kind of task.
 
-**Tests on the board: K = 0.** A trick is marked better only after a second test, on new tasks, agrees with the first ([protocol](../docs/experiment-protocol.md), section 11). If none of the tested tricks did anything, the expected number marked better by chance is at most K / 1,600, which is 0 now. Every test counts in K, null and harmful results included.
+**Tests on the board: K = 1.** A trick is marked better only after a second test, on new tasks, agrees with the first ([protocol](../docs/experiment-protocol.md), section 11). If none of the tested tricks did anything, the expected number marked better by chance is at most K / 1,600, which is 1/1,600 ≈ 0.0006 now. Every test counts in K, null and harmful results included.
 
 `tests/test_claims.py` checks that the first five columns match each card's front matter, and that every row has the board's columns.
 

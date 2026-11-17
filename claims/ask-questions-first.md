@@ -5,7 +5,7 @@ source: Anthropic, Claude Code best practices, "Brainstorm with Claude first" (n
 url: https://code.claude.com/docs/en/best-practices
 retrieved: 2026-11-06
 kind: specification
-status: candidate
+status: tested
 skill_fit: yes
 experiments: [questions-first-round1]
 ---
@@ -33,7 +33,7 @@ First growth round: `original` against `skill:variants/questions-first`, a skill
 
 ## Status
 
-Tested once, in round 1: **worse**. The front matter keeps `status: candidate` until the board row in [README.md](README.md) changes with it to `tested`.
+Tested once, in round 1: **worse**.
 
 Round 2's plan is published, and its test is next. It tests a new candidate, `variants/questions-first-2`: round 1's variant with the rule for a skipped question changed, so that the brief keeps the draft's wording on that point instead of passing the question on as an open choice. The maintainer said yes on 14 Nov 2026, and the plan, [plans/questions-first-2.md](plans/questions-first-2.md), was published the same day, before any of its tasks existed; the tasks come from a drand beacon round about an hour after it. In place of a person's fidelity review, a factual check reads every one of B's briefs beside its task file.
 

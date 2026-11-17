@@ -1,6 +1,6 @@
 # Public project and contribution plan
 
-Status: revised 2026-11-05. It now matches [design.md](design.md), the authoritative design, and the phases in [build-plan.md](build-plan.md). [design-review.md](design-review.md) explains what changed from the 2026-11-04 plan. The skill and the bench are built, and the contribution files are drafted for the maintainer's review. No experiment has run, so nothing here claims that the skill improves results. This document plans the public project. It publishes nothing, and it doesn't authorize uploading private records.
+Status: revised 2026-11-05. It now matches [design.md](design.md), the authoritative design, and the phases in [build-plan.md](build-plan.md). [design-review.md](design-review.md) explains what changed from the 2026-11-04 plan. The skill and the bench are built, and the contribution files are drafted for the maintainer's review. One experiment has run, round 1 of the skill's growth, with the result "worse" ([card](../claims/ask-questions-first.md)), so nothing here claims that the skill improves results. This document plans the public project. It publishes nothing, and it doesn't authorize uploading private records.
 
 Read it with:
 

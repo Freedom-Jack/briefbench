@@ -2,7 +2,7 @@
 
 Status: revised 2026-11-05. This is the record model now: the files the built bench writes, plus claim cards in the repository. The heavier model of 2026-11-04 (eight entity types with revisions, an event index, staging and content-addressed artifacts) is deferred until imports from other tools exist; [design-review.md](design-review.md) says why. Exact fields are in [data-formats.md](data-formats.md), statistics in [experiment-protocol.md](experiment-protocol.md), publication and review in [community.md](community.md).
 
-The records tie a prompting claim to an exactly identified treatment, paired outcomes on real tasks and a decision about the skill. A negative or inconclusive result must fit them as easily as a positive one. No experiment has run, and nothing here shows that the skill improves results.
+The records tie a prompting claim to an exactly identified treatment, paired outcomes on real tasks and a decision about the skill. A negative or inconclusive result must fit them as easily as a positive one. One experiment has run, round 1 of the skill's growth, with the result "worse" ([card](../claims/ask-questions-first.md)); nothing here shows that the skill improves results.
 
 ## Where each concept lives
 
