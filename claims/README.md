@@ -35,6 +35,7 @@ The seed cards come from the project's research, read on 4 Nov 2026: the [value 
 | [Let the agent interview you before it starts](ask-questions-first.md) | Claude Code's docs | specification | yes | candidate | — | — | — | — |
 | [Tell Claude to explore broadly before settling](explore-broadly.md) | Anthropic's Opus 5.5 guide | wording | no | deferred | — | — | — | — |
 | [Make the model write in controlled language](controlled-language.md) | LinkedIn post | wording | conditional | deferred | — | — | — | — |
+| [Use the Karpathy-inspired CLAUDE.md](karpathy-claude-md.md) | Karpathy's post, as a CLAUDE.md file | harness | no | candidate | — | — | — | — |
 
 **The board.** Since 9 Nov 2026 this table is also the board of public results ([design](../docs/design.md), "A method for public results"). Its last four columns record each claim's tests:
 - *Stage*: `first test`, `replicated` (a second test agreed), `not replicated` (a second test didn't agree), or `—` before any test. Development runs, such as pilots and calibrations, never appear here.
