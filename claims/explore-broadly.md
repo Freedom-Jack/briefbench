@@ -21,16 +21,16 @@ Anthropic's prompting guide for Claude Opus 5.5 recommends a system-prompt line 
 
 ## Fit with the brief skill
 
-No. It is a line that could be appended to any task, which the skill avoids (SKILL.md), and it is specific to one model. A result is advice about the worker's setup.
+No. It is a line that could be appended to any task, which the skill avoids (SKILL.md), and it is specific to one model. A result is advice about what to add to the agent's prompt, not about the brief.
 
 ## Proposed comparison
 
-Materials: multi-step tasks whose right answer needs looking in more than one place, with hidden tests or a planted answer ([design](../docs/design.md), "Tricks need matching materials").
+Materials: tasks like the multi-app tasks the guide measured it on, whose right answer needs looking in more than one place, with a hidden check ([design](../docs/design.md), "Tricks need matching materials"). The bench has none yet.
 
-`original` against `snippet:snippets/explore-broadly.md`, which holds the guide's own line, with Claude Code running Opus 5.5 as the worker. The claim is about Opus 5.5, so a Codex worker would test transfer, not the claim. Record the model as Claude Code reports it.
+`original` against `snippet:snippets/explore-broadly.md`, which holds the guide's own line, with Claude Code running Opus 5.5 as the worker. The claim is about Opus 5.5, so a Codex worker would test transfer, not the claim. Record the model as Claude Code reports it. The guide puts the line in the system prompt, and a snippet puts it after the user's prompt; a result must say so.
 
 ## Status
 
-deferred: it needs Claude Code as the worker. Claude Code on this machine is logged in with an enterprise plan, and you haven't yet said which plan the bench may use.
+deferred: it needs tasks like the multi-app tasks the guide measured it on, which the bench doesn't have. The planted-cause tasks of "test your belief" are a different kind of work, so their calibration, which found no room for that trick on Opus 5.5, doesn't settle this one. The worker is Claude Code, your choice since 2026-11-06.
 
 briefbench evidence: none yet.

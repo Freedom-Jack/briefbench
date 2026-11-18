@@ -1,5 +1,7 @@
 # Plan: round 2 of the skill's growth, "let the agent interview you", with a fixed rule for skipped questions
 
+**Note added on 18 Nov 2026, after the round ran.** Like round 1, this round did not test Claude Code's advice to let Claude interview you. It tests round 1's variant of the `brief` skill's own question section, with one sentence the project wrote after reading round 1's losses. Its record is [results/questions-first.md](../results/questions-first.md). The plan below is unchanged from its published commit, fa073d5.
+
 **Published 2026-11-14, before any test task existed.** The maintainer approved it on 2026-11-14; the commit that
 adds this line fixes the plan and writes in the beacon round below, and nothing in it changes once the tasks exist.
 Card: [Let the agent interview you before it starts](../ask-questions-first.md). Model: round 1's plan,

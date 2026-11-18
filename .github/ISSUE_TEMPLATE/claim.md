@@ -1,6 +1,6 @@
 ---
 name: "Claim suggestion"
-about: "Suggest one prompting claim from an article, post or paper, to test against the brief skill."
+about: "Suggest one piece of prompting advice that someone posted, in an article, guide, post or paper, for the bench to test."
 title: "Claim: "
 labels: claim
 ---
@@ -9,6 +9,8 @@ labels: claim
 One claim per issue. The claim-card format is in claims/README.md:
 https://github.com/Freedom-Jack/briefbench/blob/main/claims/README.md
 A link and a short paraphrase in your own words are enough. Don't paste whole articles or long quotes.
+Only advice about prompts: what a prompt says or how it says it. Advice about the agent's setup, such as tools,
+project files like CLAUDE.md, checks outside the model or several agents, is out of scope.
 Issues are public: no private prompts, outputs or keys.
 Recording a claim doesn't mean it works. It changes the skill only if a test supports it.
 -->
@@ -23,7 +25,7 @@ Recording a claim doesn't mean it works. It changes the skill only if a test sup
 
 ## Conditions
 
-<!-- The tasks, models or hosts the source says it applies to. "Not stated" is fine. -->
+<!-- The kind of work, such as coding, and the models or hosts the source says it applies to. "Not stated" is fine. -->
 
 ## Connection to brief
 

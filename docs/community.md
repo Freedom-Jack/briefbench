@@ -36,7 +36,7 @@ Keep three decisions apart:
 2. **Recommend an intervention under stated conditions.** The evidence supports a practical decision within its tested scope.
 3. **Include a change in `brief`.** The change fits the skill's job and passes the comparison, fidelity and review checks.
 
-A sound experiment may support no skill change, and keeping the skill unchanged is a normal, successful outcome. Only `specification` and `wording` claims can ever enter the skill. `domain-method`, `harness` and `practice` claims can be tested as worker treatments, but they stay out of `brief` whatever the result. The skill clarifies intent and instructions; methods and execution belong to the downstream agent.
+A sound experiment may support no skill change, and keeping the skill unchanged is a normal, successful outcome. Only prompting advice that people have posted gets a claim card ([design.md](design.md), "Only prompting advice people have posted"); advice about the agent's setup, and the project's own ideas, are out of scope. Only `specification` and `wording` claims can ever enter the skill. `domain-method` claims can be tested as add-ons to the prompt, but they stay out of `brief` whatever the result. The skill clarifies intent and instructions; methods and execution belong to the downstream agent.
 
 Never label a technique permanently true, false, proven or useless. A finding belongs to its treatments, task types, worker CLI and version, model, rewriter, skill hash, evaluator and dates. It measures the headless handoff, not `/brief` typed in a host. Codex doesn't report which model answered, so a Codex result is about the dated CLI default. A new model or a new kind of task may need new evidence.
 
@@ -57,7 +57,7 @@ The records keep five dimensions apart, and [evidence-records.md](evidence-recor
 
 | Dimension | What readers need to know | Where it is recorded |
 | --- | --- | --- |
-| Workflow state | Whether a claim is unreviewed, needs a source, is a candidate, deferred, out of scope, not testable, or tested | The card's `status` |
+| Workflow state | Whether a claim is unreviewed, needs a source, is a candidate, deferred, not testable, or tested | The card's `status` |
 | Observed outcome | Benefit, harm, no difference shown, or an incomplete study, within the tested conditions | The `score` report and its JSON; the card's Status section sums it up |
 | Evidence access | Whether others can inspect and rerun the evidence | The card links a public report, or says the report is private |
 | Independence | Whether the proposer, the maintainer or an independent reproducer ran it | The result issue |

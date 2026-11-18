@@ -1,6 +1,6 @@
 # Review of the 2026-11-04 design
 
-Review date: 2026-11-05. This reviews the public-project design written on 2026-11-04 (design, build plan, experiment protocol, evidence records, community plan and design research) against the two research threads it drew on, the code already built, and the constraints you set earlier. The decisions it reaches are folded into [design.md](design.md) and [build-plan.md](build-plan.md).
+Review date: 2026-11-05. This reviews the public-project design written on 2026-11-04 (design, build plan, experiment protocol, evidence records, community plan and design research) against the two research threads it drew on, the code already built, and the constraints you set earlier. The decisions it reaches are folded into [design.md](design.md) and [build-plan.md](build-plan.md). Later decisions changed some of what it describes; design.md's "Decisions" lists them. Since 2026-11-18 only prompting advice people have posted is tested, so the value report's five skill refinements and the outside judge, which this review kept as claim cards, are no longer cards.
 
 ## Bottom line
 

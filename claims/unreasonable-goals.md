@@ -36,6 +36,6 @@ Run it only with checks the agent cannot edit: list the tests as protected paths
 
 ## Status
 
-deferred: the report advises running the outcome and outside-check tests first, and this one only with locked checks and integrity counted separately. The pressure claims are model-specific, so report each worker's results separately.
+deferred: the report advises running the outcome test first, and this one only with locked checks and integrity counted separately. The pressure claims are model-specific, so report each worker's results separately.
 
 briefbench evidence: none yet.

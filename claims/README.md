@@ -2,9 +2,11 @@
 
 A claim card records one prompting claim: a single recommendation that can be traced to its source and tested. It is not a summary of an article. An essay with ten pieces of advice can give ten cards.
 
-Each card says who made the claim, what outside evidence exists, whether the claim could ever belong in the `brief` skill, and how briefbench could test it.
+**Only prompting advice that people have posted gets a card** ([design](../docs/design.md), "Only prompting advice people have posted"): advice someone gave in public, in a post, a guide, a talk, a paper or a comment, about what a prompt says or how it says it. Advice about the agent's setup, such as its tools, project files like CLAUDE.md, checks outside the model or several agents working together, gets no card and no test. Neither do the project's own ideas, such as the instructions in version 0.2.0 of the skill or the suggestions in its research reports.
 
-**A card is not an endorsement.** It does not mean the claim is true, that briefbench recommends it, or that the skill will adopt it. **One card has briefbench evidence so far:** [Let the agent interview you](ask-questions-first.md), tested once, in round 1 of the skill's growth, with the result "worse". No briefbench experiment on the other claims has run. The outside evidence on each card comes from the project's research reports.
+Each card says who made the claim, what outside evidence exists, whether the claim could ever belong in the `brief` skill, and how briefbench could test it, on the kind of work its source is about.
+
+**A card is not an endorsement.** It does not mean the claim is true, that briefbench recommends it, or that the skill will adopt it. **No card has briefbench evidence yet.** The one public test scored so far tested the skill's own question section, not posted advice ("Tests of the skill's own instructions", below). The outside evidence on each card comes from the project's research reports.
 
 ## Where cards live
 
@@ -12,7 +14,7 @@ Cards live in this folder, one file per claim, named `<id>.md`. They are public.
 
 ## The cards
 
-The seed cards come from the project's research, read on 4 Nov 2026: the [value of prompting report](../docs/research/value-of-prompting/report.md), with its case study of Felix Rieseberg's essay and its five practitioner cases, and the [prompting technique benchmarks report](../docs/research/prompting-technique-benchmarks/report.md). A card's numbers are the report's; check the report before reusing one. Where a card gives no model era for a study, the report gives none. Cards added on 6 Nov 2026 come from recent posts and guides, read that day.
+The first cards come from the project's research, read on 4 Nov 2026: the [value of prompting report](../docs/research/value-of-prompting/report.md), with its case study of Felix Rieseberg's essay, its five practitioner cases and the common advice it recorded, and the [prompting technique benchmarks report](../docs/research/prompting-technique-benchmarks/report.md). A card's numbers are the report's; check the report before reusing one. Where a card gives no model era for a study, the report gives none. Cards added on 6 Nov 2026 come from recent posts and guides, read that day. On 18 Nov 2026 seven cards were removed: two for advice about the agent's setup (verify with something other than the model, and the Karpathy-inspired CLAUDE.md) and five for the value report's own suggestions. They are in git at commit c893ab2.
 
 **Recent sources only.** Models change every few months, and advice written for older ones often stops holding. So the posts under test are recent: published within about three months, and about the models in use now ([design](../docs/design.md), "Posts under test"). An older card stays as a record. Its claim is tested only when a recent source repeats it, and the card then cites that source.
 
@@ -20,22 +22,15 @@ The seed cards come from the project's research, read on 4 Nov 2026: the [value 
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | [Ask for the outcome, not the task](outcome-over-task.md) | Rieseberg's essay | specification | conditional | candidate | — | — | — | — |
 | [Set unreasonable goals and insist they can be met](unreasonable-goals.md) | Rieseberg's essay | wording | no | deferred | — | — | — | — |
-| [Verify by something other than the model](outside-check.md) | Rieseberg's essay | harness | no | candidate | — | — | — | — |
 | [Have the model write a deeper version of the prompt](depth-rewrite.md) | Rieseberg's essay | domain-method | no | deferred | — | — | — | — |
 | [Bring in other fields](range-other-fields.md) | Rieseberg's essay | domain-method | no | deferred | — | — | — | — |
-| [Keep the reason prominent](reason-prominent.md) | Value report | specification | yes | candidate | — | — | — | — |
-| [State the user's scope boundary](scope-boundary.md) | Value report | specification | conditional | deferred | — | — | — | — |
-| [Carry the user's autonomy preference](autonomy-preference.md) | Value report | specification | conditional | deferred | — | — | — | — |
-| [Keep briefs short](short-briefs.md) | Value report | specification | yes | deferred | — | — | — | — |
-| [No model-specific variants of the skill](no-model-variants.md) | Value report | practice | no | deferred | — | — | — | — |
-| [A goal, scope and done brief instead of steps](goal-brief-over-steps.md) | Cherny's talk | specification | conditional | candidate | — | — | — | — |
+| [A goal, scope and done brief instead of steps](goal-brief-over-steps.md) | Cherny's talk | specification | conditional | deferred | — | — | — | — |
 | [Open with an expert persona](expert-persona.md) | Common advice | wording | no | deferred | — | — | — | — |
 | [Emphasize rules with capitals and CRITICAL](caps-emphasis.md) | Common advice | wording | no | deferred | — | — | — | — |
 | [Test your belief against the raw data](test-your-belief.md) | Rieseberg's essay | specification | conditional | deferred | — | — | — | — |
-| [Let the agent interview you before it starts](ask-questions-first.md) | Claude Code's docs | specification | yes | tested | first test | [fb23bc3](https://github.com/Freedom-Jack/briefbench/blob/fb23bc35940e3474fdf72bef17f1eb6d8e323983/claims/plans/questions-first-1.md) | 52 + 69 | Worse. `gap`: plain prompt 0% (0 of 52), variant 77% (40 of 52), +77 points (95% CI +64 to +86). `no-gap`: plain prompt 100% (69 of 69), variant 84% (58 of 69), −16 points (95% CI −26 to −9) |
+| [Let Claude interview you until it could write the spec](ask-questions-first.md) | Claude Code's docs | specification | yes | deferred | — | — | — | — |
 | [Tell Claude to explore broadly before settling](explore-broadly.md) | Anthropic's Opus 5.5 guide | wording | no | deferred | — | — | — | — |
 | [Make the model write in controlled language](controlled-language.md) | LinkedIn post | wording | conditional | deferred | — | — | — | — |
-| [Use the Karpathy-inspired CLAUDE.md](karpathy-claude-md.md) | Karpathy's post, as a CLAUDE.md file | harness | no | candidate | — | — | — | — |
 
 **The board.** Since 9 Nov 2026 this table is also the board of public results ([design](../docs/design.md), "A method for public results"). Its last four columns record each claim's tests:
 - *Stage*: `first test`, `replicated` (a second test agreed), `not replicated` (a second test didn't agree), or `—` before any test. Development runs, such as pilots and calibrations, never appear here.
@@ -43,9 +38,20 @@ The seed cards come from the project's research, read on 4 Nov 2026: the [value 
 - *N*: the trials of each kind of task, such as `130 + 100`.
 - *Result*: the decision label ([protocol](../docs/experiment-protocol.md), section 10), with each arm's pass rate and the difference with its 95% interval, for each kind of task.
 
-**Tests on the board: K = 1.** A trick is marked better only after a second test, on new tasks, agrees with the first ([protocol](../docs/experiment-protocol.md), section 11). If none of the tested tricks did anything, the expected number marked better by chance is at most K / 1,600, which is 1/1,600 ≈ 0.0006 now. Every test counts in K, null and harmful results included.
+### Tests of the skill's own instructions
 
-`tests/test_claims.py` checks that the first five columns match each card's front matter, and that every row has the board's columns.
+These public tests tried instructions the project wrote itself, not posted advice. They are recorded apart from the cards, under their own name, and count in K below.
+
+| Test | What was tested | Stage | Plan | N | Result |
+| --- | --- | --- | --- | --- | --- |
+| [Round 1 of the skill's growth](results/questions-first.md) | Version 0.2.0's question section, with the skill's basic rules (`variants/questions-first`) | first test | [fb23bc3](https://github.com/Freedom-Jack/briefbench/blob/fb23bc35940e3474fdf72bef17f1eb6d8e323983/claims/plans/questions-first-1.md) | 52 + 69 | Worse. `gap`: plain prompt 0% (0 of 52), variant 77% (40 of 52), +77 points (95% CI +64 to +86). `no-gap`: plain prompt 100% (69 of 69), variant 84% (58 of 69), −16 points (95% CI −26 to −9) |
+| [Round 2 of the skill's growth](results/questions-first.md) | Round 1's variant with its rule for a skipped question changed (`variants/questions-first-2`) | first test | [fa073d5](https://github.com/Freedom-Jack/briefbench/blob/fa073d57a9ab2ee67df5b1fe95c77b4c5b9841b0/claims/plans/questions-first-2.md) | 52 + 69 | Ran on 14 and 15 Nov 2026; not recorded yet |
+
+Rounds 1 and 2 were first filed under Claude Code's advice to let Claude interview you. They don't test that advice: it is about larger coding features and sets no limit on questions, and these rounds used short data requests and at most three questions ([record](results/questions-first.md)).
+
+**Public tests so far: K = 1** scored, round 1. A trick is marked better only after a second test, on new tasks, agrees with the first ([protocol](../docs/experiment-protocol.md), section 11). If none of the tested instructions did anything, the expected number marked better by chance is at most K / 1,600, which is 1/1,600 ≈ 0.0006 now. Every test counts in K, null and harmful results included, and so do the tests of the skill's own instructions.
+
+`tests/test_claims.py` checks that the first five columns of the cards' table match each card's front matter, and that every row has the board's columns.
 
 ## Front matter
 
@@ -58,8 +64,8 @@ A card starts with `key: value` lines between two `---` lines: one key per line,
 | `source` | Author, title and date, as the research gives them. For common advice with no single author, say so and name where the research recorded it |
 | `url` | The source's own link, starting with `https://`. For a claim the project's research made, or common advice it recorded, the GitHub link to the report's snapshot in `docs/research/`, with the section named in `source` |
 | `retrieved` | The date the source was read, as `YYYY-MM-DD` |
-| `kind` | `specification`, `wording`, `domain-method`, `harness` or `practice` |
-| `status` | `unreviewed`, `needs-source`, `candidate`, `deferred`, `out-of-scope`, `not-testable` or `tested` |
+| `kind` | `specification`, `wording` or `domain-method` |
+| `status` | `unreviewed`, `needs-source`, `candidate`, `deferred`, `not-testable` or `tested` |
 | `skill_fit` | `yes`, `no` or `conditional` |
 | `experiments` | The briefbench experiments on this claim, by name; `[]` until one runs |
 
@@ -67,17 +73,15 @@ A card starts with `key: value` lines between two `---` lines: one key per line,
 
 - `specification`: what the user wants: the goal and its reason, the scope, constraints, what done looks like, context.
 - `wording`: how a prompt phrases a request, without adding facts: personas, emphasis, pressure, tone.
-- `domain-method`: how to solve the task: which methods, tools, sources or fields to use.
-- `harness`: the worker's setup: tools, checks it can run, extra agents, the agent loop.
-- `practice`: how people work with agents or look after their prompts.
+- `domain-method`: a prompt line that tells the agent how to solve the task: which methods, tools, sources or fields to use.
 
-The value report sorts advice into specification, technique, harness and mindset. Cards call its phrasing techniques `wording`, use `domain-method` for advice that picks how to solve the task, and use `practice` for habits and mindset. [docs/experiment-protocol.md](../docs/experiment-protocol.md), section 11, also names evaluation; a claim about how to judge results is filed as `practice`.
+The value report sorts advice into specification, technique, harness and mindset. Cards call its phrasing techniques `wording` and use `domain-method` for prompt advice that picks how to solve the task. Harness advice, about the agent's setup, and mindset advice, about how people work, are not about prompts, so they get no card. Until 18 Nov 2026 cards also had the kinds `harness` and `practice`.
 
 ## What can enter the skill
 
 The `brief` skill clarifies the user's intent and instructions. It never chooses domain methods, and it does not do the task. So only `specification` and `wording` claims can ever enter it, and only by the protocol's route (section 11): a minimal variant, development tasks, a frozen comparison on fresh tasks against the current grown skill, and a reviewed decision. Older cards that say "the released skill" mean that incumbent; each is updated when it is next tested.
 
-`domain-method`, `harness` and `practice` claims may be tested as separately named worker treatments, such as a `snippet:`, or as test-only rewriter variants kept outside `skills/`, never released and never named `brief`. They are never added to the skill, whatever the result. Their cards always have `skill_fit: no`. Their results are still the benchmark's output: they go on the card and in the table of results. A card with `skill_fit: conditional` names both forms: the add-on as tested, and the narrower instruction the skill could carry, which needs its own round.
+`domain-method` claims may be tested as separately named worker treatments, such as a `snippet:` added to the prompt, or as test-only rewriter variants kept outside `skills/`, never released and never named `brief`. They are never added to the skill, whatever the result. Their cards always have `skill_fit: no`. Their results are still the benchmark's output: they go on the card and in the table of results. A card with `skill_fit: conditional` names both forms: the add-on as tested, and the narrower instruction the skill could carry, which needs its own round.
 
 `skill_fit` says whether a claim could belong in the skill under that boundary:
 
@@ -92,10 +96,11 @@ The `brief` skill clarifies the user's intent and instructions. It never chooses
 A new card is `unreviewed`. Review moves it to one of these:
 
 - `needs-source`: the source is missing or unavailable, or does not say what the card claims.
-- `out-of-scope`: briefbench will not test it, because it is not a change to a prompt or to a worker's setup, such as a claim about how models will improve.
 - `not-testable`: in scope, but no fair paired comparison can be built for it.
 - `candidate`: ready for a comparison. The source is verified, and the smallest treatment, an outcome that could show the claim wrong, and its risks are written down. Only a `specification` or `wording` candidate can lead to a change in `brief`.
 - `deferred`: testable, but waiting for something the card names, such as an earlier experiment, a safeguard or a budget.
+
+Advice outside this folder's scope gets no card. A card found on review to be outside it, such as advice about the agent's setup, is removed, and the commit says why. Until 18 Nov 2026 such cards were kept with the status `out-of-scope`.
 
 A card becomes `tested` when a briefbench experiment on it is complete. `tested` says nothing about the result. A claim can be tested again on another model, host or task population; earlier results stay on the card, including negative and inconclusive ones.
 
@@ -134,7 +139,7 @@ Once a result leads to a decision about the skill, a sixth section follows: `## 
 - `skill:<folder>`: the same, written by the skill in that folder, such as a variant.
 - `snippet:<file>`: your prompt with a fixed text added after it.
 
-A claim with three arms needs two experiments. Cards name variant folders such as `skill:variants/brief-reason`; none of them exists yet.
+A claim with three arms needs two experiments. Cards name variant folders such as `skill:variants/essay-outcome`; none of those exists yet. The two folders in `variants/` are the treatments of rounds 1 and 2.
 
 ### Sample sizes
 
@@ -143,7 +148,7 @@ With an exact two-sided sign test at the 5% level and 80% power, true win rates 
 ## Adding a card
 
 1. Copy a card and rename it to the new `id`.
-2. Write one claim, paraphrased, with a link to its source. A claim you can't trace to a source is `needs-source`.
+2. Write one claim, paraphrased, with a link to where it was posted. It must be advice about prompts that someone gave in public; advice about the agent's setup, or an idea of your own, gets no card. A claim you can't trace to a source is `needs-source`.
 3. Add only outside evidence you have read, with its link.
 4. Add a row to the table above.
 5. Run `uv run pytest tests/test_claims.py -q`. It checks the format and the boundary rule, not whether the claim is true. A passing check is not evidence for the claim.

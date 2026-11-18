@@ -5,7 +5,7 @@ source: Boris Cherny, "Building Claude Code", July 2026
 url: https://www.ycrootaccess.com/p/boris-cherny-building-claude-code
 retrieved: 2026-11-04
 kind: specification
-status: candidate
+status: deferred
 skill_fit: conditional
 experiments: []
 ---
@@ -29,10 +29,10 @@ Only in part. The skill states the outcome, constraints and completion condition
 
 ## Proposed comparison
 
-`brief` against `skill:variants/steps`, a rewriter that turns the same prompt and answers into numbered steps. Measure the check's pass rate, the blind pick, tokens and time, and files changed outside scope. The report finds that separate plan steps help weak models and mostly add cost on strong ones, so record the worker model.
+A variant holding the skill's basic rules plus this advice (the task, its guardrails and its exit criteria, as the user gave them) against `skill:variants/steps`, a rewriter that turns the same prompt and answers into numbered steps. Materials: coding tasks with hidden tests, the kind of work the talk is about. Measure the check's pass rate, the blind pick, tokens and time, and files changed outside scope. The report finds that separate plan steps help weak models and mostly add cost on strong ones, so record the worker model.
 
 ## Status
 
-candidate: the report calls it a natural first briefbench experiment. A win for steps could not put steps into the skill, since choosing them is a choice of method.
+deferred: the talk is from July 2026, older than three months, so it is tested only when a recent post repeats it (docs/design.md, "Posts under test"). The report calls it a natural first briefbench experiment. A win for steps could not put steps into the skill, since choosing them is a choice of method.
 
 briefbench evidence: none yet.
