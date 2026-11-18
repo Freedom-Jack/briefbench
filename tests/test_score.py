@@ -2,12 +2,13 @@
 import json
 from importlib import resources
 from math import comb
+from statistics import NormalDist
 
 import pytest
 
 from briefbench import judge, score
 from briefbench.experiment import RULE, fixed_rule
-from briefbench.stats import decide, decide_fixed, interval, net_interval, sign_test
+from briefbench.stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test, tango_interval
 
 
 def test_sign_test_and_interval_match_hand_computed_values():
@@ -110,12 +111,14 @@ def test_score_matches_hand_computed_results_on_a_fixture_log():
     assert lines[1:] == [
         "Trials: 20. B won 16, A won 4, 0 ties.",
         "3 more trials came after the rule's verdict; they are not part of the test.",
-        "Net preference for B (wins minus losses, over all trials): +0.60, conservative 95% interval +0.05 to +0.91.",
+        "Net preference for B (wins minus losses, over all trials): +0.60, 95% interval +0.17 to +0.84 (Tango); "
+        "conservative 95% interval +0.05 to +0.91.",
         "Sign test on 20 decided pairs: p = 0.0118; B's win rate 80%, 95% interval 56% to 94%.",
         "Verdict: adopt B. It won 16 of 20 decided pairs, which the rule fixed in advance accepts, and its extra "
         "cost is within your cap.",
         "Fidelity reviews of B's briefs: none yet.",
-        "Median extra cost of B over A, briefing included: +10% time, +20% tokens (your cap: 50%).",
+        "Median extra cost of B over A, briefing included: +10% time, 95% interval +10% to +10%; +20% tokens, 95% "
+        "interval +20% to +20%. Your cap: 50%.",
         "Judge, which never decides a trial: agreed with your pick in 8 of 10 (80%); 95% interval 44% to 97%.",
         "The longer diff won 16 of 20 (80%) decided pairs with diffs of different sizes.",
         "Your guesses of which side got B: 3 of 6 (50%) right; about half means the blinding holds.",
@@ -143,7 +146,8 @@ def test_a_brief_that_fails_its_fidelity_review_is_not_adopted():
     s = score.summary(EXPERIMENT, entries)
     assert s["fidelity"]["b"] == {"reviewed": 2, "failed": 1, "added": 1, "dropped": 0, "changed": 0}
     assert s["verdict"] == {"state": "adopt", "rule_wins": 16, "rule_pairs": 20, "adopted": False,
-                            "blocked_by": ["1 of its briefs failed your fidelity review"]}
+                            "blocked_by": ["1 of its briefs failed your fidelity review"], "harm_bound": None,
+                            "stopped": None}
     text = score.report(EXPERIMENT, entries)
     assert "but 1 of its briefs failed your fidelity review, so it is not adopted." in text
     assert "Fidelity reviews of B's briefs: 1 of 2 failed (added 1, dropped 0, changed 0)." in text
@@ -155,7 +159,256 @@ def test_ties_are_shown_by_kind():
     text = score.report(EXPERIMENT, entries)
     assert "Trials: 4. B won 1, A won 0, 3 ties (1 both good enough, 1 neither, 1 not recorded)." in text
     assert score.summary(EXPERIMENT, entries)["ties_by_kind"] == {"both_acceptable": 1, "both_unacceptable": 1,
+                                                                   "both_passed": 0, "both_failed": 0,
                                                                    "not_recorded": 1}
+
+
+def test_check_scored_ties_are_named_by_the_check():
+    """With the check alone nobody judged whether a result was good enough, so ties say what the check found."""
+    exp = EXPERIMENT | {"scoring": "check", "rule": fixed_rule(10, net_min=0.05)}
+    entries = [trial("b", by="check")] * 3 + [trial("tie", by="check") for _ in range(7)]
+    for t, kind in zip(entries[3:], ["both_passed"] * 5 + ["both_failed"] * 2):
+        t["decision"]["tie"] = kind
+    s = score.summary(exp, entries)
+    assert s["scoring"] == "check" and s["decided_by"] == {"check": 10, "you": 0}
+    assert s["ties_by_kind"] == {"both_acceptable": 0, "both_unacceptable": 0, "both_passed": 5, "both_failed": 2,
+                                 "not_recorded": 0}
+    assert s["verdict"]["state"] == "no-difference"           # 3 of 3 decided pairs: p = 0.25
+    text = score.report(exp, entries)
+    assert "Scored by the check alone" in text and "Your guesses" not in text
+    assert "Trials: 10. B won 3, A won 0, 7 ties (5 both passed the check, 2 both failed the check)." in text
+
+
+def checked(winner, tie=None, **kwargs):
+    """A trial scored by the check alone: the arms pass as the winner and the tie kind say."""
+    t = trial(winner, by="check", **kwargs)
+    passing = {"b": "b", "a": "a", "tie": "ab" if tie == "both_passed" else ""}[winner]
+    for s in "ab":
+        t["arms"][s]["check"] = {"exit_code": 0 if s in passing else 1, "seconds": 1.0, "passed": s in passing}
+    t["decision"]["check_tie"] = tie
+    return t
+
+
+def check_log(wins, losses, passed, failed):
+    return ([checked("b") for _ in range(wins)] + [checked("a") for _ in range(losses)]
+            + [checked("tie", "both_passed") for _ in range(passed)] + [checked("tie", "both_failed") for _ in range(failed)])
+
+
+CHECKED = EXPERIMENT | {"scoring": "check", "rule": fixed_rule(10, net_min=0)}
+
+
+def test_each_arms_pass_rate_has_its_exact_interval():
+    entries = check_log(3, 1, 4, 2)                      # A passed 1 + 4 of 10, B 3 + 4 of 10
+    s = score.summary(CHECKED, entries)
+    assert s["pass_rates"] == {"a": {"passed": 5, "of": 10, "interval": list(interval(5, 10))},
+                               "b": {"passed": 7, "of": 10, "interval": list(interval(7, 10))}}
+    assert "Pass rates under the check, with exact 95% intervals: A 5 of 10 (19% to 81%), B 7 of 10 (35% to 93%)." \
+        in score.report(CHECKED, entries)
+    assert score.summary(CHECKED, entries[:9])["pass_rates"] is None          # the fixed rule hasn't looked yet
+    assert score.summary(EXPERIMENT, fixture_log())["pass_rates"] is None    # your picks: no pass rates
+
+
+@pytest.mark.parametrize("wins,losses,trials,lower,upper", [
+    (1, 7, 21, -0.5172, -0.0260),       # AHR before and after stem cell transplantation, in the ratesci vignette
+    (6, 16, 161, -0.1240, -0.0054),     # Cavo et al. 2012, asserted by the contingencytables package's tests
+    (3, 0, 3, -0.1230, 1.0),            # and the same tests' edge cases
+    (0, 3, 3, -1.0, 0.1230),
+])
+def test_tangos_interval_matches_published_values(wins, losses, trials, lower, upper):
+    lo, hi = tango_interval(wins, losses, trials)
+    assert lo == pytest.approx(lower, abs=5e-5) and hi == pytest.approx(upper, abs=5e-5)
+
+
+def test_tangos_interval_never_contradicts_a_significant_exact_test():
+    """Whenever the exact sign test is significant, the interval excludes zero, at 5% and at 1%. The converse can fail
+    with few decided pairs: at 7 wins to 1 the interval excludes zero, but p = 0.070, and the exact test decides."""
+    for level in (0.95, 0.99):
+        for decided in range(1, 101):
+            for wins in range(decided + 1):
+                if sign_test(wins, decided - wins) <= 1 - level:
+                    lo, hi = tango_interval(wins, decided - wins, decided + 7, level)
+                    assert lo > 0 or hi < 0, (wins, decided, level)
+    assert sign_test(7, 1) > 0.05 and tango_interval(7, 1, 20)[0] > 0
+
+
+def test_tangos_interval_on_the_methods_examples():
+    lo, hi = tango_interval(8, 1, 50)                       # p = 0.039, and the conservative interval includes zero
+    assert (round(lo, 2), round(hi, 2)) == (0.03, 0.27) and net_interval(8, 1, 50)[0] < 0 < lo
+    z2 = NormalDist().inv_cdf(0.975) ** 2
+    for n in (5, 10, 30, 60, 80):                           # nothing decided: z² / (N + z²) either way
+        assert tango_interval(0, 0, n) == pytest.approx((-z2 / (n + z2), z2 / (n + z2)), abs=1e-9)
+    assert tango_interval(2, 9, 40) == pytest.approx(tuple(-x for x in reversed(tango_interval(9, 2, 40))))
+    assert tango_interval(0, 0, 0) == (-1.0, 1.0)
+
+
+def test_the_difference_in_pass_rate_has_tangos_interval():
+    entries = check_log(3, 1, 4, 2)
+    s = score.summary(CHECKED, entries)
+    assert s["difference_interval"] == list(tango_interval(3, 1, 10))
+    (lo, hi), (c_lo, c_hi) = tango_interval(3, 1, 10), net_interval(3, 1, 10)
+    text = score.report(CHECKED, entries)
+    assert (f"Difference in pass rate (B minus A): +20 points, 95% interval {lo * 100:+.0f} to {hi * 100:+.0f} points "
+            f"(Tango); conservative interval {c_lo * 100:+.0f} to {c_hi * 100:+.0f} points.") in text
+    assert (f"no difference shown. Over 10 trials B won 3 and A won 1 (p = 0.6250). That means no large effect was "
+            f"found, not that there is none. The 95% interval for the difference in pass rate runs from "
+            f"{lo * 100:+.0f} to {hi * 100:+.0f} points.") in text
+    assert score.summary(CHECKED, entries[:9])["difference_interval"] is None        # not before all N trials
+
+
+def of_kind(entry, kind):
+    entry["task"] = {"type": "analysis", "source": {"id": "t", "set": "demo/1", "stratum": kind}}
+    return entry
+
+
+def test_noise_checks_give_a_calibration_for_each_kind_of_task():
+    """Plain against plain, under the check alone: how often the plain runs passed, and how often the two disagreed."""
+    wrong = ([checked("a", kind="aa"), checked("b", kind="aa")] * 2 + [checked("tie", "both_passed", kind="aa")] * 10
+             + [checked("tie", "both_failed", kind="aa")] * 6)           # 4 of 20 disagree; 24 of 40 runs pass
+    right = [checked("b", kind="aa")] + [checked("tie", "both_passed", kind="aa") for _ in range(9)]
+    entries = [of_kind(dict(e), "belief-wrong") for e in wrong]           # copies: the list repeats its entries
+    entries += [of_kind(e, "belief-right") for e in right]
+    noise = score.summary(CHECKED, entries)["noise_checks"]
+    assert noise == {"count": 30, "with_winner": 5, "runs": 60, "runs_passed": 43, "by_stratum": {
+        "belief-right": {"count": 10, "with_winner": 1, "runs": 20, "runs_passed": 19},
+        "belief-wrong": {"count": 20, "with_winner": 4, "runs": 40, "runs_passed": 24}}}
+    assert ("As a calibration: A's runs passed the check in 43 of 60, and its two runs disagreed on 5 of 30 tasks. "
+            "belief-right: 19 of 20 runs passed, 1 of 10 tasks disagreed. belief-wrong: 24 of 40 runs passed, 4 of 20 "
+            "tasks disagreed.") in score.report(CHECKED, entries)
+    assert score.summary(EXPERIMENT, fixture_log())["noise_checks"]["by_stratum"] == {}
+
+
+STRATA = CHECKED | {"rule": fixed_rule(60, net_min=0),
+                    "strata": {"help": "belief-wrong", "harm": "belief-right", "margin": 0.10}}
+
+
+def by_kind(wrong, right):
+    """A check-scored log in which each kind of task has its own counts, (wins, losses, both passed, both failed),
+    the two kinds taking turns as a generator writes them."""
+    a = [of_kind(e, "belief-wrong") for e in check_log(*wrong)]
+    b = [of_kind(e, "belief-right") for e in check_log(*right)]
+    return [e for pair in zip(a, b) for e in pair] + a[len(b):] + b[len(a):]
+
+
+def test_the_rule_tests_where_b_should_help_and_bounds_the_loss_where_it_could_hurt():
+    entries = by_kind((12, 1, 10, 7), (0, 0, 30, 0))       # 30 belief-wrong trials, 30 belief-right ones
+    s = score.summary(STRATA, entries)
+    wrong, right = s["by_stratum"]["belief-wrong"], s["by_stratum"]["belief-right"]
+    assert (wrong["trials"], wrong["wins_b"], wrong["wins_a"], right["trials"], right["ties"]) == (30, 12, 1, 30, 30)
+    assert wrong["sign_test_p"] == sign_test(12, 1) and wrong["difference_interval"] == list(tango_interval(12, 1, 30))
+    assert right["pass_rates"]["a"] == {"passed": 30, "of": 30, "interval": list(interval(30, 30))}
+    lower = tango_interval(0, 0, 30)[0]                      # -11 points: no loss over 10 points is not shown
+    assert s["verdict"]["harm_bound"] == {"stratum": "belief-right", "margin": 0.10, "lower": lower, "shown": False}
+    assert (s["verdict"]["state"], s["verdict"]["rule_wins"], s["verdict"]["rule_pairs"]) == ("benefit", 12, 13)
+    assert not s["verdict"]["adopted"]
+    text = score.report(STRATA, entries)
+    assert ("Kinds of task, tested apart: belief-wrong, where B should help, is tested; belief-right, where it could "
+            "hurt, must show no loss over 10 points.") in text
+    assert "belief-wrong: 30 trials. B won 12, A won 1, 17 ties." in text
+    assert "  A loss of up to 11 points is not ruled out; at most 10 are accepted." in text
+    assert "Both kinds together, for description only:" in text
+    assert ("but a loss of up to 11 points on belief-right is not ruled out, and at most 10 are accepted, so it is "
+            "not adopted.") in text
+    shown = STRATA | {"strata": STRATA["strata"] | {"margin": 0.12}}                # 11 points is within 12
+    s = score.summary(shown, entries)
+    assert s["verdict"]["harm_bound"]["shown"] and s["verdict"]["adopted"]
+    text = score.report(shown, entries)
+    assert ("Verdict: adopt B. Where B should help (belief-wrong), over 30 trials B won 12 and A won 1 (p = 0.0034), "
+            "and where it could hurt (belief-right) no loss over 12 points is shown") in text
+    assert "  No loss over 12 points shown: the 95% interval's lower end is -11 points." in text
+
+
+def test_a_significant_loss_in_either_kind_is_worse():
+    entries = by_kind((3, 2, 20, 5), (0, 9, 21, 0))          # A wins 9 to 0 where B could hurt: p = 0.0039
+    s = score.summary(STRATA, entries)
+    assert s["verdict"]["state"] == "harm"
+    assert ("Verdict: B is worse on belief-right: A won 9 to B's 0 over 30 trials (p = 0.0039).") in \
+        score.report(STRATA, entries)
+
+
+def test_with_kinds_of_task_nothing_is_tested_before_all_trials_are_in():
+    entries = by_kind((12, 1, 10, 7), (0, 0, 29, 0))         # 59 of 60
+    s = score.summary(STRATA, entries)
+    assert s["interim"] and s["verdict"]["state"] == "collecting" and s["verdict"]["harm_bound"] is None
+    assert s["by_stratum"]["belief-wrong"]["sign_test_p"] is None and s["by_stratum"]["belief-wrong"]["trials"] == 30
+    text = score.report(STRATA, entries)
+    assert "p =" not in text and "95% interval" not in text.split("Verdict")[0]
+    assert "Both kinds together" not in text and "belief-right: 29 trials. B won 0, A won 0, 29 ties." in text
+    one = score.report(STRATA, by_kind((0, 0, 0, 1), (0, 0, 0, 0)))
+    assert "belief-wrong: 1 trial. B won 0, A won 0, 1 tie." in one and "belief-right: no trials yet." in one
+
+
+def test_kinds_without_a_frozen_rule_are_description_only():
+    entries = by_kind((3, 1, 1, 0), (1, 0, 4, 0))
+    exp = CHECKED | {"rule": fixed_rule(10, net_min=0)}
+    s = score.summary(exp, entries)
+    assert s["strata"] is None and s["verdict"]["harm_bound"] is None and set(s["by_stratum"]) == {"belief-right",
+                                                                                                  "belief-wrong"}
+    assert (s["wins_b"], s["wins_a"]) == (4, 1)                # the rule tests all trials together, as before
+    assert "By kind of task, for description only:" in score.report(exp, entries)
+
+
+LOOK = CHECKED | {"rule": fixed_rule(20, net_min=0) | {"futility_at": 10}}
+
+
+def test_the_halfway_look_stops_a_test_where_b_is_not_ahead():
+    entries = check_log(2, 3, 3, 2) + check_log(5, 0, 5, 0)      # 2 to 3 after 10 trials; B wins more later
+    s = score.summary(LOOK, entries)
+    assert s["verdict"]["stopped"] == {"after_trials": 10, "looked_at": 10, "wins_b": 2, "wins_a": 3}
+    assert (s["verdict"]["state"], s["trials"], s["beyond_plan"], s["interim"]) == ("no-difference", 10, 10, False)
+    assert not s["verdict"]["adopted"] and s["sign_test_p"] == 1.0          # shown as description once stopped
+    text = score.report(LOOK, entries)
+    assert ("no difference shown: the test stopped at the halfway look fixed in advance. Of the first 10 trials, B "
+            "won 2 and A won 3, and B needed more wins than A to go on.") in text
+    assert "10 more trials came after the halfway look stopped the test" in text
+    tied = check_log(1, 1, 8, 0)                                  # a tie at the look stops too
+    assert score.summary(LOOK, tied)["verdict"]["stopped"]["wins_b"] == 1
+
+
+def test_the_halfway_look_lets_the_test_go_on_when_b_is_ahead():
+    entries = check_log(3, 1, 4, 2) + check_log(1, 0, 1, 0)      # 3 to 1 at the look; 12 of 20 trials in
+    s = score.summary(LOOK, entries)
+    assert s["verdict"]["stopped"] is None and s["interim"] and s["verdict"]["state"] == "collecting"
+    assert ("it looks only when all are in, or at the halfway look after 10 trials." in
+            score.report(LOOK, entries))
+    assert score.summary(LOOK, entries + check_log(6, 0, 2, 0))["verdict"]["state"] == "benefit"  # 10 to 2: p = 0.039
+
+
+def test_with_kinds_the_halfway_look_counts_the_trials_where_b_should_help():
+    exp = STRATA | {"rule": fixed_rule(60, net_min=0) | {"futility_at": 15}}
+    entries = by_kind((2, 2, 11, 0), (0, 3, 27, 0))               # the 15th belief-wrong trial is the 29th in all
+    stop = score.summary(exp, entries)["verdict"]["stopped"]
+    assert stop == {"after_trials": 29, "looked_at": 15, "wins_b": 2, "wins_a": 2}
+    assert "Of the first 15 trials where B should help, B won 2 and A won 2" in score.report(exp, entries)
+
+
+def test_a_declared_threshold_and_level_reach_the_verdict():
+    """A check-scored experiment may declare a lower net preference: 12 wins and 3 losses in 100 trials is +0.09."""
+    entries = fixed_log(12, 3, 85)
+    strict, lowered = EXPERIMENT | {"rule": fixed_rule(100)}, EXPERIMENT | {"rule": fixed_rule(100, net_min=0.05)}
+    assert score.summary(strict, entries)["verdict"]["state"] == "below-threshold"
+    assert score.summary(lowered, entries)["verdict"]["state"] == "benefit"
+    stricter = EXPERIMENT | {"rule": fixed_rule(100, alpha=0.01, net_min=0.05)}      # p = 0.035 > 0.01
+    assert score.summary(stricter, entries)["verdict"]["state"] == "no-difference"
+
+
+def test_a_zero_threshold_leaves_the_decision_to_the_test():
+    """A public test declares --net-min 0: a significant win is a benefit however small its net preference. Here
+    20 wins and 7 losses in 300 trials is +0.043, which a threshold of 0.05 would turn away."""
+    entries = fixed_log(20, 7, 273)
+    assert sign_test(20, 7) < 0.05
+    assert score.summary(EXPERIMENT | {"rule": fixed_rule(300, net_min=0.05)}, entries)["verdict"]["state"] == \
+        "below-threshold"
+    assert score.summary(EXPERIMENT | {"rule": fixed_rule(300, net_min=0)}, entries)["verdict"]["state"] == "benefit"
+
+
+def test_the_two_step_rule_with_too_few_decided_pairs_says_so():
+    """Before 2026-11-09 this verdict read "no practical difference", even when B won almost every decided pair."""
+    entries = [trial("b") for _ in range(18)] + [trial("a")] + [trial("tie") for _ in range(21)]
+    s = score.summary(EXPERIMENT, entries)
+    assert s["verdict"]["state"] == "no-difference" and s["sign_test_p"] < 0.001
+    text = score.report(EXPERIMENT, entries)
+    assert ("Verdict: too few decided pairs to test: 19 of 40 trials were decided, and the rule needs 20. The sign "
+            "test above only describes them.") in text and "no practical difference" not in text
 
 
 FIXED = EXPERIMENT | {"rule": fixed_rule(50)}
@@ -262,6 +515,29 @@ def test_briefing_costs_count_toward_the_cap():
     for t in entries:
         t["arms"]["b"]["brief"]["tokens"] = None                               # unknown: not counted at all
     assert score.summary(EXPERIMENT, entries)["extra_cost_median_percent"]["tokens"] is None
+
+
+@pytest.mark.parametrize("n,k", [(5, 0), (6, 1), (8, 1), (9, 2), (10, 2), (20, 6), (50, 18)])
+def test_the_median_interval_runs_between_the_order_statistics_the_binomial_picks(n, k):
+    """k is the largest whole number with P(Binomial(n, 1/2) <= k - 1) <= 2.5%, checked against the definition."""
+    cdf = lambda j: sum(comb(n, i) for i in range(j + 1)) / 2 ** n
+    assert (k == 0 or cdf(k - 1) <= 0.025) and cdf(k) > 0.025
+    values = [float(v) for v in range(n, 0, -1)]                 # unsorted on purpose: n, n - 1, ..., 1
+    assert median_interval(values) == (None if k == 0 else (float(k), float(n - k + 1)))
+    if n == 10:
+        assert 1 - 2 * cdf(k - 1) == pytest.approx(0.979, abs=5e-4)   # the coverage the protocol states
+
+
+def test_the_median_extra_cost_has_an_exact_interval():
+    extra = [-20, -5, 0, 5, 10, 14, 20, 30, 40, 60]                 # B's extra time in each of 10 trials, in percent
+    entries = [trial("b", seconds=(100, 100 + x)) for x in extra]
+    exp = EXPERIMENT | {"rule": fixed_rule(10, net_min=0)}
+    s = score.summary(exp, entries)
+    assert s["extra_cost_median_percent"]["time"] == 12 and s["extra_cost_interval_percent"]["time"] == [-5, 40]
+    assert "+12% time, 95% interval -5% to +40%; +20% tokens, 95% interval +20% to +20%. Your cap: 50%." in \
+        score.report(exp, entries)
+    assert score.summary(exp, entries[:9])["extra_cost_interval_percent"] is None     # no interval before N trials
+    assert score.summary(EXPERIMENT, entries[:5])["extra_cost_interval_percent"] == {"time": None, "tokens": None}
 
 
 def test_the_summary_names_the_findings_scope():

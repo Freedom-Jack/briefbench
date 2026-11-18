@@ -13,11 +13,12 @@ README = CLAIMS / "README.md"
 CARDS = sorted(p for p in CLAIMS.glob("*.md") if p.name != "README.md")
 
 REQUIRED = ("id", "title", "source", "url", "retrieved", "kind", "status", "skill_fit", "experiments")
-KINDS = {"specification", "wording", "domain-method", "harness", "practice"}
-STATUSES = {"unreviewed", "needs-source", "candidate", "deferred", "out-of-scope", "not-testable", "tested"}
+KINDS = {"specification", "wording", "domain-method"}       # only advice about prompts gets a card; setup advice
+                                                             # (the old kinds harness and practice) is out of scope
+STATUSES = {"unreviewed", "needs-source", "candidate", "deferred", "not-testable", "tested"}
 FITS = {"yes", "no", "conditional"}
-NEVER_IN_SKILL = {"domain-method", "harness", "practice"}     # testable as worker treatments or test-only variants
-                                                             # outside skills/, never added to the skill
+NEVER_IN_SKILL = {"domain-method"}     # testable as an add-on to the prompt or a test-only variant outside skills/,
+                                       # never added to the skill
 SECTIONS = ["Claim", "Outside evidence", "Fit with the brief skill", "Proposed comparison", "Status"]
 NO_EVIDENCE = "briefbench evidence: none yet"
 
@@ -136,7 +137,7 @@ def test_readme_table_matches_the_cards():
     assert sorted(rows) == [p.stem for p in CARDS]
     for path in CARDS:
         fields, _ = split(path.read_text(encoding="utf-8"))
-        title, _source, kind, fit, status = rows[path.stem]
+        title, _source, kind, fit, status, _stage, _plan, _trials, _result = rows[path.stem]    # then the board
         assert [title, kind, fit, status] == [fields["title"], fields["kind"], fields["skill_fit"],
                                               fields["status"]], path.name
 
@@ -148,7 +149,7 @@ title: An example claim
 source: Someone, "A post", 1 Jan 2026
 url: https://example.org/post
 retrieved: 2026-11-04
-kind: harness
+kind: domain-method
 status: deferred
 skill_fit: no
 experiments: []
@@ -184,11 +185,13 @@ def test_a_good_card_passes():
     ("---\nid", "id", "front matter"),
     ("title: An example claim", "title:\n  nested: value", "key: value"),
     ("id: example", "id: example\nid: example", "twice"),
-    ("kind: harness\n", "", "kind is missing"),
+    ("kind: domain-method\n", "", "kind is missing"),
     ("id: example", "id: other", "file name"),
     ("url: https://", "url: http://", "https://"),
     ("retrieved: 2026-11-04", "retrieved: 4 Nov 2026", "ISO date"),
-    ("kind: harness", "kind: technique", "kind 'technique'"),
+    ("kind: domain-method", "kind: technique", "kind 'technique'"),
+    ("kind: domain-method", "kind: harness", "kind 'harness'"),            # setup advice gets no card
+    ("status: deferred", "status: out-of-scope", "status 'out-of-scope'"),
     ("status: deferred", "status: tested", "name its experiments"),
     ("experiments: []", "experiments: none", "must be a list"),
     ("experiments: []", "experiments: [Not A Name]", "briefbench init"),

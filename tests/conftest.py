@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from briefbench import presets
+from briefbench import presets, runner
 from briefbench.log import data_dir
 from briefbench.presets import KEY_ENVS
 
@@ -47,6 +47,7 @@ def hermetic(request, monkeypatch, tmp_path):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))   # trial worktrees and judge folders go here
     if request.node.get_closest_marker("live") is None:       # live tests keep HOME: the agent CLIs' logins live there
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        monkeypatch.setattr(runner, "SHORT_TEMP", str(tmp_path / "tmp"))   # each arm's temporary folder, not /tmp
         for name in KEY_ENVS:
             monkeypatch.delenv(name, raising=False)
         for key, agent in presets.AGENTS.items():              # never the real CLIs in the desktop apps

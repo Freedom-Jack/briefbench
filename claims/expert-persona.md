@@ -32,6 +32,6 @@ No. A persona adds no facts about what the user wants, and the skill avoids pers
 
 ## Status
 
-deferred: docs/design.md tests single techniques only after the whole brief wins against the original, since they usually have smaller effects. Before testing a particular wording, link one attributable post that recommends it.
+deferred: single techniques usually have smaller effects than a whole brief, and the skill grows from empty one instruction at a time, starting with the candidates expected to matter most (docs/design.md, "The skill grows from empty"). Before testing a particular wording, link one attributable post that recommends it.
 
 briefbench evidence: none yet.

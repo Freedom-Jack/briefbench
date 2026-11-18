@@ -1,11 +1,22 @@
 """briefbench score: one experiment's report, computed from the log. Vendor-neutral."""
 from __future__ import annotations
 
+import random
 from statistics import median
 
 from . import __version__
-from .experiment import rule_kind
-from .stats import decide, decide_fixed, interval, net_interval, sign_test
+from .experiment import RENDER_STAND_IN, rule_kind, stage_text
+from .stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test, tango_interval
+
+
+# Tie kinds and how the report names them. Your picks give the first two, in decision.tie; a check-scored experiment
+# gives the last two, in decision.check_tie, since nobody judged whether its results were good enough.
+TIE_KINDS = {"both_acceptable": "both good enough", "both_unacceptable": "neither",
+             "both_passed": "both passed the check", "both_failed": "both failed the check"}
+
+
+def _tie_kind(decision: dict):
+    return decision.get("check_tie") or decision.get("tie")
 
 
 def _cost(arm: dict, field: str):
@@ -16,12 +27,76 @@ def _cost(arm: dict, field: str):
     return None if brief.get(field) is None else value + brief[field]
 
 
-def _extra(trials, field) -> float | None:
-    """Median of B's extra cost over A's, in percent, over the trials where both arms report it. Briefing counts:
-    each arm's cost includes the headless calls its prompt needed."""
+def _changes(trials, field) -> list[float]:
+    """B's extra cost over A's, in percent, in each trial where both arms report it. Briefing counts: each arm's cost
+    includes the headless calls its prompt needed."""
     pairs = [(_cost(t["arms"]["a"], field), _cost(t["arms"]["b"], field)) for t in trials]
-    changes = [(b - a) / a * 100 for a, b in pairs if a and b is not None]
-    return median(changes) if changes else None
+    return [(b - a) / a * 100 for a, b in pairs if a and b is not None]
+
+
+def _pass_rates(trials) -> dict:
+    """Under the check alone, each arm's pass rate, {passed, of, interval}, with its exact 95% interval."""
+    passed = {s: sum(bool((t["arms"][s].get("check") or {}).get("passed")) for t in trials) for s in "ab"}
+    return {s: {"passed": passed[s], "of": len(trials), "interval": list(interval(passed[s], len(trials)))}
+            for s in "ab"}
+
+
+def _stratum(e: dict):
+    """The kind of task a line's task file named, such as belief-wrong; None for a task without one."""
+    return ((e.get("task") or {}).get("source") or {}).get("stratum")
+
+
+def _noise(checks) -> dict:
+    """Noise checks, A against A: how many, how many had a winner (under the check alone: the two plain runs
+    disagreed), and the plain runs, with how many passed the check; then the same for each kind of task. As a
+    calibration, these give the plain prompt's failure rate and its run-to-run noise (docs/experiment-protocol.md,
+    section 4)."""
+    def counts(group):
+        return {"count": len(group), "with_winner": sum(e["decision"]["winner"] != "tie" for e in group),
+                "runs": 2 * len(group),
+                "runs_passed": sum(bool((e["arms"][s].get("check") or {}).get("passed")) for e in group for s in "ab")}
+    kinds = sorted({kind for e in checks if (kind := _stratum(e))})
+    return counts(checks) | {"by_stratum": {kind: counts([e for e in checks if _stratum(e) == kind]) for kind in kinds}}
+
+
+def _effect(trials, interim: bool, check_only: bool) -> dict:
+    """The comparison within one group of trials: the counts and, unless a fixed rule is still collecting, each arm's
+    pass rate under the check, the difference (W - L) / N with its conservative and Tango intervals, the sign test,
+    and B's share of the decided pairs with its interval."""
+    winners = [t["decision"]["winner"] for t in trials]
+    wins, losses, n = winners.count("b"), winners.count("a"), len(trials)
+    shown, decided = bool(n) and not interim, bool(wins + losses) and not interim
+    return {"trials": n, "wins_b": wins, "wins_a": losses, "ties": n - wins - losses,
+            "pass_rates": _pass_rates(trials) if shown and check_only else None,
+            "difference": (wins - losses) / n if shown else None,
+            "net_interval": list(net_interval(wins, losses, n)) if shown else None,
+            "difference_interval": list(tango_interval(wins, losses, n)) if shown else None,
+            "sign_test_p": None if interim else sign_test(wins, losses),
+            "win_rate": wins / (wins + losses) if decided else None,
+            "win_rate_interval": list(interval(wins, wins + losses)) if decided else None}
+
+
+def _halfway(trials, rule: dict, strata) -> dict | None:
+    """The halfway look a plan may fix (rule futility_at, docs/experiment-protocol.md, section 8): once that many of
+    the first N trials where B should help (all of them, without kinds of task) are in, the test stops if B hasn't
+    won more of their decided pairs than A. It only ever stops without a win, so it adds no false wins."""
+    if not (look := rule.get("futility_at")):
+        return None
+    seen = [i for i, t in enumerate(trials[:rule["trials"]]) if not strata or _stratum(t) == strata["help"]]
+    winners = [trials[i]["decision"]["winner"] for i in seen[:look]]
+    wins, losses = winners.count("b"), winners.count("a")
+    return ({"after_trials": seen[look - 1] + 1, "looked_at": look, "wins_b": wins, "wins_a": losses}
+            if len(seen) >= look and wins <= losses else None)
+
+
+def _by_kind(helped: dict, hurt: dict, trials: int, rule: dict) -> str:
+    """The fixed rule with kinds of task (docs/experiment-protocol.md, section 8): one test, once all N trials are in,
+    on the kind where B should help; B is worse if either kind shows a significant loss."""
+    if trials < rule["trials"]:
+        return "collecting"
+    if hurt["sign_test_p"] <= rule["alpha"] and hurt["wins_a"] > hurt["wins_b"]:
+        return "harm"
+    return decide_fixed(helped["wins_b"], helped["wins_a"], helped["trials"], rule | {"trials": helped["trials"]})
 
 
 def _task(e: dict) -> tuple:
@@ -38,16 +113,85 @@ def _until_verdict(trials, rule) -> list:
     return trials
 
 
+def _points(x: float) -> str:
+    """A difference in pass rate, in whole percentage points with a sign: 0.153 is +15."""
+    return f"{x * 100:+.0f}"
+
+
 def _pct(part: int, whole: int) -> str:
     return f"{part} of {whole} ({part / whole:.0%})" if whole else "none yet"
 
 
-def _fidelity(trials, side: str) -> dict:
+def _fidelity(trials, side: str, made=None) -> dict:
     """Your fidelity reviews of one arm's briefs: how many were reviewed, how many failed, and on which question."""
-    reviews = [r for t in trials if (r := (t.get("fidelity") or {}).get(side))
-               and any(v is not None for v in r.values())]
+    reviews = [r for t in trials if _reviewed(r := _review(t, side, made or {}))]
     counts = {key: sum(r.get(key) is True for r in reviews) for key in ("added", "dropped", "changed")}
     return {"reviewed": len(reviews), "failed": sum(any(v is True for v in r.values()) for r in reviews), **counts}
+
+
+def _reviewed(review) -> bool:
+    return bool(review) and any(v is not None for v in review.values())
+
+
+def _review(trial: dict, side: str, made: dict):
+    """A brief's fidelity review: one made apart from the outcomes (a fidelity line), else the one made in the trial."""
+    return made.get((trial.get("id"), side)) or (trial.get("fidelity") or {}).get(side)
+
+
+def _reviews(mine: list[dict]) -> dict:
+    """Your fidelity reviews made apart from the outcomes, from fidelity lines, by (trial, side); a later line wins."""
+    return {(e["trial"], e["side"]): {k: e.get(k) for k in ("added", "dropped", "changed")}
+            for e in mine if e.get("kind") == "fidelity"}
+
+
+def _policy(exp: dict) -> dict | None:
+    """How B's briefs from task files are reviewed, apart from the outcomes: a random sample of them or all (null),
+    and how many may fail. An experiment with the stand-in frozen before the policy reviews all, and none may fail."""
+    if exp.get("render") != RENDER_STAND_IN or not _is_skill(exp["b"]):
+        return None
+    return exp.get("fidelity_policy") or {"sample": None, "max_unfaithful": 0}
+
+
+def _chosen(exp: dict, used: list[dict]) -> list[dict]:
+    """The trials whose brief for B the policy asks you to review: all of them, or a sample drawn from the
+    experiment's name and creation time, so nobody chooses which. A sample is fixed once all the rule's trials are in."""
+    sample = (_policy(exp) or {}).get("sample")
+    if not sample or sample >= len(used):
+        return list(used)
+    picked = set(random.Random(f"{exp['name']}:{exp.get('created')}").sample([t["id"] for t in used], sample))
+    return [t for t in used if t["id"] in picked]
+
+
+def _lines(exp: dict, entries: list[dict]) -> list[dict]:
+    created = exp.get("created")                    # lines from an older experiment of the same name don't count
+    return [e for e in entries if e.get("experiment") == exp["name"] and e.get("experiment_created", created) == created]
+
+
+def _used(exp: dict, mine: list[dict]):
+    """The experiment's trials, those its rule uses, and where a halfway look stopped it."""
+    trials = [e for e in mine if e.get("kind") == "trial"]
+    rule, kind = exp["rule"], rule_kind(exp["rule"])
+    stopped = _halfway(trials, rule, exp.get("strata")) if kind == "fixed" else None
+    used = (trials[:stopped["after_trials"]] if stopped else trials[:rule["trials"]] if kind == "fixed"
+            else _until_verdict(trials, rule))
+    return trials, used, stopped
+
+
+def review_queue(exp: dict, entries: list[dict]) -> tuple[list[dict], str | None]:
+    """The trials whose brief for B awaits your fidelity review apart from the outcomes, in an order drawn from the
+    experiment; or a reason there is nothing to review yet."""
+    if not (policy := _policy(exp)):
+        return [], (f"experiment {exp['name']} has no briefs to review apart from the outcomes: it has no skill "
+                    "treatment in arm B run from task files, and briefs made with your answers are reviewed in the trial.")
+    mine = _lines(exp, entries)
+    _trials, used, stopped = _used(exp, mine)
+    if policy["sample"] and rule_kind(exp["rule"]) == "fixed" and len(used) < exp["rule"]["trials"] and not stopped:
+        return [], (f"the {policy['sample']} briefs to review are drawn once all {exp['rule']['trials']} trials are in "
+                    f"({len(used)} so far): review them then, before you read the score.")
+    made = _reviews(mine)
+    queue = [t for t in _chosen(exp, used) if not _reviewed(_review(t, "b", made))]
+    random.Random(f"{exp['name']}:{exp.get('created')}:order").shuffle(queue)
+    return queue, None
 
 
 def _is_skill(t: dict) -> bool:
@@ -56,31 +200,63 @@ def _is_skill(t: dict) -> bool:
 
 def summary(exp: dict, entries: list[dict]) -> dict:
     """Every number in the report, from the log lines of one experiment. `score --json` prints this."""
-    created = exp.get("created")                    # lines from an older experiment of the same name don't count
-    mine = [e for e in entries if e.get("experiment") == exp["name"] and e.get("experiment_created", created) == created]
-    trials = [e for e in mine if e.get("kind") == "trial"]
+    mine = _lines(exp, entries)
+    trials, used, stopped = _used(exp, mine)
     rule, kind = exp["rule"], rule_kind(exp["rule"])
-    used = trials[:rule["trials"]] if kind == "fixed" else _until_verdict(trials, rule)
-    interim = kind == "fixed" and len(used) < rule["trials"]       # a fixed rule shows no test before all N are in
+    interim = kind == "fixed" and len(used) < rule["trials"] and not stopped   # no test before all N are in
     winners = [t["decision"]["winner"] for t in used if t["decision"]["winner"] in ("a", "b")]
     wins, losses = winners.count("b"), winners.count("a")
-    ties = [t["decision"].get("tie") for t in used if t["decision"]["winner"] == "tie"]
-    if kind == "fixed":
+    ties = [_tie_kind(t["decision"]) for t in used if t["decision"]["winner"] == "tie"]
+    check_only, strata, bound = exp.get("scoring") == "check", exp.get("strata"), None
+    overall = _effect(used, interim, check_only)
+    kinds = {name: _effect([t for t in used if _stratum(t) == name], interim, check_only)
+             for name in sorted({_stratum(t) for t in used} - {None})}
+    if stopped:                             # the halfway look ended the test without a win
+        state, rule_wins, rule_pairs = "no-difference", stopped["wins_b"], stopped["wins_b"] + stopped["wins_a"]
+    elif kind == "fixed" and strata:        # the rule tests where B should help, and bounds the loss where it could hurt
+        helped, hurt = (kinds.get(strata[role]) or _effect([], interim, check_only) for role in ("help", "harm"))
+        state, rule_wins, rule_pairs = (_by_kind(helped, hurt, len(used), rule), helped["wins_b"],
+                                        helped["wins_b"] + helped["wins_a"])
+        if not interim:
+            lower = hurt["difference_interval"][0] if hurt["trials"] else -1.0
+            bound = {"stratum": strata["harm"], "margin": strata["margin"], "lower": lower,
+                     "shown": lower > -strata["margin"]}
+    elif kind == "fixed":
         state, rule_wins, rule_pairs = decide_fixed(wins, losses, len(used), rule), wins, wins + losses
     else:
         state, rule_wins, rule_pairs = decide(winners, len(used), rule)
-    time, tokens = _extra(used, "seconds"), _extra(used, "tokens")
+    changes = {"time": _changes(used, "seconds"), "tokens": _changes(used, "tokens")}
+    time, tokens = (median(changes[name]) if changes[name] else None for name in ("time", "tokens"))
     over = [name for name, value in (("time", time), ("tokens", tokens)) if value is not None and value > exp["cap_percent"]]
-    fidelity = {s: _fidelity(used, s) if _is_skill(exp[s]) else None for s in "ab"}
+    made, policy = _reviews(mine), _policy(exp)
+    fidelity = {s: _fidelity(used, s, made) if _is_skill(exp[s]) else None for s in "ab"}
     order = {id(e): i for i, e in enumerate(mine)}
     failed = [e for e in mine if e.get("kind") == "failed" and not e.get("aa")]
     rerun = [f for f in failed if any(_task(t) == _task(f) and order[id(t)] > order[id(f)] for t in trials)]
     unresolved = len(failed) - len(rerun)
+    # With the stand-in requester nobody reviews a brief during the trial: the briefs the policy chooses wait for your
+    # review apart from the outcomes, and until each has it, or when more fail than the policy allows, B can't be
+    # adopted (added 2026-11-10; the policy since 2026-11-11).
+    review = None
+    if policy:
+        chosen = _chosen(exp, used)
+        review = {"policy": policy, "chosen": len(chosen),
+                  "waiting": sum(not _reviewed(_review(t, "b", made)) for t in chosen),
+                  "unfaithful": sum(any(v is True for v in (_review(t, "b", made) or {}).values()) for t in chosen)}
+        unfaithful = ([f"{review['unfaithful']} of the briefs chosen for review failed your fidelity review, and at "
+                       f"most {policy['max_unfaithful']} may"] if review["unfaithful"] > policy["max_unfaithful"] else [])
+        waiting = ([f"{review['waiting']} of the {len(chosen)} briefs chosen for review "
+                    f"{'have' if review['waiting'] != 1 else 'has'} no fidelity review yet"] if review["waiting"] else [])
+    else:
+        unfaithful = ([f"{fidelity['b']['failed']} of its briefs failed your fidelity review"]
+                      if fidelity["b"] and fidelity["b"]["failed"] else [])
+        waiting = []
     blocked = ([f"its median extra {' and '.join(over)} is over your {exp['cap_percent']:g}% cap"] if over else []) \
-        + ([f"{fidelity['b']['failed']} of its briefs failed your fidelity review"]
-           if fidelity["b"] and fidelity["b"]["failed"] else []) \
+        + unfaithful + waiting \
         + ([f"{unresolved} trial{'s' if unresolved != 1 else ''} failed before a comparison and "
-            f"{'were' if unresolved != 1 else 'was'} not rerun on the same task"] if unresolved else [])
+            f"{'were' if unresolved != 1 else 'was'} not rerun on the same task"] if unresolved else []) \
+        + ([f"a loss of up to {-bound['lower'] * 100:.0f} points on {bound['stratum']} is not ruled out, and at most "
+            f"{bound['margin'] * 100:g} are accepted"] if bound and not bound["shown"] else [])
     judged = [t for t in used if (t.get("judge") or {}).get("winner") and t["decision"]["by"] == "you"]
     agree = sum(t["judge"]["winner"] == t["decision"]["winner"] for t in judged)
     sized = [t for t in used if t["decision"]["winner"] in ("a", "b")
@@ -93,44 +269,63 @@ def summary(exp: dict, entries: list[dict]) -> dict:
                              | {v for v in [(exp.get("worker") or {}).get("version")] if v})
     return {
         "experiment": exp["name"], "a": exp["a"]["spec"], "b": exp["b"]["spec"], "rule": rule,
+        "scoring": exp.get("scoring", "pick"),
         "worker": {k: (exp.get("worker") or {}).get(k) for k in ("agent", "model", "version")},
         "trials": len(used), "beyond_plan": len(trials) - len(used),
         "wins_b": wins, "wins_a": losses, "ties": len(ties),
-        "ties_by_kind": {k: sum(t == k for t in ties) for k in ("both_acceptable", "both_unacceptable")}
-        | {"not_recorded": sum(t is None for t in ties)},
+        "ties_by_kind": {k: sum(t == k for t in ties) for k in TIE_KINDS} | {"not_recorded": sum(t is None for t in ties)},
         "decided_by": {by: sum(t["decision"]["by"] == by for t in used) for by in ("check", "you")},
         "interim": interim,
-        "net_preference": (wins - losses) / len(used) if used and not interim else None,
-        "net_interval": list(net_interval(wins, losses, len(used))) if used and not interim else None,
-        "sign_test_p": None if interim else sign_test(wins, losses),
-        "win_rate": wins / (wins + losses) if wins + losses and not interim else None,
-        "win_rate_interval": list(interval(wins, wins + losses)) if wins + losses and not interim else None,
+        "pass_rates": overall["pass_rates"], "net_preference": overall["difference"],
+        **{key: overall[key] for key in ("net_interval", "difference_interval", "sign_test_p", "win_rate",
+                                         "win_rate_interval")},
+        "strata": strata, "by_stratum": kinds,
         "verdict": {"state": state, "rule_wins": rule_wins, "rule_pairs": rule_pairs, "blocked_by": blocked,
-                    "adopted": state in ("adopt", "benefit") and not blocked},
-        "fidelity": fidelity,
+                    "adopted": state in ("adopt", "benefit") and not blocked, "harm_bound": bound,
+                    "stopped": stopped},
+        "fidelity": fidelity, "fidelity_review": review,
         "extra_cost_median_percent": {"time": time, "tokens": tokens}, "cap_percent": exp["cap_percent"],
+        "extra_cost_interval_percent": None if interim else {
+            name: list(band) if (band := median_interval(values)) else None for name, values in changes.items()},
         "judge": {"judged": len(judged), "agreed": agree,
                   "interval": list(interval(agree, len(judged))) if judged else None} if exp.get("judge") else None,
         "longer_diff_won": {"won": longer, "of": len(sized)},
         "guesses": {"right": sum(t["decision"]["sides"][t["decision"]["guess"]] == "b" for t in guesses),
                     "of": len(guesses)},
-        "noise_checks": {"count": len(aa), "with_winner": sum(e["decision"]["winner"] != "tie" for e in aa)},
+        "noise_checks": _noise(aa),
         "excluded": sum(e.get("kind") == "excluded" for e in mine),
         "failed": {"trials": len(failed), "rerun": len(rerun),
                    "by_stage": {st: sum(f.get("stage") == st for f in failed) for st in ("questions", "rewrite", "run")},
                    "noise_checks": sum(e.get("kind") == "failed" and bool(e.get("aa")) for e in mine)},
         "worker_models": sorted({m for t in trials for m in (t["arms"]["a"]["model"], t["arms"]["b"]["model"]) if m}),
         "worker_versions": worker_versions,
-        "scope": {"experiment_created": created, "render": exp.get("render"), "templates": exp.get("templates"),
+        "scope": {"experiment_created": exp.get("created"), "render": exp.get("render"), "templates": exp.get("templates"),
                   "treatments": {s: {k: exp[s].get(k) for k in ("spec", "kind", "sha256", "version")} for s in "ab"},
                   "rewriter": _settings(exp.get("rewriter")), "judge": _settings(exp.get("judge")),
                   "task_types": {k: sum((t.get("task") or {}).get("type") == k for t in used)
                                  for k in sorted({(t.get("task") or {}).get("type") or "unknown" for t in used})},
+                  "materials": _materials(used),
+                  "stage": exp.get("stage"), "replicates": exp.get("replicates"), "plan": exp.get("plan"),
+                  "materials_frozen": {k: v for k, v in m.items() if k != "tasks"} | {"task_files": len(m["tasks"])}
+                  if (m := exp.get("materials")) else None,
                   "first_trial": min((t.get("ts") for t in used if t.get("ts")), default=None),
                   "last_trial": max((t.get("ts") for t in used if t.get("ts")), default=None)},
         "trial_ids": [t.get("id") for t in used],
+        "task_ids": [((t.get("task") or {}).get("source") or {}).get("id") for t in used],
+        "looked_outside": sum(any(t["arms"][s].get("looked_outside") for s in "ab") for t in used),
         "briefbench_version": __version__,
     }
+
+
+def _materials(trials) -> dict:
+    """How many trials came from each material set; "interactive" counts trials typed into ab, "unnamed" task files
+    that name no set. A finding holds for its materials, and different materials are never pooled."""
+    counts = {}
+    for t in trials:
+        source = (t.get("task") or {}).get("source")
+        name = "interactive" if not source else source.get("set") or "unnamed"
+        counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 def _settings(role: dict | None) -> dict | None:
@@ -146,10 +341,22 @@ def _verdict(s: dict, exp: dict) -> str:
         planned = rule["trials"]
         if state == "collecting":                       # no p-value yet: the test runs once all trials are in
             return (f"none yet. {s['trials']} of the {planned} trials the rule tests at once; it looks only when "
-                    "all are in.")
+                    "all are in" + (f", or at the halfway look after {rule['futility_at']} trials"
+                                    f"{' where B should help' if exp.get('strata') else ''}."
+                                    if rule.get("futility_at") else "."))
+        if stop := v["stopped"]:
+            return (f"no difference shown: the test stopped at the halfway look fixed in advance. Of the first "
+                    f"{stop['looked_at']} trials{' where B should help' if exp.get('strata') else ''}, B won "
+                    f"{stop['wins_b']} and A won {stop['wins_a']}, and B needed more wins than A to go on. That means "
+                    "no large effect was found, not that there is none.")
+        if strata := exp.get("strata"):
+            return _verdict_by_kind(s, strata, rule, stopped)
         return {
             "no-difference": f"no difference shown. Over {planned} trials B won {s['wins_b']} and A won {s['wins_a']} "
-                             f"(p = {p:.4f}). That means no large effect was found, not that there is none.",
+                             f"(p = {p:.4f}). That means no large effect was found, not that there is none"
+                             + (f". The 95% interval for the difference in pass rate runs from "
+                                f"{_points(s['difference_interval'][0])} to {_points(s['difference_interval'][1])} "
+                                "points." if s["scoring"] == "check" else "."),
             "harm": f"B is worse. A won {s['wins_a']} to B's {s['wins_b']} over {planned} trials (p = {p:.4f}).",
             "below-threshold": f"not adopted. B won {s['wins_b']} to {s['wins_a']} (p = {p:.4f}), but its net "
                                f"preference, {s['net_preference']:+.2f}, is under the frozen {rule['net_min']:g}.",
@@ -162,50 +369,135 @@ def _verdict(s: dict, exp: dict) -> str:
                       "never evidence on their own.",
         "continue": f"continue. B won {wins} of the first {first}: neither adopted nor stopped, so the rule waits "
                     f"for {rule['second']} decided pairs.",
-        "no-difference": f"no practical difference: fewer than {first} of {rule['max_trials']} trials were decided.",
+        "no-difference": f"too few decided pairs to test: {pairs} of {rule['max_trials']} trials were decided, and the "
+                         f"rule needs {first}. The sign test above only describes them.",
         "stop": f"not adopted. B won {wins} of {pairs} decided pairs, short of the rule. That means no large effect "
                 "was found, not that there is none.",
         "adopt": f"adopt B. It won {wins} of {pairs} decided pairs, which the rule fixed in advance accepts" + stopped,
     }[state]
 
 
+def _verdict_by_kind(s: dict, strata: dict, rule: dict, stopped: str) -> str:
+    """The fixed rule's verdict when it tests the kind of task where B should help and bounds the loss in the other."""
+    none = {"trials": 0, "wins_b": 0, "wins_a": 0, "sign_test_p": 1.0, "difference": None, "difference_interval": None}
+    helped, hurt = (s["by_stratum"].get(strata[role]) or none for role in ("help", "harm"))
+    state, bound = s["verdict"]["state"], s["verdict"]["harm_bound"]
+    where = (f"where B should help ({strata['help']}), over {helped['trials']} trials B won {helped['wins_b']} and A "
+             f"won {helped['wins_a']} (p = {helped['sign_test_p']:.4f})")
+    if state == "harm":
+        hurt_worse = hurt["wins_a"] > hurt["wins_b"] and hurt["sign_test_p"] <= rule["alpha"]
+        name, worse = (strata["harm"], hurt) if hurt_worse else (strata["help"], helped)
+        return (f"B is worse on {name}: A won {worse['wins_a']} to B's {worse['wins_b']} over {worse['trials']} trials "
+                f"(p = {worse['sign_test_p']:.4f}).")
+    if state == "no-difference":
+        band = helped["difference_interval"]
+        return (f"no difference shown {where}. That means no large effect was found, not that there is none"
+                + (f"; the 95% interval for the difference in pass rate there runs from {_points(band[0])} to "
+                   f"{_points(band[1])} points." if band else "."))
+    if state == "below-threshold":
+        return (f"not adopted. W{where[1:]}, but the difference there, {_points(helped['difference'])} points, is "
+                f"under the frozen {rule['net_min'] * 100:g}.")
+    shown = (f", and where it could hurt ({strata['harm']}) no loss over {strata['margin'] * 100:g} points is shown"
+             if bound and bound["shown"] else "")
+    return f"adopt B. W{where[1:]}{shown}, which the rule fixed in advance accepts" + stopped
+
+
+def _effect_lines(e: dict, check_only: bool, indent: str = "") -> list[str]:
+    """Each arm's pass rate, the difference with its intervals and the sign test, for one group of trials."""
+    lines = []
+    if rates := e["pass_rates"]:
+        lines.append("Pass rates under the check, with exact 95% intervals: " + ", ".join(
+            f"{side.upper()} {r['passed']} of {r['of']} ({r['interval'][0]:.0%} to {r['interval'][1]:.0%})"
+            for side, r in rates.items()) + ".")
+    if (net := e["difference"]) is not None:
+        (lo, hi), (t_lo, t_hi) = e["net_interval"], e["difference_interval"]
+        lines.append(f"Difference in pass rate (B minus A): {_points(net)} points, 95% interval {_points(t_lo)} to "
+                     f"{_points(t_hi)} points (Tango); conservative interval {_points(lo)} to {_points(hi)} points."
+                     if check_only else
+                     f"Net preference for B (wins minus losses, over all trials): {net:+.2f}, 95% interval {t_lo:+.2f} "
+                     f"to {t_hi:+.2f} (Tango); conservative 95% interval {lo:+.2f} to {hi:+.2f}.")
+    if e["sign_test_p"] is not None:
+        decided = e["wins_b"] + e["wins_a"]
+        lines.append(f"Sign test on {decided} decided pairs: p = {e['sign_test_p']:.4f}; B's win rate "
+                     + (f"{e['win_rate']:.0%}, 95% interval {e['win_rate_interval'][0]:.0%} to "
+                        f"{e['win_rate_interval'][1]:.0%}." if decided else "n/a."))
+    return [indent + line for line in lines]
+
+
+def _kind_lines(name: str, e: dict | None, check_only: bool, bound: dict | None) -> list[str]:
+    """One kind of task's trials, its comparison and, where B could hurt, the bound on the loss."""
+    if not e:
+        return [f"{name}: no trials yet."]
+    lines = [f"{name}: {e['trials']} trial{'s' if e['trials'] != 1 else ''}. B won {e['wins_b']}, A won "
+             f"{e['wins_a']}, {e['ties']} tie{'s' if e['ties'] != 1 else ''}."]
+    lines += _effect_lines(e, check_only, "  ")
+    if bound and bound["stratum"] == name:
+        margin = f"{bound['margin'] * 100:g}"
+        lines.append(f"  No loss over {margin} points shown: the 95% interval's lower end is {_points(bound['lower'])} "
+                     "points." if bound["shown"] else
+                     f"  A loss of up to {-bound['lower'] * 100:.0f} points is not ruled out; at most {margin} are "
+                     "accepted.")
+    return lines
+
+
 def report(exp: dict, entries: list[dict]) -> str:
     s = summary(exp, entries)
     worker = s["worker"]
-    lines = [f"Experiment {s['experiment']}: A is {s['a']}, B is {s['b']}; worker {worker['agent']}, model "
-             f"{worker['model'] or 'the CLI default'}."]
-    kinds = s["ties_by_kind"]
-    tie_kinds = (f" ({kinds['both_acceptable']} both good enough, {kinds['both_unacceptable']} neither"
-                 + (f", {kinds['not_recorded']} not recorded" if kinds["not_recorded"] else "") + ")"
-                 if kinds["both_acceptable"] + kinds["both_unacceptable"] else "")
+    stage = stage_text(exp)
+    lines = [f"Experiment {s['experiment']}{f' ({stage})' if stage else ''}: A is {s['a']}, B is {s['b']}; worker "
+             f"{worker['agent']}, model {worker['model'] or 'the CLI default'}."]
+    kinds, check_only = s["ties_by_kind"], s["scoring"] == "check"
+    if check_only:
+        lines.append("Scored by the check alone: an arm wins only when it passes and the other fails.")
+    materials = s["scope"]["materials"]
+    if set(materials) - {"interactive"}:
+        lines.append("Materials: " + ", ".join(f"{name} ({n} trial{'s' if n != 1 else ''})"
+                                                for name, n in sorted(materials.items()))
+                     + (". More than one kind: a finding holds for each apart, never pooled." if len(materials) > 1
+                        else "."))
+    if s["looked_outside"]:
+        lines.append(f"In {s['looked_outside']} trial{'s' if s['looked_outside'] != 1 else ''} an agent's output "
+                     "names a folder it must not read (the data folder, the answer keys or the other arm): read its "
+                     "log. If it confirms the look, that arm counts as failing its check; recount the trial "
+                     "(docs/experiment-protocol.md, section 7).")
+    shown = ([f"{kinds[k]} {TIE_KINDS[k]}" for k in ("both_passed", "both_failed")] if check_only and s["ties"]
+             else [f"{kinds[k]} {TIE_KINDS[k]}" for k in ("both_acceptable", "both_unacceptable")]
+             if kinds["both_acceptable"] + kinds["both_unacceptable"] else [])
+    shown += [f"{kinds['not_recorded']} not recorded"] if shown and kinds["not_recorded"] else []
+    tie_kinds = f" ({', '.join(shown)})" if shown else ""
     lines.append(f"Trials: {s['trials']}. B won {s['wins_b']}, A won {s['wins_a']}, {s['ties']} ties{tie_kinds}.")
     if s["beyond_plan"]:
-        after = (f"the planned {exp['rule']['trials']}" if rule_kind(exp["rule"]) == "fixed" else "the rule's verdict")
+        after = ("the halfway look stopped the test" if s["verdict"]["stopped"] else
+                 f"the planned {exp['rule']['trials']}" if rule_kind(exp["rule"]) == "fixed" else "the rule's verdict")
         lines.append(f"{s['beyond_plan']} more trial{'s' if s['beyond_plan'] != 1 else ''} came after {after}; "
                      "they are not part of the test.")
     if s["interim"]:
         lines.append(f"The test waits for all {exp['rule']['trials']} trials; until then the report shows no p-value, "
                      "win rate or interval, so it can't tempt an early stop.")
-    if s["net_preference"] is not None:
-        lo, hi = s["net_interval"]
-        lines.append(f"Net preference for B (wins minus losses, over all trials): {s['net_preference']:+.2f}, "
-                     f"conservative 95% interval {lo:+.2f} to {hi:+.2f}.")
-    decided = s["wins_b"] + s["wins_a"]
-    if not s["interim"]:
-        lines.append(f"Sign test on {decided} decided pairs: p = {s['sign_test_p']:.4f}; B's win rate "
-                     + (f"{s['win_rate']:.0%}, 95% interval {s['win_rate_interval'][0]:.0%} to "
-                        f"{s['win_rate_interval'][1]:.0%}." if decided else "n/a."))
+    overall, strata, bound = s | {"difference": s["net_preference"]}, s["strata"], s["verdict"]["harm_bound"]
+    names = [strata["help"], strata["harm"]] if strata else []
+    names += sorted(set(s["by_stratum"]) - set(names))
+    blocks = [line for name in names for line in _kind_lines(name, s["by_stratum"].get(name), check_only, bound)]
+    if strata:              # the kinds of task come first: the rule tests one and bounds the loss in the other
+        lines.append(f"Kinds of task, tested apart: {strata['help']}, where B should help, is tested; {strata['harm']}, "
+                     f"where it could hurt, must show no loss over {strata['margin'] * 100:g} points.")
+        pooled = _effect_lines(overall, check_only, "  ")
+        lines += blocks + (["Both kinds together, for description only:"] + pooled if pooled else [])
+    else:
+        lines += _effect_lines(overall, check_only)
+        lines += ["By kind of task, for description only:"] + blocks if blocks else []
     lines.append("Verdict: " + _verdict(s, exp))
     for side in "ab":
         if f := s["fidelity"][side]:
             lines.append(f"Fidelity reviews of {side.upper()}'s briefs: "
                          + (f"{f['failed']} of {f['reviewed']} failed (added {f['added']}, dropped {f['dropped']}, "
                             f"changed {f['changed']})." if f["reviewed"] else "none yet."))
-    cost = s["extra_cost_median_percent"]
-    lines.append("Median extra cost of B over A, briefing included: " + ", ".join(
-        f"{value:+.0f}% {name}" if value is not None else f"{name} not reported"
-        for name, value in (("time", cost["time"]), ("tokens", cost["tokens"])))
-        + f" (your cap: {s['cap_percent']:g}%).")
+    cost, bands = s["extra_cost_median_percent"], s["extra_cost_interval_percent"] or {}
+    lines.append("Median extra cost of B over A, briefing included: " + "; ".join(
+        (f"{cost[name]:+.0f}% {name}" + (f", 95% interval {band[0]:+.0f}% to {band[1]:+.0f}%"
+                                          if (band := bands.get(name)) else ""))
+        if cost[name] is not None else f"{name} not reported" for name in ("time", "tokens"))
+        + f". Your cap: {s['cap_percent']:g}%.")
     if judge := s["judge"]:
         shown = (f"; 95% interval {judge['interval'][0]:.0%} to {judge['interval'][1]:.0%}" if judge["judged"] else "")
         lines.append(f"Judge, which never decides a trial: agreed with your pick in "
@@ -214,10 +506,17 @@ def report(exp: dict, entries: list[dict]) -> str:
         lines.append("Judge: off.")
     lines.append(f"The longer diff won {_pct(s['longer_diff_won']['won'], s['longer_diff_won']['of'])} decided pairs "
                  "with diffs of different sizes.")
-    lines.append(f"Your guesses of which side got B: {_pct(s['guesses']['right'], s['guesses']['of'])} right; about "
-                 "half means the blinding holds.")
-    lines.append(f"Noise checks (A against A): {s['noise_checks']['count']}, with a winner in "
-                 f"{s['noise_checks']['with_winner']}; often a winner there means high noise.")
+    if not check_only:                  # with the check alone nobody picks, so nobody guesses
+        lines.append(f"Your guesses of which side got B: {_pct(s['guesses']['right'], s['guesses']['of'])} right; "
+                     "about half means the blinding holds.")
+    noise = s["noise_checks"]
+    lines.append(f"Noise checks (A against A): {noise['count']}, with a winner in {noise['with_winner']}; often a "
+                 "winner there means high noise.")
+    if check_only and noise["count"]:                 # a calibration: the plain prompt's failures and its noise
+        lines.append(f"As a calibration: A's runs passed the check in {noise['runs_passed']} of {noise['runs']}, and "
+                     f"its two runs disagreed on {noise['with_winner']} of {noise['count']} tasks."
+                     + "".join(f" {kind}: {c['runs_passed']} of {c['runs']} runs passed, {c['with_winner']} of "
+                               f"{c['count']} tasks disagreed." for kind, c in noise["by_stratum"].items()))
     failed = s["failed"]
     considered = s["excluded"] + s["trials"] + s["beyond_plan"] + failed["trials"] - failed["rerun"]
     lines.append(f"Excluded tasks: {s['excluded']} of {considered} considered. Failed trials, where a step such as "

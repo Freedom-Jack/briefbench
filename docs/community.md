@@ -1,6 +1,6 @@
 # Public project and contribution plan
 
-Status: revised 2026-11-05. It now matches [design.md](design.md), the authoritative design, and the phases in [build-plan.md](build-plan.md). [design-review.md](design-review.md) explains what changed from the 2026-11-04 plan. The skill and the bench are built, and the contribution files are drafted for the maintainer's review. No experiment has run, so nothing here claims that the skill improves results. This document plans the public project. It publishes nothing, and it doesn't authorize uploading private records.
+Status: revised 2026-11-05, and on 2026-11-18 for the rule that only prompting advice people have posted is tested ([design.md](design.md), "Only prompting advice people have posted"). It now matches [design.md](design.md), the authoritative design, and the phases in [build-plan.md](build-plan.md). [design-review.md](design-review.md) explains what changed from the 2026-11-04 plan. The skill and the bench are built, and the contribution files are drafted for the maintainer's review. One test has been scored: round 1 of the skill's growth, which tested the skill's own question section, with the result "worse" ([record](../claims/results/questions-first.md)). No trick from a post has been tested yet, so nothing here claims that the skill improves results. This document plans the public project. It publishes nothing, and it doesn't authorize uploading private records.
 
 Read it with:
 
@@ -36,7 +36,7 @@ Keep three decisions apart:
 2. **Recommend an intervention under stated conditions.** The evidence supports a practical decision within its tested scope.
 3. **Include a change in `brief`.** The change fits the skill's job and passes the comparison, fidelity and review checks.
 
-A sound experiment may support no skill change, and keeping the skill unchanged is a normal, successful outcome. Only `specification` and `wording` claims can ever enter the skill. `domain-method`, `harness` and `practice` claims can be tested as worker treatments, but they stay out of `brief` whatever the result. The skill clarifies intent and instructions; methods and execution belong to the downstream agent.
+A sound experiment may support no skill change, and keeping the skill unchanged is a normal, successful outcome. Only prompting advice that people have posted gets a claim card ([design.md](design.md), "Only prompting advice people have posted"); advice about the agent's setup, and the project's own ideas, are out of scope. Only `specification` and `wording` claims can ever enter the skill. `domain-method` claims can be tested as add-ons to the prompt, but they stay out of `brief` whatever the result. The skill clarifies intent and instructions; methods and execution belong to the downstream agent.
 
 Never label a technique permanently true, false, proven or useless. A finding belongs to its treatments, task types, worker CLI and version, model, rewriter, skill hash, evaluator and dates. It measures the headless handoff, not `/brief` typed in a host. Codex doesn't report which model answered, so a Codex result is about the dated CLI default. A new model or a new kind of task may need new evidence.
 
@@ -47,17 +47,17 @@ Report public results honestly:
 - Never present one run or one pair as an improvement.
 - Not adopting means no large effect was found, not that there is none.
 
-Choose the rule before the first trial. A claim meant for publication uses `fixed:N`, where the sample is set in advance. The default two-step rule suits personal adoption decisions.
+Choose the rule before the first trial. A claim meant for publication uses `fixed:N`, where the sample is set in advance, and follows the method for public results ([design.md](design.md), "A method for public results"): a calibration of the materials, a plan published before the tasks exist, each kind of task analysed apart, and a second test before a trick is marked better. The default two-step rule suits personal adoption decisions only.
 
 Keep development and confirmation apart. Results on development tasks are exploratory. A claim of benefit needs a frozen experiment on tasks collected after the last edit. Tasks anyone can read are fine for development and smoke tests. They are not unseen tasks for someone who has read them.
 
-Every test of a claim counts. Report each confirmatory test, the failed ones included, and say how many were run. Editing or renaming a variant doesn't reset the count. [experiment-protocol.md](experiment-protocol.md) sets how several tests on one decision are accounted for.
+Every test of a claim counts. Report each confirmatory test, the failed ones included, and say how many were run. Editing or renaming a variant doesn't reset the count. [experiment-protocol.md](experiment-protocol.md), section 11, sets how many tests are accounted for: a trick is marked better only after two tests agree, and the board in [claims/README.md](../claims/README.md) shows the count of tests K with the bound K / 1,600.
 
 The records keep five dimensions apart, and [evidence-records.md](evidence-records.md) maps them onto the files:
 
 | Dimension | What readers need to know | Where it is recorded |
 | --- | --- | --- |
-| Workflow state | Whether a claim is unreviewed, needs a source, is a candidate, deferred, out of scope, not testable, or tested | The card's `status` |
+| Workflow state | Whether a claim is unreviewed, needs a source, is a candidate, deferred, not testable, or tested | The card's `status` |
 | Observed outcome | Benefit, harm, no difference shown, or an incomplete study, within the tested conditions | The `score` report and its JSON; the card's Status section sums it up |
 | Evidence access | Whether others can inspect and rerun the evidence | The card links a public report, or says the report is private |
 | Independence | Whether the proposer, the maintainer or an independent reproducer ran it | The result issue |
@@ -232,14 +232,13 @@ The phases are those of [build-plan.md](build-plan.md). P0 is the current phase.
 
 | Phase | Public deliverable | Claim permitted at that point |
 | --- | --- | --- |
-| P0 Readiness | An honestly labelled skill alpha: the skill accepted in real use in two hosts, the release ZIP and its bench hash, LICENSE, the reviewed contribution files, a README with two paths, and two or three labelled public examples | Only the behaviour actually checked, in the hosts actually tested. Synthetic checks are labelled synthetic. Acceptance doesn't show better results |
-| P1 Pilot | A short pilot note from five noise checks and about ten real trials through `ab`: counts, effort, failure cases and protocol changes, with no prompts or outputs | Whether the measurement works, the effort it takes and how it fails. Pilot results are not evidence, so no improvement claim |
-| P2 Small additions | Only the additions the pilot showed were needed, each with offline tests, preserved formats and one real use | What each addition does, and that others can run the bench on their own tasks. Nothing about whether the skill helps |
-| P3 First study | A study card for `original` against `brief` under a frozen rule: the complete `score` report and its JSON, positive, negative or inconclusive | Only the effect and uncertainty the frozen rule supports, within the study's stated scope |
-| P4 Claim to release | One claim card taken through a variant and a fresh test to a recorded decision: a new skill version with its rollback target, or no change | That this change has this evidence in its tested scope, not that the skill is better in general. Development results stay exploratory |
+| P0 Readiness | No release. The skill accepted in real use in two hosts, LICENSE, the reviewed contribution files, a README with two paths, and two or three labelled public examples, ready for the first evidence | Only the behaviour actually checked, in the hosts actually tested. Synthetic checks are labelled synthetic. Acceptance doesn't show better results |
+| P1 Unattended trials | A short pilot note from about ten unattended trials on generated tasks: counts, time and plan usage, failure cases and protocol changes | Whether the measurement works, the effort it takes and how it fails. Pilot results are not evidence, so no improvement claim |
+| P2 Posts under test, P3 Growth rounds | For each recent trick and each growth round: the complete `score` report and its JSON, positive, negative or inconclusive, recorded on its claim card | Only the effect and uncertainty the frozen rule supports, on the materials and with the worker it ran on |
+| P4 First public release | The grown skill, its release ZIP and bench hash, and the claim cards with every result | That each adopted instruction has its evidence in its tested scope, not that the skill is better in general. Development results stay exploratory |
 | P5 Replication and upgrade checks | An outside reproduction, and an upgrade check with its own report after a model or CLI change | Reproduction or transfer only as far as the new evidence reaches. A passing upgrade check flags large regressions; it doesn't carry an old benefit to a new model |
 
-A skill alpha can ship at the end of P0, before any study, once its real-use acceptance and the release checklist pass. Its README must say that acceptance doesn't show better results. A claim that the skill improves results needs a finished study.
+Since 2026-11-06 the first public release comes after the evidence (P4), not at the end of P0. It ships the grown skill if a round adopted anything. Otherwise you decide whether 0.2.0 ships as experimental, with the results stated. A claim that the skill or a trick improves results needs a finished test.
 
 Before relying on a change to a CLI role, the live tests must pass, not skip, through both Claude Code and Codex on the maintainer's plans. `uv run pytest -m live -v -rA` runs `test_live_judge` and `test_live_headless_rewrite`. They check compatibility, not effectiveness. Shipping the skill alpha doesn't waive them.
 

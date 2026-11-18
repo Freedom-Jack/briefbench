@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import signal
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +40,14 @@ def head(root: Path) -> str:
         raise ConfigError("the repo has no commit yet; trials start from a commit.") from None
 
 
+def commit(root: Path, rev: str) -> str:
+    """The full id of the commit `rev` names, which must exist in the repo."""
+    try:
+        return git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").strip()
+    except ConfigError:
+        raise ConfigError(f"the repo {root} has no commit {rev}.") from None
+
+
 def dirty(root: Path) -> bool:
     return bool(git(root, "status", "--porcelain", "--untracked-files=no").strip())
 
@@ -47,6 +57,33 @@ def add_worktrees(root: Path, commit: str, trial_dir: Path) -> dict[str, Path]:
     for path in paths.values():
         git(root, "worktree", "add", "--detach", "--quiet", str(path), commit)
     return paths
+
+
+def add_clones(root: Path, commit: str, base: Path) -> dict[str, Path]:
+    """For materials with an answer key: a clone of the task repo for each arm, each in a randomly named folder of its
+    own under `base`, which lies outside the data folder and outside the system's temporary folders (a sandboxed
+    worker may write to those). Unlike worktrees, a clone holds no link back to the task's folder, and the arms share
+    nothing, so neither can find the other or the answer key by looking around."""
+    base.mkdir(mode=0o700, parents=True, exist_ok=True)
+    paths = {}
+    for side in ("a", "b"):
+        path = Path(tempfile.mkdtemp(prefix="briefbench-", dir=base)) / "work"
+        git(Path(path.parent), "clone", "--quiet", "--no-hardlinks", "--no-checkout", str(root), str(path))
+        git(path, "checkout", "--quiet", "--detach", commit)
+        git(path, "remote", "remove", "origin")
+        git(path, "reflog", "expire", "--expire=now", "--all")      # "clone: from <the task's folder>"
+        shutil.rmtree(path / ".git" / "logs", ignore_errors=True)
+        paths[side] = path
+    return paths
+
+
+SHORT_TEMP = "/tmp"
+
+
+def temp_folder() -> Path:
+    """A private temporary folder for one arm of a task-file trial, with a short path: an agent CLI given a long one
+    may fall back to a temporary folder that every session on the machine shares, where the other arm writes too."""
+    return Path(tempfile.mkdtemp(prefix="bb-", dir=SHORT_TEMP if os.path.isdir(SHORT_TEMP) else None))
 
 
 @dataclass(frozen=True)

@@ -23,16 +23,16 @@ Rieseberg's essay asks for depth: work the way a field's best professionals do. 
 
 ## Fit with the brief skill
 
-No. Naming the professional's methods, tools and sources chooses how to solve the task, and the rewrite adds scope the user did not ask for. The skill leaves domain methods open unless the user set them, and does not expand scope (SKILL.md). The report files the rewrite as a technique; this card files it as domain-method for that reason. Its useful last question belongs with the outside-check card.
+No. Naming the professional's methods, tools and sources chooses how to solve the task, and the rewrite adds scope the user did not ask for. The skill leaves domain methods open unless the user set them, and does not expand scope (SKILL.md). The report files the rewrite as a technique; this card files it as domain-method for that reason.
 
 ## Proposed comparison
 
-The report's arms: A, the brief; B, the brief plus the essay's deeper rewrite. In briefbench terms: `brief` against `skill:variants/essay-depth`, a separately named variant that adds the depth step. It is a test treatment, never a release candidate for `brief`. A simpler worker treatment is `original` against `snippet:depth.md`, which asks the worker to write the deeper version before it starts.
+As an add-on to the prompt: `original` against `snippet:depth.md`, which asks the worker to write the deeper version before it starts, close to the essay's words. The report's arms compared the brief with the brief plus the essay's deeper rewrite; since the skill now grows from empty, the plain prompt is the baseline here.
 
 Measure your acceptance checks, tokens, files changed outside scope, and a blind rating of fidelity to the original intent. Watch for added scope crowding out the original goal.
 
 ## Status
 
-deferred: docs/design.md tests single changes only after the whole brief has earned its cost against the original prompt, and the value report advises starting with the outcome and outside-check tests. No result would move depth into the skill.
+deferred: it would be tested as an add-on to the plain prompt, after the tricks expected to matter more (docs/design.md, "Posts under test"). No result would move depth into the skill.
 
 briefbench evidence: none yet.

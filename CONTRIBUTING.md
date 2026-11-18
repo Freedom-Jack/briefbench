@@ -7,7 +7,7 @@ briefbench has two separate parts:
 - **`brief`**, an Agent Skill in [skills/brief/](skills/brief/). It improves a prompt, then stops. It keeps no records.
 - **`briefbench`**, a CLI in [src/briefbench/](src/briefbench/). It runs blind paired trials of two prompt treatments on your own repo tasks. It calls models only through agent CLIs logged in with your own plans, such as Claude Code and Codex, never through paid APIs.
 
-No experiment has been completed yet, so nothing here shows that the skill improves results. Finding out is part of the work.
+One test has been scored: round 1 of the skill's growth, which tested the skill's own question section and gave "worse" ([record](claims/results/questions-first.md)). No trick from a post has been tested yet. Nothing here shows that the skill improves results. Finding out is part of the work.
 
 ## Two ways to help
 
@@ -18,17 +18,17 @@ No experiment has been completed yet, so nothing here shows that the skill impro
 
 | You have | Send | Review asks first |
 |---|---|---|
-| A prompting claim | A claim issue: the link, one claim in your words, why it might matter for `brief` | Is it faithful, relevant and testable? |
+| A prompting claim | A claim issue: where it was posted, one claim in your words, the kind of work it is about | Is it advice about prompts that someone posted? Is it faithful and testable? |
 | A fidelity failure | A skill issue with a public minimal example | Did the skill change intent, invent a requirement or fail to stop? |
 | A public task | An issue: provenance, expected outcome, an independent check, rights | Does it add coverage without exposing private material? |
 | An experiment idea | An experiment proposal issue | Will the answer be useful at an affordable cost? |
 | A run or reproduction | A result issue with every outcome | Is it comparable, and is its independence stated accurately? |
 | A grading error | An issue with the error and the judgment you expected | Does the fix improve validity without favoring a treatment? |
-| A skill change | A small diff, its motivation and linked evidence | Does it fit the skill's boundary and the release checks? |
+| A skill change | A small diff, its motivation and linked evidence | Is it a fix to the skill's basic rules, or posted advice that won its round? Does it pass the release checks? |
 | An adapter for another agent CLI | An issue: what the current interface can't do | Does the CLI document scripted use on a subscription plan, with no API key and no per-token billing? Is there a real need, and someone to maintain it? |
 | A docs problem | A pull request or a short issue | Can a new user finish the task more easily? |
 
-Claims are recorded as claim cards; [claims/README.md](claims/README.md) gives the format. Recording a claim means it is relevant and described accurately, not that it works. A claim changes the skill only if a test supports it and it fits what the skill does. A sound experiment can still end with no change.
+Claims are recorded as claim cards; [claims/README.md](claims/README.md) gives the format. Only prompting advice that someone has posted can be a claim: what a prompt says or how it says it. Advice about the agent's setup, such as tools, project files like CLAUDE.md, checks outside the model or several agents, is out of scope. Recording a claim means it is relevant and described accurately, not that it works. A claim changes the skill only if a test supports it and it fits what the skill does. A sound experiment can still end with no change.
 
 ## Open an issue first
 

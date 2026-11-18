@@ -18,12 +18,30 @@ FORMAT = 1
 RULE = {"kind": "two-step", "first": 20, "adopt_first": 16, "stop_first": 10, "second": 40, "adopt_second": 27,
         "max_trials": 40}
 FIXED_TRIALS = (10, 1000)          # the planned number of trials a fixed rule may have
+# How a trial is scored. pick: the check decides when exactly one arm passes, otherwise your blind pick. check: the
+# check alone, for materials with an answer key; both arms passing or both failing is a tie (docs/design.md,
+# "Unattended trials"). Experiments frozen before 2026-11-06 have no scoring, which means pick.
+SCORINGS = ("pick", "check")
+# What an experiment is for (docs/experiment-protocol.md, section 4). development: pilots and anything else, never
+# evidence, the default; calibration: the plain prompt on calibration tasks, development data too; test: a first public
+# test under a published plan; replication: a second test of a named experiment. Before 2026-11-09 there was none.
+STAGES = ("development", "calibration", "test", "replication")
 
 
-def fixed_rule(trials: int) -> dict:
-    """Fixed sample: one two-sided exact sign test at the 5% level after exactly `trials` trials, ties included in
-    the count; B also needs a net preference of at least 0.15, which is 15 more wins than losses per 100 trials."""
-    return {"kind": "fixed", "trials": trials, "alpha": 0.05, "net_min": 0.15}
+def stage_text(exp: dict) -> str | None:
+    """How a report names an experiment's stage, with its plan's commit; None for one frozen before stages."""
+    if not (stage := exp.get("stage")):
+        return None
+    text = {"development": "development, not evidence", "calibration": "a calibration: development, not evidence",
+            "test": "a first test", "replication": f"a replication of {exp.get('replicates')}"}[stage]
+    return text + (f", plan {exp['plan']['commit'][:12]}" if exp.get("plan") else "")
+
+
+def fixed_rule(trials: int, alpha: float = 0.05, net_min: float = 0.15) -> dict:
+    """Fixed sample: one two-sided exact sign test at level `alpha` after exactly `trials` trials, ties included in
+    the count; B also needs a net preference of at least `net_min`. The defaults, 5% and 0.15 (15 more wins than
+    losses per 100 trials), suit picks; check-scored materials, where most trials tie, declare a lower net_min."""
+    return {"kind": "fixed", "trials": trials, "alpha": alpha, "net_min": net_min}
 
 
 def rule_kind(rule: dict) -> str:
@@ -34,6 +52,9 @@ def rule_kind(rule: dict) -> str:
 # ask, `ab` puts them to you, and the rewriter then writes the brief from your answers. Experiments frozen before it
 # have no render, and their skill treatments used three fixed questions; `ab` no longer runs those.
 RENDER = "skill-questions/1"
+# The same for task files, since 2026-11-10: the stand-in requester answers the questions from the task's facts,
+# instead of you, and the skill's headless calls are kept from reading the places an arm may not read.
+RENDER_STAND_IN = "skill-questions/1+stand-in/1"
 TASK_TYPES = ("code", "writing", "research", "analysis", "other")
 _NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 

@@ -28,15 +28,17 @@ Only in a narrower form. The skill states the user's desired result clearly but 
 
 ## Proposed comparison
 
+Materials: coding tasks with hidden tests, since the essay's example, apps that stay crash-free, is software ([design](../docs/design.md), "Tricks need matching materials").
+
 The report's arms: A, the task only; B, the outcome and reason; C, B plus a definition of done and explicit scope. In briefbench terms, two experiments:
 
 - `original` against `skill:variants/essay-outcome`, which restates the request as the outcome and reason the user gave. It is a test treatment only, since it may widen scope.
-- `skill:variants/essay-outcome` against `brief`, which keeps the deliverable and states the done conditions and scope the user gave.
+- `skill:variants/essay-outcome` against a variant that keeps the deliverable and states the done conditions and scope the user gave.
 
 Measure the check's pass rate, files changed outside the task's scope (from the diffs) and tokens. Watch for B gaining on pass but losing on scope. Run on both Claude Code and Codex, and report each worker's wins, losses and ties separately.
 
 ## Status
 
-candidate: the report says to start with this test and the outside-check test, because they bear on the brief and the harness, where effects should be large enough to detect. A version that replaces the deliverable cannot enter the skill, whatever the result.
+candidate: the value report suggested starting with this test, because it bears on the brief, where effects should be large enough to detect. It waits for a generator of coding tasks with hidden tests. A version that replaces the deliverable cannot enter the skill, whatever the result.
 
 briefbench evidence: none yet.

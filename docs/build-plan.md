@@ -1,30 +1,31 @@
 # briefbench build plan
 
-Plan date: 2026-11-05. This plan implements [design.md](design.md), starting from what is built: the `brief` skill (0.2.0), the subscription-CLI bench (`init`, `ab`, `score`, `clean`, the judge) and this revision's additions. It replaces the 2026-11-04 plan, which assumed none of the bench existed; [design-review.md](design-review.md) explains the differences.
+Plan date: 2026-11-06, revised 2026-11-09 for the method that every public result follows ([design.md](design.md), "A method for public results"), and on 2026-11-18 for the rule that only prompting advice people have posted is tested ([design.md](design.md), "Only prompting advice people have posted"). This plan implements [design.md](design.md), starting from what is built: the `brief` skill (0.2.0), the subscription-CLI bench (`init`, `ab`, `score`, `clean`, the judge) and the 2026-11-05 additions. It replaces the 2026-11-05 plan, after three decisions of 2026-11-06 (design.md, "Decisions"). Each trick is tested on materials that fit it. Only recent posts are tested. The skill grows from empty. The first public release comes after the evidence, not at the end of P0.
 
-Nothing here runs an experiment, publishes the repository, or claims that the skill improves results.
+Nothing here publishes the repository or claims that the skill or any trick improves results.
 
 ## 1. Phase map
 
 | Phase | Main deliverable | Exit evidence | Public value |
 | --- | --- | --- | --- |
-| P0 Readiness | The skill accepted in real use; one real trial on each plan; public basics | Five real prompts in each of two hosts; one real trial on each plan, Claude Code and Codex as the worker, each with its winner kept; the release checklist below | An honestly labelled skill alpha |
-| P1 Pilot | Five noise checks and about ten real trials through `ab` | Every trial accounted for, your effort timed, and a go or no-go for P3 | Clear failure cases and a realistic first study |
-| P2 Small additions | Only what the pilot shows is missing | Offline tests, preserved formats, one real use of each addition | A bench others can run on their own tasks |
-| P3 First study | `original` against `brief` under a frozen rule | A complete `score` report, its JSON kept, and a bounded conclusion | A study card, positive, negative or inconclusive |
-| P4 Claim to release | One claim card taken through a variant to a decision | A recorded decision: a new skill version, or no change | The project's purpose shown end to end |
-| P5 Replication and upgrade checks | An outside reproduction; rerunning logged tasks after a model change | Complete outside evidence; an upgrade check with its own report | Broader confidence, and a regression guard |
+| P0 Readiness | The skill accepted in real use; one real trial on each plan; public basics. No release at its end | Five real prompts in each of two hosts; one real trial on each plan, Claude Code and Codex as the worker, each with its winner kept; the release checklist below | A checked skill and repository, ready for the first evidence |
+| P1 Unattended trials and the first materials | Check-only scoring, task files and a runner; generated analysis tasks with a planted answer; the first trick's add-on; a pilot | Offline tests on 3.11 and 3.14; one live smoke trial; a pilot note with the decided share, failure modes, time and plan usage per trial | A trick can be tested without you judging each pair |
+| P2 Posts under test | Each recent trick, one at a time, on its own materials, against your plain prompt | For each: a frozen experiment, a complete `score` report and its JSON, and the card updated | Scoped answers about specific recent advice |
+| P3 The skill grows from empty | A stand-in requester, materials with gaps, then growth rounds, one piece of posted advice at a time | For each round: a frozen experiment, a reviewed decision and, if adopted, a new version | A skill that holds only what helped |
+| P4 First public release | The grown skill, the claim cards with every result, and the board | The release checklist; the package hash equals the hash the last round froze | An evidence-backed skill and an honest record of what didn't help |
+| P5 Replication and upgrade checks | An outside reproduction; rerunning tasks after a model change | Complete outside evidence; an upgrade check with its own report | Broader confidence, and a regression guard |
 
-Finish a phase's useful output before its optional extras. Claim cards, documentation and public-readiness work can go on alongside any phase.
+Claim cards, documentation and public-readiness work can go on alongside any phase. Run at most one confirmatory experiment at a time.
 
 ## 2. What is built
 
 | Part | State | Checked by |
 | --- | --- | --- |
-| `skills/brief/` 0.2.0 | Built 2026-11-04 | Structure checked; synthetic forward checks in Codex; headless runs through Claude Code and Codex. Real-use acceptance owed |
+| `skills/brief/` 0.2.0 | Built 2026-11-04; installed for daily use until a grown version replaces it. Since 2026-11-18 none of its instructions is a candidate | Structure checked; synthetic forward checks in Codex; headless runs through Claude Code and Codex. Real-use acceptance owed |
 | `init`, `ab`, `clean`, judge, `score` | Built 2026-11-03 | Offline tests with fake agent CLIs; one real trial through Codex; the judge live through both CLIs |
 | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions per trial, `--rule fixed:N`, `score --json` | Built 2026-11-05 | Offline tests on Python 3.11 and 3.14; the two headless calls live through Claude Code 2.1.317 and Codex 0.166.0-alpha.6 |
-| Claim cards, community files, CI, skill packaging | Drafted 2026-11-05 | Offline validators; your review before publishing |
+| Claim cards, community files, CI, skill packaging | Drafted 2026-11-05; four cards from recent sources added 2026-11-06; seven removed 2026-11-18, two for setup advice and five for the project's own suggestions | Offline validators; your review before publishing |
+| The method for public results in the bench: Tango's interval, pass rates and cost medians with exact intervals, noise checks as a calibration, kinds of task (`init --strata`), stage, plan and materials (`init --stage`, `--plan-commit`, `--tasks`), the halfway look (`--futility-at`); `scripts/plan_trials.py`, `scripts/audit_check.py` | Built 2026-11-09 | Offline tests on Python 3.11 and 3.14; one live smoke trial of kinds of task (P1, "Smoke trial of kinds of task") |
 | Plugin install from the repo for Claude Code and Codex (`plugin.json`, the marketplace file), `CHANGELOG.md`, the release workflow | Drafted 2026-11-06 | Offline tests (`tests/test_distribution.py`); installed from a local copy in Claude Code 2.1.317 and Codex 0.167.0-alpha.3.2. Installing from GitHub owed (P0.3); the release workflow has not run |
 
 The baseline for any code change:
@@ -47,112 +48,131 @@ Both `test_live_judge` and `test_live_headless_rewrite` must pass, not skip, for
 
 ### P0.1 Real-use skill acceptance
 
-Follow [skill-acceptance.md](skill-acceptance.md). Install the skill by linking `skills/brief/` into `~/.claude/skills/` and `~/.agents/skills/`. Choose at least five of your real prompts before looking at any reply: an adequate one, one with a consequential ambiguity, one with missing context, a domain investigation, and one where you require a method. Use the same set in Claude Code and one other host. For each: it asked only questions the prompt left open, invented no requirement or method, kept your specifics, and stopped after the brief. Keep the prompts and replies private; record the aggregate result in skill-acceptance.md. A failure means a new skill version and a repeat of the affected checks in both hosts.
+Follow [skill-acceptance.md](skill-acceptance.md). Install the skill by linking `skills/brief/` into `~/.claude/skills/` and `~/.agents/skills/`. Choose at least five of your real prompts before looking at any reply: an adequate one, one with a consequential ambiguity, one with missing context, a domain investigation, and one where you require a method. Use the same set in Claude Code and one other host. For each: it asked only questions the prompt left open, invented no requirement or method, kept your specifics, and stopped after the brief. Keep the prompts and replies private; record the aggregate result in skill-acceptance.md. A failure means a new skill version and a repeat of the affected checks in both hosts. The same checks become the acceptance cases every growth round must keep (P3).
 
 ### P0.2 One real trial on each plan
 
-Run one real task with `briefbench ab` with Claude Code as the worker, and one with Codex as the worker, and keep each winner. With Claude Code, watch whether Claude Code accepts the permission rule for a check command with brackets or quotes in it (`--allowedTools=Bash(<check>:*)`); if it doesn't, the agent can't run the check itself, though the bench still does. A trial ran through Codex on 2026-11-03, and a smoke trial on a toy repo on 2026-11-05, both before this revision's final changes, so neither counts.
+Run one real task with `briefbench ab` with Claude Code as the worker, and one with Codex as the worker, and keep each winner. With Claude Code, watch whether Claude Code accepts the permission rule for a check command with brackets or quotes in it (`--allowedTools=Bash(<check>:*)`); if it doesn't, the agent can't run the check itself, though the bench still does. Claude Code here is logged in with an enterprise plan, which the bench's tests have used since 2026-11-06.
 
 ### P0.3 Public release basics
 
 - LICENSE (MIT) exists. Confirm ownership; third-party material keeps its own notices (the judge prompt's Apache-2.0 license ships beside it).
 - Review the drafted `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue and PR templates and CI workflow. Add a private contact for conduct reports, and turn on private vulnerability reporting in the repository settings.
-- Adopt the narrow public-fixture exception in AGENTS.md (done in this revision): deliberately written public examples and properly licensed fixtures may be committed after review; private prompts, answers and outputs never.
 - README: two paths, use the skill or check the evidence, with built and planned parts kept apart.
-- Build the release ZIP with `uv run python scripts/package_skill.py` and check that its printed bench hash matches the folder you tested. Decide how the ZIP carries its license: it holds only `skills/brief/`, so it ships without the MIT notice unless `SKILL.md` gets a `license: MIT` field or the folder gets a LICENSE file. Either changes the skill's hash and needs a version bump, so decide before the acceptance checks. (A plugin install copies the whole repository, LICENSE included.)
+- Decide how the release ZIP carries its license: it holds only the skill's folder, so it ships without the MIT notice unless `SKILL.md` gets a `license: MIT` field or the folder gets a LICENSE file. Either changes the folder's hash, so decide before the growth rounds freeze a skill. A plugin install copies the whole repository, LICENSE included.
 - Install once from GitHub through each plugin route the README lists for Claude Code and Codex, and call the skill in an interactive session: as a plugin it is `/brief:brief` in Claude Code, and listed as `brief:brief` in Codex. Mark each route checked in the README only after that.
 - Protect `main` in the repository settings (changes through pull requests only): Codex installs whatever is on `main`, so a change there reaches its users at their next start.
-- Release: push the tag `brief--v<version>` for the version that passed acceptance. The release workflow drafts a GitHub release with the ZIP and its hashes; check them, then publish it.
 - Create the issue labels the templates use (`claim`, `skill`, `experiment`, `result`); GitHub applies only labels that exist.
-- Two or three deliberately public examples of the skill: a clear prompt left unchanged, a useful clarification, and a required method kept. Label them as demonstrations, with the date, host and version that produced them. Drafted in [examples/](../examples/README.md) on 2026-11-05 from live headless runs; review before publishing.
+- Two or three deliberately public examples of the skill, labelled as demonstrations, drafted in [examples/](../examples/README.md); review before publishing.
 
-**Exit:** P0.1 and P0.2 recorded with real evidence, and the checklist done. Neither may be inferred from this plan or from passing offline tests.
+**Exit:** P0.1 and P0.2 recorded with real evidence, and the checklist done. Neither may be inferred from this plan or from passing offline tests. P0 no longer ends in a release: the first public release is P4.
 
-## 4. P1 Pilot
+## 4. P1 Unattended trials and the first materials
 
-Freeze a pilot experiment: `briefbench init pilot` with `--a original --b brief`, Claude Code as worker and rewriter (or Codex, if you mostly use it), the judge off, your cost cap, and the default rule. Then:
+Goal: test a trick from a recent post without you judging each pair, starting with Rieseberg's "test your belief against the raw data" ([card](../claims/test-your-belief.md)).
 
-1. **Noise.** Run `briefbench ab --aa` on five real tasks. Several winners among five means noise is high.
-2. **Trials.** Run about ten real trials as tasks come up, in the repos you work in. Keep tasks you'd hand off whole; let the eligibility questions exclude the rest. Note the task type honestly.
-3. **Effort.** Time each trial's questions, pick and fidelity review. Note what was hard to judge and why.
-4. **Read the report.** `briefbench score pilot`. Pilot results are not evidence; they show whether the measurement works.
+1. **Check-only scoring.** `init --scoring check` freezes an experiment that the check alone scores. Exactly one arm passing wins; both passing or both failing is a tie, logged as `both_passed` or `both_failed`. No pick, no judge, no guess. `init` refuses the two-step rule with it, because most trials tie, and the fixed rule takes `--net-min` and `--alpha` (design.md, "When most trials tie").
+2. **Task files.** `ab --task <file>` runs one task without questions. The file gives the task repo and its commit, the prompt, the type, the goal, the hidden check, setup and protected paths, and where it came from. For now only `original` and `snippet:` treatments run from a task file. The task's source and the file's hash are logged with the trial.
+3. **The first materials.** `scripts/materials/planted_cause.py` generates analysis tasks from a seed, in three domains taking turns: churn, returns and late deliveries. Each task is a small repo with a README and three CSVs: a main table and two event tables keyed by the same id. The prompt states a belief about what drives the outcome and points at the main table, as people do. The real cause lives in one of the event tables, for example customers with a failed card payment. Half the beliefs name it. The other half name a main-table column that only looks like the cause, because it travels with the real one: it stands out in the main table and disappears once the data is split by the real cause. The pilot ran on set `planted-cause/2`; set `planted-cause/1` kept everything in one table and proved too easy (step 6). After the pilot, reviews led to set `planted-cause/3`: the check accepts common spellings of the right answer, such as `payments.payment_status` or `the weather`, still rejects denials, and every event date fits its row, such as the 90 days after a signup. Repos go in one folder; task files, answer keys and the checker go in another (`--out` and `--keys`), with opaque names and the seed kept only with the keys. The check reads the report's last `Main driver:` line and compares the whole name it gives, before any explanation, with the key. On 2026-11-09, for the method's calibration (P2), sets `planted-cause/4` to `/6` followed: a main table and one event log with a generic name, a belief stated as settled with a request only to size it, a neutral last line, and kinds of task where the table the prompt points at holds the cause only when the belief is right. Set 6 plants the cause only in the main table, because with an event cause the data couldn't rule out reading the decoy column as its root (claims/test-your-belief.md).
+4. **The first add-on.** `snippets/test-your-belief.md`.
+5. **A runner.** `scripts/run_tasks.py` runs a list of task files, one trial after another, through `briefbench ab --task`, and runs `briefbench clean` after each.
+6. **Smoke test.** Done on 2026-11-06: two live trials through Codex, both ties, both arms right, about 3.5 minutes and 0.4–0.8 million tokens per agent run. On these tasks the plain prompt's agent already tested the stated belief, so the materials needed a harder version before the pilot (claims/test-your-belief.md, Status): `planted-cause/2`.
+7. **Pilot**, a development experiment with no verdict: about ten trials of `original` against the add-on, with Claude Code as the worker (your choice on 2026-11-06), on set `planted-cause/2`. Done on 2026-11-06 as `belief-pilot-cc3`. All 10 trials were ties with both arms right, including the 5 with a wrong stated belief. The add-on cost a median 26% more time and 16% more tokens. Each run took about a minute and 0.17–0.38 million tokens. Three calibration attempts came first. The first showed that a `python3` permission rule denied ordinary analysis commands, so trials need the worker's sandbox (design.md, "Unattended trials"). The second showed that a runs folder named like the data folder confused the sandbox and the scan. An independent review on 2026-11-09 read all 20 runs and found that these materials gave the trick no room: every run opened the other tables at once, the prompt's last line already asks for the strongest column, and the real cause stood out on a simple scan. It also found one leak between the arms, a shared temporary folder, now closed (claims/test-your-belief.md). It measures how often exactly one arm passes, how hard the tasks are (if both arms nearly always pass or nearly always fail, the generator changes before any confirmation), the time and plan usage per trial, and the failure modes. Pilot tasks are development data. Under the method adopted on 2026-11-09, the pilot's label is "no room on these materials": a finding about `planted-cause/2` with this model, not about the trick.
 
-**Exit criteria.** All trials accounted for, failures included. At least eight of ten real trials were judgeable, by the check or by a pick you trusted. Your effort per trial is acceptable to you. Your real tasks contain enough consequential ambiguity for a brief to matter. If any fails, record why and decide: revise the protocol, narrow the task type, or stop and publish the pilot as it is.
+**Safeguards.** Built on 2026-11-06, after two reviews, and widened on 2026-11-09 after a third:
+- each arm works in its own clone under `~/.cache/briefbench-runs`, outside the data folder, in Claude Code's sandbox, which keeps it from reading the data folder, the answer keys and the other arm;
+- each arm has a temporary folder of its own, and can't read the bench's own source or the places where agent CLIs keep other sessions' transcripts and scratch files; nothing in its environment, PATH included, names those places;
+- the worker never gets the hidden check;
+- an arm whose output names one of those folders is flagged, and the runner stops;
+- an arm that reports an error, such as a usage limit, fails the trial, and the runner stops, so the next run retries the task once;
+- the checks run one after the other.
 
-**Deliver:** a short pilot note (counts, effort, failure cases, protocol changes), with no prompts or outputs. Tasks used in the pilot are development data: they can't be reused in P3.
+Settled on 2026-11-09 by the method for public results ([design.md](design.md), "A method for public results"), from the [benchmark-methodology report](research/benchmark-methodology/report.md):
+- the statistical method for public results;
+- the rule for a flagged look: read the arm's log, and if it confirms the look, count that arm as failing its check;
+- an ordered task list with about 10% reserves, frozen with the experiment together with the plan's commit and the materials' hashes;
+- a test where the trick should help and a loss bound where it could hurt, each declared in the plan;
+- the five noise checks under the confirmation's own experiment are replaced by the calibration, which runs about 30 tasks twice under an experiment of its own.
 
-## 5. P2 Small additions
+The bench supports these since the same day: `init --strata`, `--stage`, `--plan-commit`, `--tasks` and `--seed-source`, the calibration lines in `score`, `scripts/plan_trials.py` and `scripts/audit_check.py`.
 
-Build only what the pilot shows is needed, each as a small change that leaves one usable capability:
+Still owed **before the first test** (P2):
+- the worker's model pinned (done for the Claude Code pilot: `claude-opus-5-5`), and a version policy in the plan. Codex, if used, updates silently with the ChatGPT app, and Claude Code with the Claude app;
+- materials that give the trick room: built on 2026-11-09 as sets `planted-cause/4` to `/6`, from the review's three changes, and calibrated on the plain prompt only. Claude Code with `claude-opus-5-5` failed 0, 1 and 0 of the first 20 belief-wrong runs of each set, never near the 30% needed, so after the two revisions a calibration allows the label is "no room on this model" (claims/test-your-belief.md). No test of the trick can run on these materials with this worker;
+- before reading the verdict, both arms' final lines in every decided pair read by a person, to catch a checker error;
+- done on 2026-11-09: the bench's commit recorded with the experiment (`bench` in the experiment file, [data-formats.md](data-formats.md)), with a warning at `init` when the bench's source has uncommitted changes; the pilot had run on code committed only afterwards;
+- fixed the same day: a false flag found by the smoke trial of 2026-11-09 (below). The scan for forbidden folders flagged every Claude Code arm, so `scripts/run_tasks.py` would have stopped after each trial. Claude Code 2.1.317's own start-up event (`system/init` in its stream-json output) names the arm's memory folder, `~/.claude/projects/<the arm's folder>/memory/`, and `~/.claude/projects` had been a watched place since the isolation fix earlier that day. The scan now skips the CLI's own start-up event (`Agent.actions` in `presets.py`); a live trial with `claude-haiku-5-5` then flagged neither arm, and a look at `~/.claude/projects` in an arm's own commands is still flagged.
+- fixed on 2026-11-14: two faults found while round 1 ran; neither changed its result. Six trials were flagged falsely: in a skill's headless call a Grep returned 30 to 50 KB, Claude Code 2.1.321 saved that output itself under `~/.claude/projects/<folder>/<session>/tool-results/` and named the file in a notice, and no call opened it. The scan now ignores the path in that notice, and only there: the same path anywhere else, as when the agent opens the file, is still flagged. Rescanned, round 1's outputs give exactly those six flags with the old scan and none with the new. And a failed trial's message showed the result's subtype, "(success)", instead of the usage-limit message: it now gives each arm's error as the CLI wrote it, such as `HTTP 429: You've hit your individual spend limit …`, with key values scrubbed.
 
-| If the pilot shows | Smallest addition |
-| --- | --- |
-| Trials are hard to start in the right repo state | A `--commit` option for `ab` |
-| You want to rerun logged tasks after a model change | `ab --replay <trial-id>`: the logged prompts, commit, setup and check under a new experiment; the prompts are reused, so only the worker changes |
-| Picks take too long on large diffs | A short summary of each diff beside it, made without the treatment's name |
-| Graded rather than pairwise outcomes matter | A per-arm score field, and an export for evalstats |
-| An arm was stopped by a usage limit or an outage | A way to mark a trial invalid, so `score` sets it aside and says so |
-| A P4 campaign needs a stricter level than 5% | An alpha in the fixed rule, such as `fixed:50@0.025` |
-| You already have results from another tool | One passive importer for that exact export, keeping cache and pairing provenance |
+**Smoke trial of kinds of task**, 2026-11-09: one trial, two runs, with Claude Code 2.1.317 and `claude-haiku-5-5`, on one `planted-cause/3` task of kind `belief-right`, under a throwaway data folder, frozen with `--strata belief-wrong,belief-right`. The kind reached the trial's log line (`task.source.stratum`), and `score` grouped the trial under it and held back every test until all N trials are in. Both arms passed (a tie), in 47 and 63 seconds, with 0.23 and 0.32 million tokens. Both arms were flagged, falsely: the only match in each was Claude Code's start-up event, so under the adopted rule nothing changes for them. Development, not evidence.
 
-Keep the formats additive ([data-formats.md](data-formats.md)), the offline tests hermetic, and the bench without runtime dependencies. **Do not build here:** a runner for more CLIs, a judge that decides, automatic claim discovery, an optimizer, uploads, task routing, a dashboard or a plugin system.
+**Exit:** the offline suites pass on 3.11 and 3.14; the smoke trial ran live; the pilot note gives the decided share, the time and usage per trial, and every failed trial. Your time: a few minutes to read the note.
 
-## 6. P3 First study
+## 5. P2 Posts under test
 
-Freeze a fresh experiment for `original` against `brief`, on tasks collected after the pilot. Choose before the first trial:
+For each card in design.md's list ("Posts under test"), in its order, by the method for public results ([experiment-protocol.md](experiment-protocol.md), sections 4, 8, 10, 11 and 12):
 
-- the rule: two-step for your own adoption decision, or `fixed:N` for a claim you'll publish. For a fixed rule, set N from the pilot's tie rate: with 25% ties, 50 trials give 86% power for a true 75% win rate among decided pairs, and far less for smaller effects;
-- the worker, rewriter and models, the cost cap and the timeout;
-- the task types that are in scope.
+1. Check that the list is still recent, and that no newer post makes the same claim.
+2. Write the add-on, or the skill variant, and name the materials and their kinds of task: where the trick should help, and where it could hurt.
+3. **Calibrate.** Generate about 20 tasks where the trick should help and 10 where it could hurt, from a seed used only for calibration; freeze them under `init --stage calibration`; run the plain prompt twice on each with `scripts/run_tasks.py --aa` (60 runs). Go ahead only if, where the trick should help, the plain prompt fails at least twice the smallest gain worth detecting: 30% with the default 15 points. Otherwise make the materials harder and calibrate again, with a new seed. Then compare the checker with your own labels on 20 reports (`scripts/audit_check.py`), fix it if needed, and record the generator's and the checker's hashes.
+4. **Plan and publish.** Compute N for each kind with `scripts/plan_trials.py`, and commit the plan to the public repository, in the card or a file it links to, naming the beacon round that will give the seed.
+5. **Freeze.** Generate the tasks from the beacon's value, with about 10% reserves, and freeze `init --scoring check --rule fixed:N --net-min 0 --strata <help>,<harm> --stage test --plan-commit <sha> --tasks <list> --seed-source "<beacon round>"`.
+6. Run all N trials unattended. Don't stop early or extend, except at a halfway look written in the plan.
+7. Keep the `score --json` output, and post the result with the methodology template ([experiment-protocol.md](experiment-protocol.md), section 12). Update the card's `experiments` and Status, and its row on the board; set `status: tested`.
+8. **After a win, test again** on new tasks: a new plan, a new seed, the same frozen generator and rule. Only a second win marks the trick better (protocol section 11). A "worse" result is published after one test.
 
-Run every planned trial. Don't stop early under a fixed rule, and don't extend after seeing a result. If a budget, integrity or version problem stops the study, report it as incomplete, with the reason. Keep the JSON from `briefbench score --json` with the report.
+**State on 2026-11-18.** Test your belief: steps 1 to 3 done, no room. Three calibrations of its materials on Claude Code with `claude-opus-5-5` used 60 runs; the plain prompt named the planted cause in 59 of them, because it tested the stated belief against the other table on its own. The trick was not run, and its card is deferred until a worker or materials leave room. No other trick from a post has been tested. The rest, in design.md's order, and what each waits for: let Claude interview you, as a growth round (P3, step 5); ask for the outcome, a stand-in requester or a treatment that differs by task, and a generator of coding tasks with hidden tests, since the essay's example is software; unreasonable goals, a generator with a measurable target and a separate outcome for cheating; a deeper prompt and other fields, your blind picks; explore broadly, tasks like the multi-app tasks Anthropic measured it on, since the planted-cause tasks are a different kind of work and their calibration doesn't settle it; controlled language, your blind picks.
 
-The report must answer: what decision was tested, on which tasks and configuration; how tasks were chosen and which were excluded or failed; the wins, losses and ties with their kinds; the net preference and the win rate with their intervals; the verdict under the frozen rule; fidelity failures; extra time and tokens; and what remains unknown. A private study may publish an aggregate report with its limits stated; a public reference study needs tasks written for publication, rerun as public tasks.
+A trick marked better that fits the skill's boundary becomes a growth candidate in its skill form, a new treatment tested in its own round (P3); the add-on's result motivates it but isn't evidence for it. Tricks needing your picks (controlled language) wait for those.
 
-P3 can end in supported benefit, supported harm, an inconclusive result or a documented stop. If the brief isn't justified on your tasks, keep the skill experimental and use the observed failures to choose at most one candidate for P4.
+Your time per trick: about 15 minutes to label reports for the checker audit, a few minutes to write the plan, and about ten minutes to read each report. Plan usage: 60 runs for a calibration, then two runs per trial: about 460 for a first test in the report's illustration (129 trials where the trick should help and 100 where it could hurt), and as many again for a second test, only after a win. Set a nightly cap you are comfortable with.
 
-## 7. P4 Claim to release
+## 6. P3 The skill grows from empty
 
-1. Pick one claim card with status `candidate`, relevant to a failure you saw or a repeated need. Good candidates have a verified source, a small falsifiable change, plausible impact and an affordable test. Not one chosen because its author is famous.
-2. Write the smallest variant: a copy of `skills/brief/` with the one change. Keep the skill's boundary and its acceptance cases.
-3. Try it on a few development tasks; record those results as exploratory in the card.
-4. Freeze `briefbench init <name> --a skill:skills/brief --b skill:variants/<name>` on fresh tasks, with the rule chosen before the first trial.
-5. Run it to the rule's verdict.
-6. Record the decision in the card: accept, reject, defer or revert, with the reasons and conflicting evidence.
-7. For an accepted change: bump `metadata.version`, rerun the affected acceptance checks in both hosts, package the release, and note the rollback target in the commit message.
+1. **A stand-in requester.** A new `answerer` role in `presets.py`: a headless call with no tools that answers the skill's questions using only the task's facts, by quoting them, or says it doesn't know. Its template is frozen with the experiment, answers are logged as simulated, and `ab` accepts the new render value alongside the interactive one. **Built on 2026-11-10.** A task file's `facts` list what the requester knows; the stand-in chooses, for each question, the facts that answer it by number, or none, and the bench writes their text word for word as the answer, so the stand-in adds nothing of its own; none chosen is a skipped question. The experiment freezes it (`answerer`, `templates.answerer`, render `skill-questions/1+stand-in/1`); its call is logged as the step `answers` and isn't part of an arm's cost. Because a brief now reaches an arm unattended, the skill's two headless calls run confined like the worker (the roles `task-asker` and `task-rewriter`: a temporary folder of their own, the same denied places, their steps scanned, a hit marking the arms they reached), Codex is refused as their rewriter, a brief's fidelity is logged unreviewed, and `score` adopts nothing while any of B's briefs is unreviewed. Offline tests cover each of these. Live on 2026-11-10 through Claude Code 2.1.317: the stand-in chose the right fact for one question and none for another, the questions came back as JSON through stream-json, and a confined rewrite could not read a file in a denied folder that its prompt pointed at (without the rule, Claude Code headless also refused to read outside its folder).
+2. **Materials with gaps.** Generated tasks whose prompt leaves out a fact the requester knows and the check depends on, such as which customers the decision is about. **Built and calibrated on 2026-11-11.** `scripts/materials/missing_fact.py`, set `missing-fact/1`: a request for one rate (churn, returns or late deliveries) from one table, for a meeting. In a `gap` task the prompt leaves out which group or from which month the requester means, and shows that something is missing; the task file's `facts` hold it, with two that don't matter. In a `no-gap` task the prompt states it. The data is drawn before the fact and never depends on it, and every guess fails the check (tests show both). Calibrated on the plain prompt only, 60 runs on Claude Code 2.1.321 with `claude-opus-5-5`: `gap` 0 of 40 passed, `no-gap` 20 of 20, and two runs never disagreed. In 34 of the 40 gap runs the agent declined to give a number and asked for the missing fact, which a one-shot handoff can't answer; in 6 it guessed. So the materials leave the most room there is (private study note `interview-cal1`).
+3. **Fidelity reviews blind to outcomes.** A batch review command, with outcomes withheld until every brief is reviewed. Decide before the first round how many unfaithful briefs block adoption: today any one does. At 150 briefs, a true 1% slip rate blocks 78% of the time. **Built on 2026-11-11.** `scripts/review_briefs.py` shows each brief with only the prompt and the stand-in's answers, never an outcome, and appends each review to the log as a `fidelity` line. `init --review-sample N --unfaithful-max M` freezes which briefs are reviewed (all, or a random N drawn once all trials are in) and how many may fail; `score` adopts nothing until the chosen briefs are reviewed and within that tolerance.
+4. **Rounds 1 and 2 tested the skill's own question section, not posted advice** ([record](../claims/results/questions-first.md)). They were filed at first under Claude Code's advice to let Claude interview you, which they don't follow: that advice is about larger coding features and sets no limit on questions (design.md, "Only prompting advice people have posted"). **Round 1:** `original` against `skill:variants/questions-first`, on Claude Code. **Prepared on 2026-11-11:** the variant `variants/questions-first` (the skill's basic rules plus 0.2.0's own question section, nothing tuned to the materials), and a draft plan, [claims/plans/questions-first-1.md](../claims/plans/questions-first-1.md): 52 `gap` and 69 `no-gap` trials, 242 worker runs and about 37 million tokens, with a halfway look, a random 40 briefs reviewed and at most one allowed to fail, and default answers to each of design.md's open decisions. A development smoke trial on two throwaway tasks ran the whole pipeline: on the gap task the variant asked when the change took effect, the stand-in answered from the facts, and B passed where A failed. Your labels for the checker audit agreed with the check on 19 of 20 reports, and the plan was published the same day after your yes. **Ran on 2026-11-11 and 12: worse,** so the variant is not adopted ([record](../claims/results/questions-first.md)). Where the prompt left out a fact, B passed 40 of 52 tasks and A none (+77 points, 95% CI +64 to +86); where it was complete, A passed all 69 and B 58 (−16 points, −26 to −9). In all 11 losses a question the stand-in skipped reached the brief as an open choice, and the worker narrowed the group the rate covers. You stopped the fidelity review before any brief was reviewed. **Round 2,** prepared and published on 2026-11-14: `original` against `skill:variants/questions-first-2`, round 1's variant with only the rule for a skipped question changed, on new tasks, with a factual check of every brief (`scripts/check_briefs.py`) in place of a person's review. Its plan, [claims/plans/questions-first-2.md](../claims/plans/questions-first-2.md), was published before its tasks existed. It ran on 2026-11-14 and 15. Its scoring waits on your check of a table of its final answers; the result then goes in the same record, under the same label.
+5. **Round 3, the first round on posted advice:** Claude Code's advice to let Claude interview you until it could write the spec, tested as its guide gives it ([card](../claims/ask-questions-first.md)): `original` against a variant, on Claude Code with `claude-opus-5-5`, scored by hidden tests. Owed before its plan, each part designed with you before it is built:
+   - **Tasks.** A generator of coding feature tasks with hidden tests, in `scripts/materials/` like `missing_fact.py`. In a `gap` task the request leaves out decisions the requester has made; in a `no-gap` task it states them. The task file's `facts` hold those decisions, with a few that don't matter. The hidden tests pass only when the decisions are followed and fail for every reasonable guess, and the generator's tests show both.
+   - **An interview.** The skill may ask more than three questions, over more than one turn, until it says it could write the spec; the stand-in answers each from the facts, as now. A cap on turns is a safety stop, not a limit on questions, and the result says how often it was reached. This changes the request templates, so it needs new experiments, and `ab` then refuses experiments frozen before the change: make it only once round 2 needs no more trials.
+   - **The variant.** The skill's basic rules plus the advice, close to the guide's words, with nothing tuned to the tasks.
 
-Edits after seeing the confirmation results go back to step 3 and need new tasks. A boundary or literal-preservation fix can ship on demonstrated correctness without a measured gain; say so. The bench never edits the skill.
+   The plan also settles how the spec reaches the worker: as its prompt, or as a `SPEC.md` file in its repo, as the guide has it. It checks each brief against its task file's facts, as `scripts/check_briefs.py` does for `missing-fact/1`, in place of a reading review. Then the method's steps follow, as for any public test: the calibration, the checker audit, the plan published before its tasks exist, and the round.
+6. **Later rounds** follow design.md's candidate order. After every few adoptions, test the whole grown skill against the empty one again.
+
+Each round ends in your decision; an adopted change bumps `metadata.version`, is recorded in its card and the commit message, and names a rollback target. The bench never edits the skill.
+
+## 7. P4 First public release
+
+After P2's first results and P3's first rounds. It ships the grown skill if a round has adopted anything. If nothing has been adopted, you decide whether 0.2.0 ships as experimental, with the results stated. The release needs P0's checklist, the package hash equal to the hash the last round froze (`uv run python scripts/package_skill.py` prints it), every card's current result, and the board: the claims table in [claims/README.md](../claims/README.md), with its Stage, Plan, N and Result columns, and the count of tests K with its bound K / 1,600 (since 2026-11-09). Results on the board show wins, losses and ties with their kinds, and failed and voided trials, and say which materials and models they hold for. To release, push the tag `brief--v<version>` for the version that passed: the release workflow drafts a GitHub release with the ZIP and its hashes; check them, then publish it.
 
 ## 8. P5 Replication and upgrade checks
 
-- **Replication.** Give a reproducer the claim card, the frozen experiment settings, the protocol, a smoke-test task and the expected report shape. Rechecking a report, rerunning the same tasks and testing new tasks are different contributions; label them so.
-- **Upgrade checks.** When Claude Code or Codex changes model or version, rerun a small frozen set of logged tasks (with `--replay`, if P2 built it) and compare against the logged result. Passing doesn't carry an old benefit over to the new model; it flags large regressions.
-- **Automation, only when needed:** a second CLI, an importer, an Inspect adapter for tasks that need real isolation, or a calibrated judge protocol, each with a named owner.
+- **Replication.** Give a reproducer the claim card, the frozen experiment settings, the generator and seed, and the expected report shape. Rerunning the same seed and testing a fresh seed are different contributions; label them so.
+- **Upgrade checks.** When Claude Code or Codex changes model, rerun a small frozen set of tasks and compare. Passing doesn't carry an old benefit over to the new model; it flags large regressions.
 
-## 9. Working rhythm and budget
+## 9. Deferred additions
 
-These are planning ranges, not promises. Track actual effort in P1 and replace them.
+Build these only when a phase shows the need: `ab --commit`; `ab --replay <trial-id>`; a short summary of each diff beside it; a per-arm score and an export for evalstats; one passive importer for another tool's results; hidden-test coding tasks from public repositories, which need your consent to run third-party code on this machine; the multi-step tasks Anthropic's lines need.
+
+## 10. Working rhythm and budget
+
+These are planning ranges, not promises; the pilot replaces them.
 
 | Work | Expectation | Main uncertainty |
 | --- | --- | --- |
-| P0 | A few focused sessions | Host install behaviour, finding five representative prompts |
-| P1 | About 2–3 hours of your time over a week or two | How often real tasks qualify |
-| P2 | Half a day to two days of engineering, only if needed | What the pilot shows |
-| P3 | 25–50 trials over a few weeks: 2–5 hours | Tie rate, task supply, version drift |
-| P4 | One small development cycle plus a fresh test | Whether a worthwhile change exists |
-| P5 | Demand-driven | Outside interest |
+| P0 | A few focused sessions, about 2–3 hours of your time | Host install behaviour, finding five representative prompts |
+| P1 | Two or three working sessions; the pilot uses about 20 agent runs | How hard the generated tasks are |
+| P2 | Per trick: a calibration of about 60 agent runs, then about 200–500 runs for a first test over one to three weeks, and as many for a second test after a win; about half an hour of your time | How often the plain prompt fails, and how noisy the runs are |
+| P3 | Per round: like a P2 test, plus 1–3 minutes of your time per brief for the fidelity review | Whether any instruction shows a large effect |
+| P4 | A session to package and review | What has been adopted |
 
-Run at most one confirmatory experiment and one candidate at a time. A growing queue of claim cards is not a commitment to test them all.
+## 11. Next session
 
-## 10. Next session
+1. Read this plan and design.md, and check the worktree state.
+2. Run the offline suites on 3.11 and 3.14.
+3. The skill's growth (P3): rounds 1 and 2 tested the skill's own question section, not posted advice ([record](../claims/results/questions-first.md)). Round 1 gave **worse** (2026-11-11 and 12). Round 2, for `variants/questions-first-2`, ran on 2026-11-14 and 15; its result is not recorded yet. Next: round 2's result, as its plan sets out, recorded as a test of the skill's own instruction; then round 3, Claude Code's interview advice as its guide gives it (P3, step 5). "Test your belief" found no room on Claude Code with `claude-opus-5-5` (2026-11-09); the other tricks need a coding-task generator with hidden tests, tasks like Anthropic's multi-app tasks, or your blind picks. Only prompting advice people have posted is tested (design.md). Ask before building a large part.
+4. P0 when you have real prompts and tasks.
 
-Start with P0, not with more bench features:
-
-1. Read this plan, [design.md](design.md) and [skill-acceptance.md](skill-acceptance.md), and check the worktree state.
-2. Run the offline suites on 3.11 and 3.14, and the live tests.
-3. P0.1: collect your five real prompts and run the acceptance in Claude Code and Codex.
-4. P0.2: one real trial on each plan, Claude Code and Codex as the worker, each with its winner kept.
-5. P0.3: finish the release checklist; publish only when you decide to.
-6. Freeze the pilot (P1) and run its five noise checks.
-
-If a needed input is missing, such as real prompts or a host, report exactly what is missing and do independent preparation work. Don't fake acceptance or build later features around a blocked gate. Every later handoff should name its phase and work package, what has actually passed, the files and formats to preserve, the deliverable, its check, and where to stop.
+If a needed input is missing, report exactly what is missing and do independent preparation work. Don't build a later phase's features around a blocked gate. Every handoff names its phase and work package, what has actually passed, the files and formats to preserve, the deliverable, its check, and where to stop.
