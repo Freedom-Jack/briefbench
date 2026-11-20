@@ -38,6 +38,19 @@ The first cards come from the project's research, read on 4 Nov 2026: the [value
 - *N*: the trials of each kind of task, such as `130 + 100`.
 - *Result*: the decision label ([protocol](../docs/experiment-protocol.md), section 10), with each arm's pass rate and the difference with its 95% interval, for each kind of task.
 
+### By article
+
+Each article or guide, broken into its tricks, with one line on how helpful it has been so far (added 20 Nov 2026). The line sums up its tricks' results; each trick keeps its own result on its card. Only a trick that changes what a request says, in a form its card names, can enter the skill; the others still get a result from the bench.
+
+| Article | Its tricks | Could enter the skill | So far |
+| --- | --- | --- | --- |
+| Felix Rieseberg, "How to be more ambitious" (13 Oct 2026) | [test your belief](test-your-belief.md), [ask for the outcome](outcome-over-task.md), [unreasonable goals](unreasonable-goals.md), [a deeper prompt](depth-rewrite.md), [other fields](range-other-fields.md) | 2 of 5, each in a narrower form | 1 of 5 checked: "test your belief" had no room on Claude Code with Opus 5.5, because the plain prompt already did it. 4 not tested |
+| Claude Code's best practices, "Brainstorm with Claude first" | [interview until it could write the spec](ask-questions-first.md) | Yes | Round 3 of the skill's growth is being prepared. Not tested |
+| Anthropic, "Prompting Claude Opus 5.5" | [explore broadly before settling](explore-broadly.md) | No | Not tested |
+| Charlie Hills, LinkedIn post on ASD-STE100 (about 23 Oct 2026) | [controlled language](controlled-language.md) | In a narrower form | Not tested; needs the maintainer's blind picks |
+| Boris Cherny, "Building Claude Code" (July 2026) | [a goal, scope and done instead of steps](goal-brief-over-steps.md) | In a narrower form | Not tested; older than three months |
+| Common advice, no single article | [expert persona](expert-persona.md), [capitals and CRITICAL](caps-emphasis.md) | No | Not tested |
+
 ### Tests of the skill's own instructions
 
 These public tests tried instructions the project wrote itself, not posted advice. They are recorded apart from the cards, under their own name, and count in K below.
@@ -47,7 +60,7 @@ These public tests tried instructions the project wrote itself, not posted advic
 | [Round 1 of the skill's growth](results/questions-first.md) | Version 0.2.0's question section, with the skill's basic rules (`variants/questions-first`) | first test | [fb23bc3](https://github.com/Freedom-Jack/briefbench/blob/fb23bc35940e3474fdf72bef17f1eb6d8e323983/claims/plans/questions-first-1.md) | 52 + 69 | Worse. `gap`: plain prompt 0% (0 of 52), variant 77% (40 of 52), +77 points (95% CI +64 to +86). `no-gap`: plain prompt 100% (69 of 69), variant 84% (58 of 69), −16 points (95% CI −26 to −9) |
 | [Round 2 of the skill's growth](results/questions-first.md) | Round 1's variant with its rule for a skipped question changed (`variants/questions-first-2`) | first test | [fa073d5](https://github.com/Freedom-Jack/briefbench/blob/fa073d57a9ab2ee67df5b1fe95c77b4c5b9841b0/claims/plans/questions-first-2.md) | 52 + 69 | Ran on 14 and 15 Nov 2026; not recorded yet |
 
-Rounds 1 and 2 were first filed under Claude Code's advice to let Claude interview you. They don't test that advice: it is about larger coding features and sets no limit on questions, and these rounds used short data requests and at most three questions ([record](results/questions-first.md)).
+Rounds 1 and 2 were first filed under Claude Code's advice to let Claude interview you. They don't test that advice: it is for when you don't yet know exactly what you want, with a coding feature as its example, and sets no limit on questions, and these rounds used short data requests and at most three questions ([record](results/questions-first.md)).
 
 **Public tests so far: K = 1** scored, round 1. A trick is marked better only after a second test, on new tasks, agrees with the first ([protocol](../docs/experiment-protocol.md), section 11). If none of the tested instructions did anything, the expected number marked better by chance is at most K / 1,600, which is 1/1,600 ≈ 0.0006 now. Every test counts in K, null and harmful results included, and so do the tests of the skill's own instructions.
 
@@ -88,6 +101,8 @@ The `brief` skill clarifies the user's intent and instructions. It never chooses
 - `yes`: it fits as stated.
 - `conditional`: it fits only in a narrower form, or only when something is known before the run, such as a fact the user stated. The card says which.
 - `no`: it cannot enter the skill.
+
+Whatever its `skill_fit`, a trick that enters the skill keeps the condition its source gives, and the skill applies it only when a request meets that condition ([design](../docs/design.md), "The skill grows from empty"). The card names that condition.
 
 `yes` is not a plan to adopt the claim. Accepting a claim, recommending it and putting it in the skill are separate decisions ([docs/community.md](../docs/community.md), "What a public claim means").
 

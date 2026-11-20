@@ -1,6 +1,6 @@
 # Plan: round 1 of the skill's growth, "let the agent interview you"
 
-**Note added on 18 Nov 2026, after the round.** This round did not test Claude Code's advice to let Claude interview you, which is about larger coding features and sets no limit on questions. It tested the question section of the `brief` skill's version 0.2.0, which the project wrote itself, on short data requests. Its record is [results/questions-first.md](../results/questions-first.md). The plan below is unchanged from its published commit, fb23bc3.
+**Note added on 18 Nov 2026, after the round.** This round did not test Claude Code's advice to let Claude interview you, which is for when you don't yet know exactly what you want, with a coding feature as its example, and sets no limit on questions. It tested the question section of the `brief` skill's version 0.2.0, which the project wrote itself, on short data requests. Its record is [results/questions-first.md](../results/questions-first.md). The plan below is unchanged from its published commit, fb23bc3.
 
 **Published 2026-11-11, before any test task existed.** The maintainer approved it on 2026-11-11; the commit that
 adds this line fixes the plan, and nothing in it changes once the tasks exist. Card: [Let the agent interview you
