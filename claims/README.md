@@ -45,7 +45,7 @@ Each article or guide, broken into its tricks, with one line on how helpful it h
 | Article | Its tricks | Could enter the skill | So far |
 | --- | --- | --- | --- |
 | Felix Rieseberg, "How to be more ambitious" (13 Oct 2026) | [test your belief](test-your-belief.md), [ask for the outcome](outcome-over-task.md), [unreasonable goals](unreasonable-goals.md), [a deeper prompt](depth-rewrite.md), [other fields](range-other-fields.md) | 2 of 5, each in a narrower form | 1 of 5 checked: "test your belief" had no room on Claude Code with Opus 5.5, because the plain prompt already did it. 4 not tested |
-| Claude Code's best practices, "Brainstorm with Claude first" | [interview until it could write the spec](ask-questions-first.md) | Yes | Round 3 of the skill's growth is being prepared. Not tested |
+| Claude Code's best practices, "Brainstorm with Claude first" | [interview until it could write the spec](ask-questions-first.md) | Yes | Pilot on 20 Nov 2026, development, not evidence: with the interview, 5 of 5 incomplete requests passed against 0 of 5 for the plain prompt, and 5 of 5 complete ones passed either way. Not tested yet |
 | Anthropic, "Prompting Claude Opus 5.5" | [explore broadly before settling](explore-broadly.md) | No | Not tested |
 | Charlie Hills, LinkedIn post on ASD-STE100 (about 23 Oct 2026) | [controlled language](controlled-language.md) | In a narrower form | Not tested; needs the maintainer's blind picks |
 | Boris Cherny, "Building Claude Code" (July 2026) | [a goal, scope and done instead of steps](goal-brief-over-steps.md) | In a narrower form | Not tested; older than three months |
