@@ -19,7 +19,7 @@ Rieseberg's essay asks for range: borrow from other fields. It suggests turning 
 The value report splits this into two claims, and rates both partly supported.
 
 - Nouns into verbs, which the report files as specification: the reframe adds the audience, the decision and the time budget. Cross-domain prompting gave no average originality gain across seven models ([Liu et al.](https://arxiv.org/abs/2603.19087), arXiv Mar 2026). On one creative task across 12 current models, cross-domain cues did help originality; with one task, that is only suggestive ([Haase et al., 2026](https://arxiv.org/abs/2601.21339)).
-- A cross-field crew, which the report files as harness. Run as several agents, it is advice about the agent's setup, which briefbench doesn't test ([design](../docs/design.md), "Only prompting advice people have posted"); asking one agent to weigh those views is a prompt, and is tested below.
+- A cross-field crew, which the report files as harness. Run as several agents, it is advice about how agents are arranged, part of the agent's setup, which briefbench doesn't test ([design](../docs/design.md), "Only advice people have posted"); asking one agent to weigh those views is a prompt, and is tested below.
 
 ## Fit with the brief skill
 
