@@ -57,7 +57,7 @@ def test_init_freezes_the_experiment_once(agents, repo):
     assert exp["b"]["kind"] == "skill" and exp["b"]["version"] == "0.2.0" and len(exp["b"]["sha256"]) == 64
     assert exp["worker"]["agent"] == "codex" and exp["worker"]["argv"][-2:] == ["--", "{prompt}"]
     assert exp["rule"]["kind"] == "two-step" and exp["rule"]["adopt_first"] == 16 and exp["cap_percent"] == 50
-    assert exp["render"] == "skill-questions/1" and "--output-schema" in exp["asker"]["argv"]
+    assert exp["render"] == "skill-interview/1" and "--output-schema" in exp["asker"]["argv"]
     assert "read-only" in exp["asker"]["argv"] and exp["asker"]["model"] == exp["rewriter"]["model"]
     assert "Rule: two-step" in err and "listing the skill's questions" in err
     assert init(repo)[0] == 2                                    # frozen settings are never changed
@@ -103,16 +103,18 @@ def test_ab_runs_both_arms_and_the_check_decides(agents, repo, monkeypatch):
     assert t["prompts"]["a"] == PROMPT and t["prompts"]["b"] == f"BRIEF: {PROMPT}\n"
     assert t["arms"]["b"]["check"]["passed"] and not t["arms"]["a"]["check"]["passed"]
     assert t["arms"]["a"]["tokens"] == 1000 + len(PROMPT) + 10 and t["task"]["answers"]["why"] == "Keep CI honest"
-    assert t["task"]["questions"] == [{"skill": f"skill:{SKILL}", "q": QUESTION, "a": "It feeds the release notes"}]
+    assert t["task"]["questions"] == [{"skill": f"skill:{SKILL}", "q": QUESTION, "a": "It feeds the release notes",
+                                       "turn": 1}]
     assert t["task"]["listed"] == {f"skill:{SKILL}": 1} and t["task"]["answers"]["stretch"] == ""
+    assert t["task"]["interview"] == {f"skill:{SKILL}": {"turns": 1, "capped": False}}
     assert t["fidelity"] == {"b": {"added": False, "dropped": False, "changed": False}}
     assert t["versions"] == {"worker": "fake-codex 1.0", "rewriter": "fake-codex 1.0", "asker": "fake-codex 1.0"}
     assert "+brief" in Path(t["output"], "b.diff").read_text() and f"apply {t['output']}/b.diff" in err
     calls = agents()
-    assert [c["role"] for c in calls] == ["asker", "rewriter", "worker", "worker"]
+    assert [c["role"] for c in calls] == ["asker", "asker", "rewriter", "worker", "worker"]   # a second turn: done
     assert all(not {"ANTHROPIC_API_KEY", "OPENAI_BASE_URL"} & set(c["keys"]) for c in calls)
     assert "read-only" in calls[0]["argv"] and "--output-schema" in calls[0]["argv"]
-    assert "read-only" in calls[1]["argv"] and "workspace-write" in calls[2]["argv"]
+    assert "read-only" in calls[2]["argv"] and "workspace-write" in calls[3]["argv"]
     assert "sk-ant-test-0123456789" not in Path(os.environ["BRIEFBENCH_HOME"], "log.jsonl").read_text()
 
 
@@ -127,6 +129,9 @@ def test_the_evaluation_stays_hidden_from_both_arms(agents, repo):
         assert hidden not in request and all(hidden not in p for p in t["prompts"].values())
     asked = Path(t["output"], "questions-1.request.md").read_text()
     assert f"<prompt>\n{PROMPT}\n</prompt>" in asked and "Keep CI honest" not in asked
+    assert "No questions have been asked yet." in asked
+    again = Path(t["output"], "questions-1.2.request.md").read_text()          # the second turn sees the answer
+    assert f"- {QUESTION}\n  Answer: It feeds the release notes" in again and "Keep CI honest" not in again
 
 
 def test_a_skill_that_asks_nothing_gets_no_answers(agents, repo, monkeypatch):
@@ -139,14 +144,40 @@ def test_a_skill_that_asks_nothing_gets_no_answers(agents, repo, monkeypatch):
     assert "The skill asked no questions." in Path(t["output"], "rewrite-b.request.md").read_text()
 
 
-def test_the_skill_may_ask_at_most_three(agents, repo, monkeypatch):
+def test_the_skill_may_ask_as_many_questions_as_it_wants(agents, repo, monkeypatch):
     monkeypatch.setenv("FAKE_ASKER", "many")
     init(repo)
-    code, err = bench(["ab", PROMPT], answers(skill="one\ntwo\nthree"), cwd=repo)
+    code, err = bench(["ab", PROMPT], answers(skill="one\ntwo\nthree\nfour\nfive"), cwd=repo)
     assert code == 0, err
     [t] = entries()
-    assert [x["a"] for x in t["task"]["questions"]] == ["one", "two", "three"]
-    assert t["task"]["listed"] == {f"skill:{SKILL}": 5} and "only the first 3 are asked" in err
+    assert [x["a"] for x in t["task"]["questions"]] == ["one", "two", "three", "four", "five"]
+    assert t["task"]["listed"] == {f"skill:{SKILL}": 5} and "only the first" not in err
+
+
+def test_the_interview_goes_on_in_turns_until_the_skill_asks_nothing_more(agents, repo, monkeypatch):
+    monkeypatch.setenv("FAKE_ASKER", "two")
+    init(repo)
+    code, err = bench(["ab", PROMPT], answers(skill="It feeds the release notes\nThe release manager"), cwd=repo)
+    assert code == 0, err
+    [t] = entries()
+    assert [(x["q"], x["a"], x["turn"]) for x in t["task"]["questions"]] == [
+        (QUESTION, "It feeds the release notes", 1), ("Who reads it?", "The release manager", 2)]
+    assert t["task"]["interview"] == {f"skill:{SKILL}": {"turns": 2, "capped": False}} and "It asks more:" in err
+    assert [c["step"] for c in t["task"]["headless"]] == ["questions-1", "questions-1.2", "questions-1.3", "rewrite-b"]
+    rewrite = Path(t["output"], "rewrite-b.request.md").read_text()
+    assert "Answer: It feeds the release notes" in rewrite and "Answer: The release manager" in rewrite
+
+
+def test_the_interview_stops_after_the_safety_stop_and_says_so(agents, repo, monkeypatch):
+    monkeypatch.setenv("FAKE_ASKER", "endless")
+    monkeypatch.setattr(treatments, "MAX_TURNS", 3)
+    init(repo)
+    code, err = bench(["ab", PROMPT], answers(skill="a\nb\nc"), cwd=repo)
+    assert code == 0, err
+    [t] = entries()
+    assert [x["turn"] for x in t["task"]["questions"]] == [1, 2, 3]
+    assert t["task"]["interview"] == {f"skill:{SKILL}": {"turns": 3, "capped": True}}
+    assert [c["role"] for c in agents()].count("asker") == 3
 
 
 def test_clarified_gets_the_same_answers_unrewritten(agents, repo):
@@ -159,7 +190,7 @@ def test_clarified_gets_the_same_answers_unrewritten(agents, repo):
                                  f"Q: {QUESTION}\nA: It feeds the release notes\n")
     assert t["prompts"]["b"] == f"BRIEF: {PROMPT}\n" and t["fidelity"] == {"b": {"added": False, "dropped": False,
                                                                                "changed": False}}
-    assert [c["role"] for c in agents()] == ["asker", "rewriter", "worker", "worker"]
+    assert [c["role"] for c in agents()] == ["asker", "asker", "rewriter", "worker", "worker"]
 
 
 def test_clarified_lists_a_skipped_question_as_the_brief_sees_it(agents, repo):
@@ -185,11 +216,45 @@ def test_two_skills_asking_the_same_question_ask_you_once(agents, repo, tmp_path
     assert code == 0, err
     [t] = entries()
     assert [x["skill"] for x in t["task"]["questions"]] == [f"skill:{copy}", f"skill:{SKILL}"]
-    asking = err.split("Asking the skill (1 of 2)", 1)[1].split("Your blind pick")[0]
+    asking = err.split("Asking the skills what they would ask you", 1)[1].split("Your blind pick")[0]
     assert "random order" in err and str(copy) not in asking and str(SKILL) not in asking   # questions not labelled
     assert {x["a"] for x in t["task"]["questions"]} == {"It feeds the release notes"}
     assert set(t["fidelity"]) == {"a", "b"} and t["decision"]["tie"] == "both_acceptable"
-    assert [c["role"] for c in agents()] == ["asker", "asker", "rewriter", "rewriter", "worker", "worker"]
+    assert [c["role"] for c in agents()] == ["asker"] * 4 + ["rewriter", "rewriter", "worker", "worker"]
+
+
+def test_two_skills_that_stop_at_different_turns_keep_your_pick_blind(agents, repo, tmp_path):
+    """One skill asks a second question, the other stops after the first: nothing on the screen says which skill is
+    still asking, and each skill's turns and costs are its own."""
+    copy = tmp_path / "copy"
+    shutil.copytree(SKILL, copy)
+    (copy / "SKILL.md").write_text((copy / "SKILL.md").read_text() + "\n<!-- FAKE-ASKS-TWICE -->\n")
+    assert init(repo, a=f"skill:{copy}")[0] == 0
+    code, err = bench(["ab", PROMPT], answers(skill="It feeds the release notes\nThe release manager",
+                                              check="test -f result.txt", after="t\ny\n\n" + "n\n" * 6), cwd=repo)
+    assert code == 0, err
+    [t] = entries()
+    assert t["task"]["interview"] == {f"skill:{copy}": {"turns": 2, "capped": False},
+                                      f"skill:{SKILL}": {"turns": 1, "capped": False}}
+    assert [(x["skill"], x["turn"]) for x in t["task"]["questions"]] == [(f"skill:{copy}", 1), (f"skill:{copy}", 2),
+                                                                        (f"skill:{SKILL}", 1)]
+    assert " of 2)" not in err and "Asking the skills what else they would ask you, turn 2" in err
+    steps = [c["step"] for c in t["task"]["headless"]]
+    assert steps[:5] == ["questions-1", "questions-2", "questions-1.2", "questions-2.2", "questions-1.3"]
+    assert t["arms"]["a"]["brief"]["tokens"] == 3 * (30 + 10) + (50 + 10)        # three turns of its own, its rewrite
+    assert t["arms"]["b"]["brief"]["tokens"] == 2 * (30 + 10) + (50 + 10)
+
+
+def test_a_failure_in_a_later_turn_keeps_the_answers_already_given(agents, repo, monkeypatch):
+    monkeypatch.setenv("FAKE_ASKER", "fail-later")
+    init(repo)
+    code, err = bench(["ab", PROMPT], ANSWERS, cwd=repo)
+    assert code == 4 and "list of the skill's questions failed" in err
+    [f] = entries()
+    assert f["kind"] == "failed" and f["stage"] == "questions"
+    assert f["task"]["questions"] == [{"skill": f"skill:{SKILL}", "q": QUESTION, "a": "It feeds the release notes",
+                                       "turn": 1}]
+    assert f["task"]["interview"] == {f"skill:{SKILL}": {"turns": 1, "capped": False}}
 
 
 def test_the_arms_work_apart_from_the_trials_records(agents, repo):
@@ -210,8 +275,8 @@ def test_briefing_time_and_tokens_count_for_the_arm_that_needed_them(agents, rep
     assert bench(["ab", PROMPT], ANSWERS, cwd=repo)[0] == 0
     [t] = entries()
     assert t["arms"]["a"]["brief"] is None                       # the original needs no headless call
-    assert t["arms"]["b"]["brief"]["tokens"] == (30 + 10) + (50 + 10)   # the fake asker and rewriter, as reported
-    assert [c["step"] for c in t["task"]["headless"]] == ["questions-1", "rewrite-b"]
+    assert t["arms"]["b"]["brief"]["tokens"] == 2 * (30 + 10) + (50 + 10)    # the fake asker's two turns, the rewrite
+    assert [c["step"] for c in t["task"]["headless"]] == ["questions-1", "questions-1.2", "rewrite-b"]
 
 
 def test_none_runs_a_trial_without_the_repos_check_and_keeps_it(agents, repo):
@@ -363,9 +428,9 @@ def test_an_experiment_from_before_the_skills_own_questions_is_refused(agents, r
 
 
 @pytest.mark.parametrize("variable,mode,words,roles", [
-    ("FAKE_REWRITER", "nofence", "no brief", ["asker", "rewriter"]),
-    ("FAKE_REWRITER", "write", "changed files", ["asker", "rewriter"]),
-    ("FAKE_REWRITER", "fail", "rewrite failed", ["asker", "rewriter"]),
+    ("FAKE_REWRITER", "nofence", "no brief", ["asker", "asker", "rewriter"]),
+    ("FAKE_REWRITER", "write", "changed files", ["asker", "asker", "rewriter"]),
+    ("FAKE_REWRITER", "fail", "rewrite failed", ["asker", "asker", "rewriter"]),
     ("FAKE_ASKER", "bad", "JSON asked for", ["asker"]),
     ("FAKE_ASKER", "write", "changed files", ["asker"]),
     ("FAKE_ASKER", "fail", "list of the skill's questions failed", ["asker"]),

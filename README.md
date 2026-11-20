@@ -100,7 +100,7 @@ Read [AGENTS.md](AGENTS.md) and [docs/design.md](docs/design.md) before changing
 | P0 Readiness | The skill accepted on real prompts in two hosts; a real trial on each plan, Claude Code and Codex as the worker; public release basics. No release yet | In progress: acceptance and trials need your real prompts and tasks |
 | P1 Unattended trials | Task files, check-only scoring, generated tasks with a planted answer, and a pilot of the first trick | In progress |
 | P2 Posts under test | Each trick from a recent post, one at a time, on materials that fit it | Started: "test your belief" had no room on Claude Code with Opus 5.5, so it wasn't tested |
-| P3 The skill grows from empty | Growth rounds, one piece of posted advice at a time, starting with Claude Code's advice to let Claude interview you | Started: rounds 1 and 2 tested the skill's own question section instead; round 1's was worse and was not added, and round 2's result is not recorded yet |
+| P3 The skill grows from empty | Growth rounds, one piece of posted advice at a time, starting with Claude Code's advice to let Claude interview you | Started: rounds 1 and 2 tested the skill's own question section instead; round 1's was worse and was not added, and round 2's result is not recorded yet. Round 3, on Claude Code's interview advice, had its pilot on 20 Nov (development, not evidence): with the interview, 5 of 5 incomplete requests passed against 0 of 5, and 5 of 5 complete ones either way |
 | P4 First public release | The grown skill, with every result published | Not started |
 | P5 Replication | An outside reproduction, and rerunning tasks after a model change | Not started |
 

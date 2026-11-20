@@ -47,7 +47,7 @@ Report public results honestly:
 - Never present one run or one pair as an improvement.
 - Not adopting means no large effect was found, not that there is none.
 
-Choose the rule before the first trial. A claim meant for publication uses `fixed:N`, where the sample is set in advance, and follows the method for public results ([design.md](design.md), "A method for public results"): a calibration of the materials, a plan published before the tasks exist, each kind of task analysed apart, and a second test before a trick is marked better. The default two-step rule suits personal adoption decisions only.
+Choose the rule before the first trial. A claim meant for publication uses `fixed:N`, where the sample is set in advance, and follows the method for public results ([design.md](design.md), "A method for public results"): a pilot of about ten trials, then, after the maintainer's yes, a calibration of the materials, a plan published before the tasks exist, each kind of task analysed apart, and a second test before a trick is marked better. The default two-step rule suits personal adoption decisions only.
 
 Keep development and confirmation apart. Results on development tasks are exploratory. A claim of benefit needs a frozen experiment on tasks collected after the last edit. Tasks anyone can read are fine for development and smoke tests. They are not unseen tasks for someone who has read them.
 

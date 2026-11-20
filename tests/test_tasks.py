@@ -282,7 +282,8 @@ def test_the_stand_in_answers_from_the_facts_and_the_brief_gets_them_word_for_wo
     [t] = entries()
     assert t["task"]["answered_by"] == "stand-in"
     assert t["task"]["questions"] == [{"skill": f"skill:{SKILL}", "q": "What is the result for?", "a": FACTS[0],
-                                       "facts": [1]}]
+                                       "turn": 1, "facts": [1]}]
+    assert t["task"]["interview"] == {f"skill:{SKILL}": {"turns": 1, "capped": False}}
     out = Path(t["output"])
     asked = (out / "answers.request.md").read_text()
     assert all(f in asked for f in FACTS) and "What is the result for?" in asked
@@ -292,7 +293,9 @@ def test_the_stand_in_answers_from_the_facts_and_the_brief_gets_them_word_for_wo
     assert all("Say what it is" not in p and "grep" not in p for p in t["prompts"].values())
     steps = {c["step"]: c for c in t["task"]["headless"]}
     assert steps["answers"]["skill"] is None                                  # the stand-in is not the arm's cost
-    assert t["arms"]["b"]["brief"]["tokens"] == steps["questions-1"]["tokens"] + steps["rewrite-b"]["tokens"]
+    assert t["arms"]["b"]["brief"]["tokens"] == sum(steps[s]["tokens"] for s in ("questions-1", "questions-1.2",
+                                                                               "rewrite-b"))
+    assert "answers.2" not in steps                  # the second turn asked nothing, so the stand-in had nothing to answer
     assert t["fidelity"] == {"b": {"added": None, "dropped": None, "changed": None}}   # waits for your review
     assert "waits for your fidelity review" in err
     meta, calls = json.loads((out / "meta.json").read_text()), agents()
@@ -311,8 +314,8 @@ def test_clarified_gets_the_stand_ins_answers_word_for_word(agents, repo, tmp_pa
     assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
     [t] = entries()
     assert f"Q: What is the result for?\nA: {FACTS[0]}" in t["prompts"]["a"]
-    assert t["arms"]["a"]["brief"]["tokens"] == next(c["tokens"] for c in t["task"]["headless"]
-                                                     if c["step"] == "questions-1")
+    assert t["arms"]["a"]["brief"]["tokens"] == sum(c["tokens"] for c in t["task"]["headless"]
+                                                    if c["step"] in ("questions-1", "questions-1.2"))
 
 
 def test_without_facts_every_question_is_skipped_and_the_stand_in_is_not_called(agents, repo, tmp_path):
@@ -320,7 +323,7 @@ def test_without_facts_every_question_is_skipped_and_the_stand_in_is_not_called(
     assert bench(["ab", "--task", str(task_file(tmp_path, repo))], "", cwd=tmp_path)[0] == 0
     [t] = entries()
     assert t["task"]["questions"][0] | {"skill": None} == {"skill": None, "q": "What is the result for?", "a": "",
-                                                           "facts": []}
+                                                           "turn": 1, "facts": []}
     assert "answerer" not in {c["role"] for c in agents()}
     assert "Answer: (skipped)" in (Path(t["output"]) / "rewrite-b.request.md").read_text()
 
@@ -335,6 +338,31 @@ def test_the_stand_in_can_only_choose_facts_by_number(agents, repo, tmp_path, mo
         code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)
         assert code == 4 and "stand-in requester didn't answer" in err
         assert entries()[-1]["kind"] == "failed" and entries()[-1]["stage"] == "questions"
+
+
+def test_a_later_turn_of_the_interview_is_confined_and_scanned_too(agents, repo, tmp_path, monkeypatch):
+    stand_in(repo)
+    monkeypatch.setenv("FAKE_ASKER", "peek-later")
+    peek(monkeypatch, tmp_path, f"ls {os.environ['BRIEFBENCH_HOME']}/keys")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    flags = {c["step"]: c["looked_outside"] for c in t["task"]["headless"] if "looked_outside" in c}
+    assert flags["questions-1.2"] and not flags["questions-1"]
+    assert t["arms"]["b"]["looked_outside"] and not t["arms"]["a"]["looked_outside"]
+
+
+def test_the_stand_in_answers_every_turn_outside_the_arms_cost(agents, repo, tmp_path, monkeypatch):
+    stand_in(repo)
+    monkeypatch.setenv("FAKE_ASKER", "two")
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)[0] == 0
+    [t] = entries()
+    assert [(x["q"], x["a"], x["turn"]) for x in t["task"]["questions"]] == [
+        ("What is the result for?", FACTS[0], 1), ("Who reads it?", FACTS[0], 2)]
+    steps = {c["step"]: c for c in t["task"]["headless"]}
+    assert steps["answers"]["skill"] is None and steps["answers.2"]["skill"] is None
+    assert "Who reads it?" in (Path(t["output"]) / "answers.2.request.md").read_text()
+    assert t["arms"]["b"]["brief"]["tokens"] == sum(steps[s]["tokens"] for s in ("questions-1", "questions-1.2",
+                                                                               "questions-1.3", "rewrite-b"))
 
 
 def test_a_headless_call_that_names_a_denied_place_flags_the_arms_it_reached(agents, repo, tmp_path, monkeypatch):
@@ -370,6 +398,19 @@ def test_an_older_skill_experiment_without_the_stand_in_cant_run_task_files(agen
     path.write_text(json.dumps(frozen() | {"render": experiment.RENDER, "answerer": None}))
     code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)
     assert code == 2 and "no stand-in requester" in err and entries() == []
+
+
+def test_an_experiment_that_asked_once_runs_no_more_trials_but_is_still_scored(agents, repo, tmp_path):
+    """Rounds 1 and 2 asked the skill's questions once, at most three (skill-questions/1+stand-in/1): `ab` no longer
+    runs such an experiment, and `score` still reads it, its review policy included."""
+    stand_in(repo)
+    path = Path(os.environ["BRIEFBENCH_HOME"]) / "experiments" / "exp.json"
+    path.write_text(json.dumps(frozen() | {"render": "skill-questions/1+stand-in/1"}))
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS))], "", cwd=tmp_path)
+    assert code == 3 and "frozen by an older briefbench" in err and entries() == []
+    out = io.StringIO()
+    assert cli.run(["score", "exp", "--json"], stdout=out, stderr=io.StringIO(), cwd=tmp_path) == 0
+    assert json.loads(out.getvalue())["fidelity_review"]["policy"] == {"sample": None, "max_unfaithful": 0}
 
 
 def test_a_changed_stand_in_request_needs_a_new_experiment(agents, repo, tmp_path, monkeypatch):

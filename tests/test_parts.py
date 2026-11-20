@@ -115,15 +115,26 @@ def test_skill_request_carries_the_skill_prompt_and_answers(tmp_path):
 
 
 @pytest.mark.parametrize("reply,expected", [
-    ('{"questions": ["Why?", "  ", "Who reads it?"]}', (["Why?", "Who reads it?"], 2)),
-    ('{"questions": []}', ([], 0)),
-    ('{"questions": ["1?", "2?", "3?", "4?"]}', (["1?", "2?", "3?"], 4)),        # at most three are asked
+    ('{"questions": ["Why?", "  ", "Who reads it?"]}', ["Why?", "Who reads it?"]),
+    ('{"questions": []}', []),
+    ('{"questions": ["1?", "2?", "3?", "4?"]}', ["1?", "2?", "3?", "4?"]),        # no limit on questions
 ])
 def test_the_skills_questions_are_read_from_json(reply, expected, tmp_path):
     seen = []
     skill = treatments.parse(f"skill:{SKILL}", {}, tmp_path)
     assert treatments.questions(skill, "Fix it", lambda request: seen.append(request) or reply) == expected
     assert "name: brief" in seen[0] and "<prompt>\nFix it\n</prompt>" in seen[0] and '{"questions": []}' in seen[0]
+    assert f"<answers>\n{treatments.NOTHING_ASKED}\n</answers>" in seen[0]
+
+
+def test_a_later_turn_sees_the_questions_asked_before_and_their_answers(tmp_path):
+    seen = []
+    skill = treatments.parse(f"skill:{SKILL}", {}, tmp_path)
+    before = [{"q": "Why?", "a": "For the board", "turn": 1}, {"q": "When?", "a": "", "turn": 1}]
+    assert treatments.questions(skill, "Fix it", lambda request: seen.append(request) or '{"questions": []}',
+                                before) == []
+    assert "- Why?\n  Answer: For the board\n- When?\n  Answer: (skipped)" in seen[0]
+    assert treatments.NOTHING_ASKED not in seen[0]
 
 
 @pytest.mark.parametrize("reply", ["Why do you want it?", '{"questions": "Why?"}', '{"asks": []}', "[]",
@@ -150,7 +161,7 @@ def test_clarified_appends_the_questions_and_answers_word_for_word(tmp_path):
 
 def test_the_template_hash_covers_everything_that_shapes_an_arms_prompt(monkeypatch):
     before = treatments.templates_sha256()
-    for name, value in (("MAX_QUESTIONS", 2), ("NOT_ANSWERED", "(left open)"),
+    for name, value in (("MAX_TURNS", 2), ("NOT_ANSWERED", "(left open)"), ("NOTHING_ASKED", "Nothing yet."),
                         ("QUESTIONS_SCHEMA", {"type": "object", "properties": {}})):
         original = getattr(treatments, name)
         monkeypatch.setattr(treatments, name, value)

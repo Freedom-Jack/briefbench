@@ -5,7 +5,7 @@ import random
 from statistics import median
 
 from . import __version__
-from .experiment import RENDER_STAND_IN, rule_kind, stage_text
+from .experiment import RENDERS_STAND_IN, rule_kind, stage_text
 from .stats import decide, decide_fixed, interval, median_interval, net_interval, sign_test, tango_interval
 
 
@@ -147,7 +147,7 @@ def _reviews(mine: list[dict]) -> dict:
 def _policy(exp: dict) -> dict | None:
     """How B's briefs from task files are reviewed, apart from the outcomes: a random sample of them or all (null),
     and how many may fail. An experiment with the stand-in frozen before the policy reviews all, and none may fail."""
-    if exp.get("render") != RENDER_STAND_IN or not _is_skill(exp["b"]):
+    if exp.get("render") not in RENDERS_STAND_IN or not _is_skill(exp["b"]):
         return None
     return exp.get("fidelity_policy") or {"sample": None, "max_unfaithful": 0}
 
@@ -196,6 +196,28 @@ def review_queue(exp: dict, entries: list[dict]) -> tuple[list[dict], str | None
 
 def _is_skill(t: dict) -> bool:
     return t.get("kind") == "skill" or t["spec"] == "brief" or t["spec"].startswith("skill:")
+
+
+def _interviews(exp: dict, trials: list) -> dict | None:
+    """How often each skill treatment's interview started, by asking at least one question, how many questions it
+    asked, and how often the safety stop ended it, over all trials and for each kind of task: trials record their
+    interviews since 2026-11-19. None when no skill treatment's trials record one."""
+    found = {}
+    for side in "ab":
+        if not _is_skill(exp[side]):
+            continue
+        spec = exp[side]["spec"]
+
+        def counts(rows) -> dict:
+            return {"trials": len(rows), "started": sum(r["turns"] > 0 for _t, r in rows),
+                    "capped": sum(bool(r["capped"]) for _t, r in rows),
+                    "questions": sum(q.get("skill") == spec for t, _r in rows for q in t["task"].get("questions") or [])}
+        rows = [(t, r) for t in trials if (r := ((t.get("task") or {}).get("interview") or {}).get(spec)) is not None]
+        if rows:
+            kinds = sorted({_stratum(t) for t, _r in rows} - {None})
+            found[side] = counts(rows) | {"by_stratum": {k: counts([(t, r) for t, r in rows if _stratum(t) == k])
+                                                         for k in kinds}}
+    return found or None
 
 
 def summary(exp: dict, entries: list[dict]) -> dict:
@@ -283,7 +305,7 @@ def summary(exp: dict, entries: list[dict]) -> dict:
         "verdict": {"state": state, "rule_wins": rule_wins, "rule_pairs": rule_pairs, "blocked_by": blocked,
                     "adopted": state in ("adopt", "benefit") and not blocked, "harm_bound": bound,
                     "stopped": stopped},
-        "fidelity": fidelity, "fidelity_review": review,
+        "fidelity": fidelity, "fidelity_review": review, "interviews": _interviews(exp, used),
         "extra_cost_median_percent": {"time": time, "tokens": tokens}, "cap_percent": exp["cap_percent"],
         "extra_cost_interval_percent": None if interim else {
             name: list(band) if (band := median_interval(values)) else None for name, values in changes.items()},
@@ -492,6 +514,12 @@ def report(exp: dict, entries: list[dict]) -> str:
             lines.append(f"Fidelity reviews of {side.upper()}'s briefs: "
                          + (f"{f['failed']} of {f['reviewed']} failed (added {f['added']}, dropped {f['dropped']}, "
                             f"changed {f['changed']})." if f["reviewed"] else "none yet."))
+    for side, found in (s["interviews"] or {}).items():
+        kinds = "; ".join(f"{k} {v['started']} of {v['trials']}" for k, v in found["by_stratum"].items())
+        lines.append(f"{side.upper()}'s skill interviewed, asking at least one question, in {found['started']} of "
+                     f"{found['trials']} trials" + (f" ({kinds})" if kinds else "") + f", with {found['questions']} "
+                     f"question{'s' if found['questions'] != 1 else ''} in all; the safety stop on turns ended "
+                     f"{found['capped']}.")
     cost, bands = s["extra_cost_median_percent"], s["extra_cost_interval_percent"] or {}
     lines.append("Median extra cost of B over A, briefing included: " + "; ".join(
         (f"{cost[name]:+.0f}% {name}" + (f", 95% interval {band[0]:+.0f}% to {band[1]:+.0f}%"
