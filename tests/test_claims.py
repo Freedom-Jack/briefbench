@@ -13,8 +13,9 @@ README = CLAIMS / "README.md"
 CARDS = sorted(p for p in CLAIMS.glob("*.md") if p.name != "README.md")
 
 REQUIRED = ("id", "title", "source", "url", "retrieved", "kind", "status", "skill_fit", "experiments")
-KINDS = {"specification", "wording", "domain-method"}       # only advice about prompts gets a card; setup advice
-                                                             # (the old kinds harness and practice) is out of scope
+KINDS = {"specification", "wording", "domain-method",       # advice about prompts gets a card, and since 2026-11-20
+         "settings"}                                         # advice on model, effort or multi-agent mode; other setup
+                                                             # advice (the old kinds harness and practice) is out of scope
 STATUSES = {"unreviewed", "needs-source", "candidate", "deferred", "not-testable", "tested"}
 FITS = {"yes", "no", "conditional"}
 NEVER_IN_SKILL = {"domain-method"}     # testable as an add-on to the prompt or a test-only variant outside skills/,
@@ -179,6 +180,12 @@ deferred. briefbench evidence: none yet.
 
 def test_a_good_card_passes():
     assert problems("example.md", GOOD) == []
+
+
+def test_a_settings_card_can_fit_the_skill():
+    # settings advice enters the skill only as a note after the brief, so its card may say yes or conditional
+    settings = GOOD.replace("kind: domain-method", "kind: settings").replace("skill_fit: no", "skill_fit: conditional")
+    assert problems("example.md", settings) == []
 
 
 @pytest.mark.parametrize("old, new, expected", [

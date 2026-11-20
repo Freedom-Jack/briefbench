@@ -1,6 +1,6 @@
 # Public project and contribution plan
 
-Status: revised 2026-11-05, and on 2026-11-18 for the rule that only prompting advice people have posted is tested ([design.md](design.md), "Only prompting advice people have posted"). It now matches [design.md](design.md), the authoritative design, and the phases in [build-plan.md](build-plan.md). [design-review.md](design-review.md) explains what changed from the 2026-11-04 plan. The skill and the bench are built, and the contribution files are drafted for the maintainer's review. One test has been scored: round 1 of the skill's growth, which tested the skill's own question section, with the result "worse" ([record](../claims/results/questions-first.md)). No trick from a post has been tested yet, so nothing here claims that the skill improves results. This document plans the public project. It publishes nothing, and it doesn't authorize uploading private records.
+Status: revised 2026-11-05, on 2026-11-18 for the rule that only advice people have posted is tested, and on 2026-11-20 for widening that rule from prompts to settings advice ([design.md](design.md), "Only advice people have posted"). It now matches [design.md](design.md), the authoritative design, and the phases in [build-plan.md](build-plan.md). [design-review.md](design-review.md) explains what changed from the 2026-11-04 plan. The skill and the bench are built, and the contribution files are drafted for the maintainer's review. One test has been scored: round 1 of the skill's growth, which tested the skill's own question section, with the result "worse" ([record](../claims/results/questions-first.md)). No trick from a post has been tested yet, so nothing here claims that the skill improves results. This document plans the public project. It publishes nothing, and it doesn't authorize uploading private records.
 
 Read it with:
 
@@ -13,7 +13,7 @@ Their boundaries and phase gates apply here.
 
 ## Purpose and audience
 
-briefbench turns prompting advice into scoped experiments and reviewed improvements to `brief`, a portable prompt-enhancement skill. The skill is the product most people use. The bench supplies evidence for what belongs in it. Findings, negative and inconclusive ones included, are a second public output.
+briefbench turns posted advice about prompts, and about the settings a task runs with, into scoped experiments and reviewed improvements to `brief`, a portable prompt-enhancement skill. The skill is the product most people use. The bench supplies evidence for what belongs in it. Findings, negative and inconclusive ones included, are a second public output.
 
 The loop is the reason the project exists. Find claims in articles and practitioner advice. Pick the ones that might help. Test them on real tasks. Keep what is supported, and leave the rest out of the skill. Published advice starts a hypothesis. It doesn't become an instruction because its author is well known, and that includes the sources in this repository.
 
@@ -36,7 +36,7 @@ Keep three decisions apart:
 2. **Recommend an intervention under stated conditions.** The evidence supports a practical decision within its tested scope.
 3. **Include a change in `brief`.** The change fits the skill's job and passes the comparison, fidelity and review checks.
 
-A sound experiment may support no skill change, and keeping the skill unchanged is a normal, successful outcome. Only prompting advice that people have posted gets a claim card ([design.md](design.md), "Only prompting advice people have posted"); advice about the agent's setup, and the project's own ideas, are out of scope. Only `specification` and `wording` claims can ever enter the skill. `domain-method` claims can be tested as add-ons to the prompt, but they stay out of `brief` whatever the result. The skill clarifies intent and instructions; methods and execution belong to the downstream agent.
+A sound experiment may support no skill change, and keeping the skill unchanged is a normal, successful outcome. Only advice that people have posted, about prompts or about which model, effort level or multi-agent mode to run a task with, gets a claim card ([design.md](design.md), "Only advice people have posted"); other advice about the agent's setup, and the project's own ideas, are out of scope. Only `specification`, `wording` and `settings` claims can ever enter the skill, `settings` claims only as a note after the brief. `domain-method` claims can be tested as add-ons to the prompt, but they stay out of `brief` whatever the result. The skill clarifies intent and instructions; methods and execution belong to the downstream agent.
 
 Never label a technique permanently true, false, proven or useless. A finding belongs to its treatments, task types, worker CLI and version, model, rewriter, skill hash, evaluator and dates. It measures the headless handoff, not `/brief` typed in a host. Codex doesn't report which model answered, so a Codex result is about the dated CLI default. A new model or a new kind of task may need new evidence.
 
