@@ -2,7 +2,7 @@
 
 A claim card records one prompting claim: a single recommendation that can be traced to its source and tested. It is not a summary of an article. An essay with ten pieces of advice can give ten cards.
 
-**Only prompting advice that people have posted gets a card** ([design](../docs/design.md), "Only prompting advice people have posted"): advice someone gave in public, in a post, a guide, a talk, a paper or a comment, about what a prompt says or how it says it. Advice about the agent's setup, such as its tools, project files like CLAUDE.md, checks outside the model or several agents working together, gets no card and no test. Neither do the project's own ideas, such as the instructions in version 0.2.0 of the skill or the suggestions in its research reports.
+**Only advice that people have posted gets a card** ([design](../docs/design.md), "Only advice people have posted"): advice someone gave in public, in a post, a guide, a talk, a paper or a comment, about what a prompt says or how it says it, or, since 20 Nov 2026, about which model, effort level or multi-agent mode to run a task with. Other advice about the agent's setup, such as its tools, project files like CLAUDE.md, checks outside the model or how several agents are arranged, gets no card and no test. Neither do the project's own ideas, such as the instructions in version 0.2.0 of the skill or the suggestions in its research reports.
 
 Each card says who made the claim, what outside evidence exists, whether the claim could ever belong in the `brief` skill, and how briefbench could test it, on the kind of work its source is about.
 
@@ -14,7 +14,7 @@ Cards live in this folder, one file per claim, named `<id>.md`. They are public.
 
 ## The cards
 
-The first cards come from the project's research, read on 4 Nov 2026: the [value of prompting report](../docs/research/value-of-prompting/report.md), with its case study of Felix Rieseberg's essay, its five practitioner cases and the common advice it recorded, and the [prompting technique benchmarks report](../docs/research/prompting-technique-benchmarks/report.md). A card's numbers are the report's; check the report before reusing one. Where a card gives no model era for a study, the report gives none. Cards added on 6 Nov 2026 come from recent posts and guides, read that day. On 18 Nov 2026 seven cards were removed: two for advice about the agent's setup (verify with something other than the model, and the Karpathy-inspired CLAUDE.md) and five for the value report's own suggestions. They are in git at commit c893ab2.
+The first cards come from the project's research, read on 4 Nov 2026: the [value of prompting report](../docs/research/value-of-prompting/report.md), with its case study of Felix Rieseberg's essay, its five practitioner cases and the common advice it recorded, and the [prompting technique benchmarks report](../docs/research/prompting-technique-benchmarks/report.md). A card's numbers are the report's; check the report before reusing one. Where a card gives no model era for a study, the report gives none. Cards added on 6 Nov 2026 come from recent posts and guides, read that day. On 18 Nov 2026 seven cards were removed: two for advice about the agent's setup (verify with something other than the model, and the Karpathy-inspired CLAUDE.md) and five for the value report's own suggestions. They are in git at commit c893ab2. On 20 Nov 2026 seven settings cards were added, from Anthropic's and OpenAI's current guides and one practitioner post, read that day ([settings advice report](../docs/research/settings-advice/report.md)). They wait for the bench to run settings arms.
 
 **Recent sources only.** Models change every few months, and advice written for older ones often stops holding. So the posts under test are recent: published within about three months, and about the models in use now ([design](../docs/design.md), "Posts under test"). An older card stays as a record. Its claim is tested only when a recent source repeats it, and the card then cites that source.
 
@@ -31,6 +31,13 @@ The first cards come from the project's research, read on 4 Nov 2026: the [value
 | [Let Claude interview you until it could write the spec](ask-questions-first.md) | Claude Code's docs | specification | yes | deferred | — | — | — | — |
 | [Tell Claude to explore broadly before settling](explore-broadly.md) | Anthropic's Opus 5.5 guide | wording | no | deferred | — | — | — | — |
 | [Make the model write in controlled language](controlled-language.md) | LinkedIn post | wording | conditional | deferred | — | — | — | — |
+| [Save max effort for hard problems Claude works on alone](max-effort-for-hard-solo-work.md) | Claude Code's docs | settings | conditional | deferred | — | — | — | — |
+| [Raise effort when the work turns on easily missed cases](raise-effort-for-easy-to-miss-cases.md) | Claude Code's docs | settings | conditional | deferred | — | — | — | — |
+| [Use a smaller model for routine coding work](smaller-model-for-routine-work.md) | Claude Code's docs | settings | conditional | deferred | — | — | — | — |
+| [Raise effort before switching to a bigger model](effort-before-model.md) | Anthropic's model guide | settings | conditional | deferred | — | — | — | — |
+| [Start with the default effort](default-effort-first.md) | OpenAI's Codex docs | settings | conditional | deferred | — | — | — | — |
+| [Use multi-agent mode only when the work divides into parts](multi-agent-for-divisible-work.md) | OpenAI's Codex docs | settings | conditional | deferred | — | — | — | — |
+| [Pick model and effort by the kind of task](presets-by-task-kind.md) | Anhaia's post | settings | conditional | deferred | — | — | — | — |
 
 **The board.** Since 9 Nov 2026 this table is also the board of public results ([design](../docs/design.md), "A method for public results"). Its last four columns record each claim's tests:
 - *Stage*: `first test`, `replicated` (a second test agreed), `not replicated` (a second test didn't agree), or `—` before any test. Development runs, such as pilots and calibrations, never appear here.
@@ -64,7 +71,7 @@ A card starts with `key: value` lines between two `---` lines: one key per line,
 | `source` | Author, title and date, as the research gives them. For common advice with no single author, say so and name where the research recorded it |
 | `url` | The source's own link, starting with `https://`. For a claim the project's research made, or common advice it recorded, the GitHub link to the report's snapshot in `docs/research/`, with the section named in `source` |
 | `retrieved` | The date the source was read, as `YYYY-MM-DD` |
-| `kind` | `specification`, `wording` or `domain-method` |
+| `kind` | `specification`, `wording`, `domain-method` or `settings` |
 | `status` | `unreviewed`, `needs-source`, `candidate`, `deferred`, `not-testable` or `tested` |
 | `skill_fit` | `yes`, `no` or `conditional` |
 | `experiments` | The briefbench experiments on this claim, by name; `[]` until one runs |
@@ -74,14 +81,17 @@ A card starts with `key: value` lines between two `---` lines: one key per line,
 - `specification`: what the user wants: the goal and its reason, the scope, constraints, what done looks like, context.
 - `wording`: how a prompt phrases a request, without adding facts: personas, emphasis, pressure, tone.
 - `domain-method`: a prompt line that tells the agent how to solve the task: which methods, tools, sources or fields to use.
+- `settings`: which model, effort level or multi-agent mode to run a task with: the settings a user picks in the host before sending a prompt, such as Claude Code's `/model`, `/effort` and Ultracode, or Codex's model and reasoning control and its Ultra level. Not the agent's tools, project files, checks outside the model, or how several agents are arranged.
 
-The value report sorts advice into specification, technique, harness and mindset. Cards call its phrasing techniques `wording` and use `domain-method` for prompt advice that picks how to solve the task. Harness advice, about the agent's setup, and mindset advice, about how people work, are not about prompts, so they get no card. Until 18 Nov 2026 cards also had the kinds `harness` and `practice`.
+The value report sorts advice into specification, technique, harness and mindset. Cards call its phrasing techniques `wording` and use `domain-method` for prompt advice that picks how to solve the task. Harness advice, about the agent's setup, and mindset advice, about how people work, are not about prompts, so they get no card. The one exception, since 20 Nov 2026, is settings advice, the `settings` kind. Until 18 Nov 2026 cards also had the kinds `harness` and `practice`.
 
 ## What can enter the skill
 
-The `brief` skill clarifies the user's intent and instructions. It never chooses domain methods, and it does not do the task. So only `specification` and `wording` claims can ever enter it, and only by the protocol's route (section 11): a minimal variant, development tasks, a frozen comparison on fresh tasks against the current grown skill, and a reviewed decision. Older cards that say "the released skill" mean that incumbent; each is updated when it is next tested.
+The `brief` skill clarifies the user's intent and instructions. It never chooses domain methods, and it does not do the task. So only `specification`, `wording` and `settings` claims can ever enter it, and only by the protocol's route (section 11): a minimal variant, development tasks, a frozen comparison on fresh tasks against the current grown skill, and a reviewed decision. Older cards that say "the released skill" mean that incumbent; each is updated when it is next tested.
 
-`domain-method` claims may be tested as separately named worker treatments, such as a `snippet:` added to the prompt, or as test-only rewriter variants kept outside `skills/`, never released and never named `brief`. They are never added to the skill, whatever the result. Their cards always have `skill_fit: no`. Their results are still the benchmark's output: they go on the card and in the table of results. A card with `skill_fit: conditional` names both forms: the add-on as tested, and the narrower instruction the skill could carry, which needs its own round.
+`domain-method` claims may be tested as separately named worker treatments, such as a `snippet:` added to the prompt, or as test-only rewriter variants kept outside `skills/`, never released and never named `brief`. They are never added to the skill, whatever the result. Their cards always have `skill_fit: no`.
+
+`settings` claims are tested as settings arms: the same prompt in both arms, run with the setting the advice recommends in one and the other setting in the other. A `settings` claim enters the skill only as a note after the brief, outside its copyable block, so the brief itself doesn't change. The note names settings in terms that work in any host (the host's default effort, one level up, its top level, a smaller or larger model, multi-agent mode on or off), never a model or one host's commands, and it carries the source's condition. Neither Claude Code nor Codex lets a skill change the settings of the task that follows it, so the note is a suggestion ([design](../docs/design.md), "How settings advice reaches the skill"). The bench can't run settings arms yet ([build plan](../docs/build-plan.md), P2). Their results are still the benchmark's output: they go on the card and in the table of results. A card with `skill_fit: conditional` names both forms: the add-on as tested, and the narrower instruction the skill could carry, which needs its own round.
 
 `skill_fit` says whether a claim could belong in the skill under that boundary:
 
@@ -100,7 +110,7 @@ A new card is `unreviewed`. Review moves it to one of these:
 - `candidate`: ready for a comparison. The source is verified, and the smallest treatment, an outcome that could show the claim wrong, and its risks are written down. Only a `specification` or `wording` candidate can lead to a change in `brief`.
 - `deferred`: testable, but waiting for something the card names, such as an earlier experiment, a safeguard or a budget.
 
-Advice outside this folder's scope gets no card. A card found on review to be outside it, such as advice about the agent's setup, is removed, and the commit says why. Until 18 Nov 2026 such cards were kept with the status `out-of-scope`.
+Advice outside this folder's scope gets no card. A card found on review to be outside it, such as advice about the agent's tools, is removed, and the commit says why. Until 18 Nov 2026 such cards were kept with the status `out-of-scope`.
 
 A card becomes `tested` when a briefbench experiment on it is complete. `tested` says nothing about the result. A claim can be tested again on another model, host or task population; earlier results stay on the card, including negative and inconclusive ones.
 
@@ -139,7 +149,7 @@ Once a result leads to a decision about the skill, a sixth section follows: `## 
 - `skill:<folder>`: the same, written by the skill in that folder, such as a variant.
 - `snippet:<file>`: your prompt with a fixed text added after it.
 
-A claim with three arms needs two experiments. Cards name variant folders such as `skill:variants/essay-outcome`; none of those exists yet. The two folders in `variants/` are the treatments of rounds 1 and 2.
+A `settings` claim needs a settings arm, the same prompt run with different settings, which `init` can't name yet. A claim with three arms needs two experiments. Cards name variant folders such as `skill:variants/essay-outcome`; none of those exists yet. The two folders in `variants/` are the treatments of rounds 1 and 2.
 
 ### Sample sizes
 
@@ -148,7 +158,7 @@ With an exact two-sided sign test at the 5% level and 80% power, true win rates 
 ## Adding a card
 
 1. Copy a card and rename it to the new `id`.
-2. Write one claim, paraphrased, with a link to where it was posted. It must be advice about prompts that someone gave in public; advice about the agent's setup, or an idea of your own, gets no card. A claim you can't trace to a source is `needs-source`.
+2. Write one claim, paraphrased, with a link to where it was posted. It must be advice that someone gave in public, about prompts or about which model, effort level or multi-agent mode to run a task with; other advice about the agent's setup, or an idea of your own, gets no card. A claim you can't trace to a source is `needs-source`.
 3. Add only outside evidence you have read, with its link.
 4. Add a row to the table above.
 5. Run `uv run pytest tests/test_claims.py -q`. It checks the format and the boundary rule, not whether the claim is true. A passing check is not evidence for the claim.
