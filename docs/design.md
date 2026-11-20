@@ -437,6 +437,10 @@ The [build plan](build-plan.md) gives the work packages and checks. One test has
 
 ## Decisions
 
+Changed on 2026-11-20, after round 3's pilot:
+- **Pilots across the articles first.** Every trick under test gets its pilot of about 10 trials before any one trick goes on to its calibration and public test, so each article's line in the "By article" table fills in early and cheaply; the tricks whose pilots show a large effect then go on, one at a time ([build-plan.md](build-plan.md), P2, "Pilots across the articles first").
+- **The interview advice's condition in the guide's current words**, "when you don't know exactly what you want yet", for round 3's variant, instead of the card's first reading, "larger work, such as a new feature", which the guide's current section doesn't say.
+
 Changed on 2026-11-19, when round 3 was being designed:
 - **Plan usage stays light.** You are one person on a subscription plan with a spend limit, and round 3 was first estimated at 2 to 5 times round 1's 35 million tokens. Each new trick starts with a pilot of about 10 trials, labelled development, not evidence: it measures the real tokens per run and shows whether there is a large effect either way. It can stop a trick but never clear one, and a stop is recorded on the trick's card. The calibration and the public test come only after the pilot and your yes, each with its expected usage stated first ("A method for public results"). Bench changes for round 3 are kept as small as they can be.
 - **Each trick is a conditional part of the skill,** like a sub-skill: it carries the condition its source gives and applies only when a request meets it. The variant states the condition with the advice, each round's tasks include requests outside it, and the result reports how often the trick started on each kind of task ("The skill grows from empty").
