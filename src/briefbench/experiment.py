@@ -48,13 +48,17 @@ def rule_kind(rule: dict) -> str:
     return rule.get("kind", "two-step")
 
 
-# How a skill treatment becomes a prompt. skill-questions/1: the rewriter first lists the questions the skill would
-# ask, `ab` puts them to you, and the rewriter then writes the brief from your answers. Experiments frozen before it
-# have no render, and their skill treatments used three fixed questions; `ab` no longer runs those.
-RENDER = "skill-questions/1"
-# The same for task files, since 2026-11-10: the stand-in requester answers the questions from the task's facts,
-# instead of you, and the skill's headless calls are kept from reading the places an arm may not read.
-RENDER_STAND_IN = "skill-questions/1+stand-in/1"
+# How a skill treatment becomes a prompt. skill-interview/1, since 2026-11-19: the rewriter lists the questions the
+# skill would ask next, `ab` puts them to you, and so on in turns until the skill asks nothing more (at most
+# treatments.MAX_TURNS turns); the rewriter then writes the brief from every answer. skill-questions/1, from 2026-11-05,
+# asked once and kept at most three questions; experiments frozen before it have no render, and their skill treatments
+# used three fixed questions. `ab` runs neither any more, and `score` still reads both.
+RENDER = "skill-interview/1"
+# The same for task files: the stand-in requester answers the questions from the task's facts, instead of you, and
+# the skill's headless calls are kept from reading the places an arm may not read (skill-questions/1+stand-in/1 from
+# 2026-11-10 to 2026-11-18).
+RENDER_STAND_IN = "skill-interview/1+stand-in/1"
+RENDERS_STAND_IN = ("skill-questions/1+stand-in/1", RENDER_STAND_IN)      # every render with the stand-in, for score
 TASK_TYPES = ("code", "writing", "research", "analysis", "other")
 _NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 

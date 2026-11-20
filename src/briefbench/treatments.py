@@ -14,14 +14,17 @@ from .presets import SKILL_DIRS
 _SKIPPED = {".git", "__pycache__", ".DS_Store"}
 _VERSION = re.compile(r"^metadata:\s*\n(?:[ \t]+\S.*\n)*?[ \t]+version:\s*[\"']?([^\"'\n]+)", re.M)
 _FENCED = re.compile(r"^[ \t]*(?P<fence>`{3,}|~{3,})[^\n]*\n(?P<body>.*?)^[ \t]*(?P=fence)[ \t]*$", re.M | re.S)
-MAX_QUESTIONS = 3           # the skill asks at most three
+# The skill's interview, since 2026-11-19 (docs/build-plan.md, P3, step 5): the bench asks for the skill's questions
+# in turns, each turn with the questions asked before and their answers, until the skill asks nothing more. A cap on
+# turns is a safety stop, never a limit on questions. Until then it asked once and kept at most three.
+MAX_TURNS = 10
 
-# The first headless call: the questions the skill would ask. Its reply is held to QUESTIONS_SCHEMA.
+# The first headless call, once a turn: the questions the skill would ask next. Its reply is held to QUESTIONS_SCHEMA.
 QUESTIONS_REQUEST = """\
-Follow the skill below for the requester's prompt, up to the point where it decides what to ask the requester. \
-This run is headless, so ask nothing and don't write the brief. Instead, return the questions the skill would \
-ask, worded as you would put them to the requester, as JSON: {{"questions": ["...", "..."]}}. Return at most \
-three, as the skill says, and {{"questions": []}} when it would ask none.
+Follow the skill below for the requester's prompt, up to the point where it decides what to ask the requester next. \
+This run is headless, so ask nothing and don't write the brief. The questions the skill has already asked, with the \
+requester's answers, are below. Return the next questions the skill would ask, worded as you would put them to the \
+requester, as JSON: {{"questions": ["...", "..."]}}, or {{"questions": []}} when it would ask nothing more.
 
 <skill>
 {skill}
@@ -29,15 +32,20 @@ three, as the skill says, and {{"questions": []}} when it would ask none.
 
 <prompt>
 {prompt}
-</prompt>"""
+</prompt>
+
+<answers>
+{answers}
+</answers>"""
+NOTHING_ASKED = "No questions have been asked yet."
 QUESTIONS_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["questions"],
                     "properties": {"questions": {"type": "array", "items": {"type": "string"}}}}
 
 # The second headless call: the brief, from the requester's answers to those questions.
 REWRITE_REQUEST = """\
 Follow the skill below to write a brief for the requester's prompt. This run is headless: ask nothing. The \
-skill's questions have already been put to the requester, and their answers are below. Use only those answers, \
-and treat a skipped question as left open. Return the brief in one fenced code block, as the skill says.
+skill's questions have already been put to the requester, and their answers are below. Use only those answers; \
+a question marked as skipped got no answer. Return the brief in one fenced code block, as the skill says.
 
 <skill>
 {skill}
@@ -157,12 +165,12 @@ def check_unchanged(t: dict) -> None:
 
 def templates_sha256() -> str:
     """Everything here that shapes what a treatment's arm receives: the two headless request templates, the
-    questions schema and limit, and how answers are written for the rewriter and for clarified, shown on a sample
-    with a skipped question. `init` freezes this hash, so an update of briefbench that changes any of them can't
-    change a running experiment."""
+    questions schema, the interview's safety stop, and how answers are written for the skill and for clarified, shown
+    on a sample with a skipped question. `init` freezes this hash, so an update of briefbench that changes any of them
+    can't change a running experiment."""
     sample = [{"q": "Q1?", "a": "A1"}, {"q": "Q2?", "a": ""}]
-    parts = (QUESTIONS_REQUEST, REWRITE_REQUEST, json.dumps(QUESTIONS_SCHEMA, sort_keys=True), str(MAX_QUESTIONS),
-             _answers(sample), _answers([]), render({"kind": "clarified"}, "P", sample, None))
+    parts = (QUESTIONS_REQUEST, REWRITE_REQUEST, json.dumps(QUESTIONS_SCHEMA, sort_keys=True), str(MAX_TURNS),
+             NOTHING_ASKED, _answers(sample), _answers([]), render({"kind": "clarified"}, "P", sample, None))
     return _sha256("\0".join(parts).encode())
 
 
@@ -199,10 +207,12 @@ def _skill_text(t: dict) -> str:
     return Path(t["path"], "SKILL.md").read_text(encoding="utf-8").strip()
 
 
-def questions(t: dict, prompt: str, ask: Callable[[str], str]) -> tuple[list[str], int]:
-    """The questions a skill treatment would ask about this prompt, at most three, and how many it listed.
-    ask(request) runs the rewriter with QUESTIONS_SCHEMA and returns its reply."""
-    reply = ask(QUESTIONS_REQUEST.format(skill=_skill_text(t), prompt=prompt))
+def questions(t: dict, prompt: str, ask: Callable[[str], str], asked: list[dict] = ()) -> list[str]:
+    """The questions a skill treatment would ask next about this prompt, given those it asked before, each {q, a}
+    with an empty answer when skipped; none when it would ask nothing more. ask(request) runs the rewriter with
+    QUESTIONS_SCHEMA and returns its reply."""
+    reply = ask(QUESTIONS_REQUEST.format(skill=_skill_text(t), prompt=prompt,
+                                         answers=_answers(list(asked)) if asked else NOTHING_ASKED))
     try:
         found = json.loads(reply)["questions"]
     except (ValueError, KeyError, TypeError):
@@ -210,8 +220,7 @@ def questions(t: dict, prompt: str, ask: Callable[[str], str]) -> tuple[list[str
     if not isinstance(found, list) or not all(isinstance(q, str) for q in found):
         raise AgentError("the rewriter didn't return the skill's questions as the JSON asked for; its reply is kept "
                          "in the trial's output folder.")
-    found = [q.strip() for q in found if q.strip()]
-    return found[:MAX_QUESTIONS], len(found)
+    return [q.strip() for q in found if q.strip()]
 
 
 def _answers(qa: list[dict]) -> str:

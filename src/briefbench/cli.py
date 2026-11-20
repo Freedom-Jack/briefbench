@@ -478,8 +478,8 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     for side in ("a", "b"):
         treatments.check_unchanged(exp[side])
     if exp.get("rewriter") and exp.get("render") not in (experiment.RENDER, experiment.RENDER_STAND_IN):
-        raise ConfigError(f"experiment {exp['name']} was frozen by an older briefbench, whose headless brief used three "
-                          "fixed questions instead of the skill's own. Start a new experiment with `briefbench init`.")
+        raise ConfigError(f"experiment {exp['name']} was frozen by an older briefbench, which put the skill's questions "
+                          "to you another way. Start a new experiment with `briefbench init`.")
     frozen = exp.get("templates") or {}                     # missing from experiments frozen before 2026-11-05
     labels = {"render": "headless request templates", "judge": "judge prompt",
               "answerer": "stand-in requester's request"}
@@ -728,12 +728,15 @@ def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, 
 
 
 def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con, facts=None, confine=None) -> None:
-    """The questions each skill treatment would ask, listed headless by the rewriter in a worktree it may only read,
-    then put to you, or with a task file's facts to the stand-in requester. clarified gets those of the experiment's
-    skill treatment. With two skills, all their questions are listed first and asked once each, in random order,
-    without saying which skill asked: knowing that would unblind your pick. task["questions"] gets {skill, q, a} for
-    each skill's questions, in that skill's order, with the numbers of the facts the stand-in chose (facts), and
-    task["listed"] how many questions each skill listed; task["answered_by"] says who answered."""
+    """The skill's interview, in turns (since 2026-11-19): each turn the rewriter lists, headless in a worktree it may
+    only read, the questions each skill treatment would ask next, given those it asked before and their answers, and
+    they are put to you, or with a task file's facts to the stand-in requester. A skill that lists none is done, and
+    treatments.MAX_TURNS turns is a safety stop. clarified gets the questions of the experiment's skill treatment.
+    With two skills, a turn's questions from both are asked once each, in random order, without saying which skill
+    asked: knowing that would unblind your pick. task["questions"] gets {skill, q, a, turn} for each question, in the
+    order each skill asked them, with the numbers of the facts the stand-in chose (facts); task["listed"] how many
+    questions each skill asked; task["interview"] each skill's {turns, capped}: the turns in which it asked something,
+    and whether the safety stop ended them; and task["answered_by"] who answered."""
     sources = {t["spec"]: t for t in specs.values() if t["kind"] == "skill"}
     if any(t["kind"] == "clarified" for t in specs.values()):
         sources |= {t["spec"]: t for t in (exp["a"], exp["b"]) if t["kind"] == "skill"}
@@ -741,43 +744,72 @@ def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con,
         return
     schema = out / "questions.schema.json"
     schema.write_text(json.dumps(treatments.QUESTIONS_SCHEMA))
-    found = {}
-    for n, (spec, t) in enumerate(sources.items(), 1):
-        con.say(f"Asking the skill{f' ({n} of {len(sources)})' if len(sources) > 1 else ''} what it would ask you, "
-                f"headless with {exp['rewriter']['agent']}...")
-
-        def ask(request, n=n, spec=spec):
-            (out / f"questions-{n}.request.md").write_text(request)
-            reply = _call(agents["asker"], _role("asker", exp.get("scoring", "pick")),
-                          "headless list of the skill's questions", exp["rewriter"]["model"], request, readonly_tree,
-                          out, f"questions-{n}", environ, spent=task["headless"], skill=spec, confine=confine,
-                          schema=str(schema), schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
-            if runner.changed(readonly_tree):
-                raise AgentError("the rewriter changed files, which it must not do; the trial was stopped.")
-            return reply.text
-        found[spec], task["listed"][spec] = treatments.questions(t, prompt=task["prompt"], ask=ask)
-        if task["listed"][spec] > len(found[spec]):
-            con.say(f"It listed {task['listed'][spec]} questions; only the first {len(found[spec])} are asked, as "
-                    "the skill allows.")
-    unique = list(dict.fromkeys(q for questions in found.values() for q in questions))
-    if len(sources) > 1:
-        random.shuffle(unique)
-    con.say(("The skill asks:" if len(sources) == 1 else "The skills ask, in random order:") if unique
-            else "No question to ask.")
-    if facts is None:
-        answers = {q: (con.ask(f"{q}\n  Your answer (Enter to skip)"), None) for q in unique}
-    else:
-        answers = _stand_in(task, exp, agents, unique, facts, out, environ, con)
-    task["answered_by"] = "you" if facts is None else "stand-in"
-    task["questions"].extend({"skill": spec, "q": q, "a": answers[q][0]}      # each skill's questions in its own order
-                             | ({"facts": answers[q][1]} if facts is not None else {})
-                             for spec, questions in found.items() for q in questions)
+    asked = {spec: [] for spec in sources}            # each skill's questions so far, {q, a, turn} and facts
+    asking, done = list(sources), False               # the skills that may still ask
+    try:
+        _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine)
+        done = True
+    finally:                                          # kept on a failed trial's line too, with the turns it reached
+        task["answered_by"] = "you" if facts is None else "stand-in"
+        task["listed"] = {spec: len(asked[spec]) for spec in sources}
+        task["interview"] = {spec: {"turns": max([x["turn"] for x in asked[spec]], default=0),
+                                    "capped": done and spec in asking} for spec in sources}
+        task["questions"].extend({"skill": spec} | x for spec in sources for x in asked[spec])
+    if not any(asked.values()):
+        con.say("No question to ask.")
 
 
-def _stand_in(task, exp, agents, asked, facts, out, environ, con) -> dict:
-    """The stand-in requester's answers to the skill's questions, from a task file's facts, which only it sees:
-    {question: (answer, the numbers of the facts it chose)}. It runs headless in an empty folder of its own, with no
-    tools; its call isn't part of an arm's cost, as your answers aren't. With no facts there's nothing to ask it."""
+def _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine):
+    """The turns of _skill_questions. `asked` gains each turn's questions and answers, and `asking` keeps the skills
+    that asked something in the last turn, so after the safety stop it names the skills the stop ended. With two
+    skills, each turn is announced once, without numbering the skills, so the questions of a skill still asking after
+    the other stopped don't give away which arm asked them."""
+    turn = 0
+    while asking and turn < treatments.MAX_TURNS:
+        turn += 1
+        found = {}
+        if len(sources) > 1:
+            con.say(("Asking the skills what" if turn == 1 else "Asking the skills what else") + " they would ask you"
+                    + (f", turn {turn}" if turn > 1 else "") + f", headless with {exp['rewriter']['agent']}...")
+        for spec in asking:
+            n = list(sources).index(spec) + 1
+            if len(sources) == 1:
+                con.say(("Asking the skill what" if turn == 1 else "Asking the skill what else") + " it would ask you"
+                        + (f", turn {turn}" if turn > 1 else "") + f", headless with {exp['rewriter']['agent']}...")
+
+            def ask(request, n=n, spec=spec, turn=turn):
+                name = f"questions-{n}" + (f".{turn}" if turn > 1 else "")
+                (out / f"{name}.request.md").write_text(request)
+                reply = _call(agents["asker"], _role("asker", exp.get("scoring", "pick")),
+                              "headless list of the skill's questions", exp["rewriter"]["model"], request,
+                              readonly_tree, out, name, environ, spent=task["headless"], skill=spec, confine=confine,
+                              schema=str(schema), schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
+                if runner.changed(readonly_tree):
+                    raise AgentError("the rewriter changed files, which it must not do; the trial was stopped.")
+                return reply.text
+            if listed := treatments.questions(sources[spec], task["prompt"], ask, asked[spec]):
+                found[spec] = listed
+        asking[:] = list(found)
+        if not found:
+            break
+        unique = list(dict.fromkeys(q for questions in found.values() for q in questions))
+        if len(found) > 1:
+            random.shuffle(unique)
+        con.say(("The skill asks:" if turn == 1 else "It asks more:") if len(sources) == 1 else
+                ("The skills ask, in random order:" if turn == 1 else "More questions, in random order:"))
+        if facts is None:
+            answers = {q: (con.ask(f"{q}\n  Your answer (Enter to skip)"), None) for q in unique}
+        else:
+            answers = _stand_in(task, exp, agents, unique, facts, out, environ, con, turn)
+        for spec, questions in found.items():
+            asked[spec].extend({"q": q, "a": answers[q][0], "turn": turn}
+                               | ({"facts": answers[q][1]} if facts is not None else {}) for q in questions)
+
+
+def _stand_in(task, exp, agents, asked, facts, out, environ, con, turn=1) -> dict:
+    """The stand-in requester's answers to one turn of the skill's questions, from a task file's facts, which only it
+    sees: {question: (answer, the numbers of the facts it chose)}. It runs headless in an empty folder of its own, with
+    no tools; its call isn't part of an arm's cost, as your answers aren't. With no facts there's nothing to ask it."""
     if not asked or not facts:
         return {q: ("", []) for q in asked}
     con.say(f"The stand-in requester answers from the task's {len(facts)} facts, headless with "
@@ -785,11 +817,12 @@ def _stand_in(task, exp, agents, asked, facts, out, environ, con) -> dict:
     work = Path(tempfile.mkdtemp(prefix="briefbench-stand-in-"))
     schema, request = work / "schema.json", treatments.answer_request(task["prompt"], facts, asked)
     schema.write_text(json.dumps(treatments.ANSWERS_SCHEMA))
-    (out / "answers.request.md").write_text(request)
+    name = "answers" + (f".{turn}" if turn > 1 else "")
+    (out / f"{name}.request.md").write_text(request)
     try:
         (work / "work").mkdir()
         reply = _call(agents["answerer"], "answerer", "stand-in requester", exp["answerer"]["model"], request,
-                      work / "work", out, "answers", environ, spent=task["headless"], schema=str(schema),
+                      work / "work", out, name, environ, spent=task["headless"], schema=str(schema),
                       schema_json=json.dumps(treatments.ANSWERS_SCHEMA))
     finally:
         shutil.rmtree(work, ignore_errors=True)

@@ -277,6 +277,29 @@ def test_noise_checks_give_a_calibration_for_each_kind_of_task():
     assert score.summary(EXPERIMENT, fixture_log())["noise_checks"]["by_stratum"] == {}
 
 
+def interviewed(entry, kind, turns, capped=False, asked=0):
+    """A trial on a task of `kind` whose skill treatment, B, interviewed for `turns` turns and asked `asked` questions."""
+    entry = of_kind(entry, kind)
+    entry["task"]["interview"] = {"skill:v": {"turns": turns, "capped": capped}}
+    entry["task"]["questions"] = [{"skill": "skill:v", "q": f"Q{i}?", "a": "", "turn": 1} for i in range(asked)]
+    return entry
+
+
+def test_score_says_how_often_the_interview_started_and_was_stopped_for_each_kind_of_task():
+    exp = CHECKED | {"b": {"spec": "skill:v", "kind": "skill"}}
+    entries = [interviewed(checked("b"), "gap", 2, asked=3),
+               interviewed(checked("tie", "both_failed"), "gap", 10, capped=True, asked=10)]
+    entries += [interviewed(checked("tie", "both_passed"), "no-gap", 0) for _ in range(2)]
+    entries += [interviewed(checked("tie", "both_passed"), "no-gap", 1, asked=1)]
+    found = score.summary(exp, entries)["interviews"]
+    assert found == {"b": {"trials": 5, "started": 3, "capped": 1, "questions": 14, "by_stratum": {
+        "gap": {"trials": 2, "started": 2, "capped": 1, "questions": 13},
+        "no-gap": {"trials": 3, "started": 1, "capped": 0, "questions": 1}}}}
+    assert ("B's skill interviewed, asking at least one question, in 3 of 5 trials (gap 2 of 2; no-gap 1 of 3), with "
+            "14 questions in all; the safety stop on turns ended 1.") in score.report(exp, entries)
+    assert score.summary(EXPERIMENT, fixture_log())["interviews"] is None      # trials from before the interview
+
+
 STRATA = CHECKED | {"rule": fixed_rule(60, net_min=0),
                     "strata": {"help": "belief-wrong", "harm": "belief-right", "margin": 0.10}}
 

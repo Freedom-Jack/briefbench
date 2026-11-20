@@ -52,6 +52,11 @@ if name == "claude" and "stream-json" in args:        # Claude Code's start-up r
 
 if role == "asker":
     mode = env.get("FAKE_ASKER", "one")
+    answered = prompt.split("<answers>\n", 1)[-1].count("\n  Answer: ")       # the interview's answers so far
+    if "FAKE-ASKS-TWICE" in prompt:             # a skill whose text carries this mark asks a second question
+        mode = "two"
+    if mode.endswith("-later"):                 # peek-later and fail-later act only once answers are in the request
+        mode = mode[:-len("-later")] if answered else "one"
     if mode == "peek":                          # a headless call that looked somewhere: $FAKE_PEEK_FILE says where
         print(Path(env["FAKE_PEEK_FILE"]).read_text(), file=sys.stderr)
     # A Grep's output too large for its result: Claude Code saved it in the session's own folder and said where, as
@@ -72,7 +77,11 @@ if role == "asker":
     if mode == "bad":
         say("I would ask about the purpose.", 30)
     else:
-        found = {"none": [], "many": [f"Question {i}?" for i in range(1, 6)]}.get(mode, ["What is the result for?"])
+        # The interview, in turns: the questions answered so far are in the request, and once they are, the skill
+        # asks nothing more, except two (a second question once the first is answered) and endless (always one more).
+        first = {"none": [], "many": [f"Question {i}?" for i in range(1, 6)]}.get(mode, ["What is the result for?"])
+        later = {"two": [["Who reads it?"]], "endless": [[f"Question {answered + 1}?"]] * 1000}.get(mode, [])
+        found = first if answered == 0 else (later[answered - 1] if answered <= len(later) else [])
         say("", 30, {"questions": found})
 elif role == "answerer":
     mode, asked = env.get("FAKE_ANSWERER", "first"), prompt.split("<questions>\n", 1)[1].split("\n</questions>")[0]

@@ -51,7 +51,7 @@ def test_live_judge(name, tmp_path):
 
 @pytest.mark.parametrize("name", sorted(AGENTS))
 def test_live_headless_rewrite(name, tmp_path):
-    """The two headless steps: the questions the skill would ask, then the brief from answers to them."""
+    """The two headless steps: the questions the skill would ask, in turns, then the brief from answers to them."""
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
@@ -60,10 +60,13 @@ def test_live_headless_rewrite(name, tmp_path):
     ask = caller(name, "asker", repo, schema=str(schema), schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
     skill = treatments.parse(f"skill:{SKILL}", os.environ, repo)
     prompt = "Rename the variable tmp to total in utils.py."
-    found, listed = treatments.questions(skill, prompt, ask)
+    found = treatments.questions(skill, prompt, ask)
     print(f"the skill would ask: {found}")
-    assert listed <= 3                                           # the skill asks at most three
+    assert len(found) <= 3                                       # skill 0.2.0 asks up to three
     qa = [{"q": q, "a": "tmp hides that it holds the running total; nothing else should change."} for q in found]
+    more = treatments.questions(skill, prompt, ask, qa)          # the next turn sees the answers
+    print(f"then: {more}")
+    assert isinstance(more, list)
     brief = treatments.render(skill, prompt, qa, caller(name, "rewriter", repo))
     print(brief)
     assert "total" in brief and "utils.py" in brief and "stretch" not in brief.casefold()
@@ -101,9 +104,9 @@ def test_live_confined_headless_calls(name, tmp_path):
                  schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
     skill = treatments.parse(f"skill:{SKILL}", os.environ, repo)
     prompt = f"Write a short summary of {denied}/notes.md for my team."
-    found, listed = treatments.questions(skill, prompt, ask)
+    found = treatments.questions(skill, prompt, ask)
     print(f"the skill would ask: {found}")
-    assert listed <= 3
+    assert len(found) <= 3                                       # skill 0.2.0 asks up to three
     brief = treatments.render(skill, prompt, [{"q": q, "a": ""} for q in found],
                               caller(name, "task-rewriter", repo, deny_rules=rules))
     print(brief)
