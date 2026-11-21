@@ -720,3 +720,85 @@ def test_an_arm_stopped_at_the_timeout_is_an_outcome(agents, repo, tip, tmp_path
     assert bench(["ab", "--task", str(task_file(tmp_path, repo, check="true"))], "", cwd=tmp_path)[0] == 0
     [t] = entries()
     assert t["kind"] == "trial" and t["arms"]["a"]["timed_out"] and t["arms"]["a"]["error"]
+
+
+# ----------------------------------------------------------------------------- runs of one arm, for the bench
+
+def test_only_runs_one_arm_once_and_logs_a_run_not_a_trial(agents, repo, tip, tmp_path):
+    """The bench shares the plain prompt's runs among every trick, so a trick's experiment runs only its own arm."""
+    assert init(repo, f"snippet:{tip}", *CHECK)[0] == 0
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo)), "--only", "b"], "", cwd=tmp_path)
+    assert code == 0, err
+    [r] = entries()
+    assert r["kind"] == "run" and r["side"] == "b" and "decision" not in r and "judge" not in r
+    assert set(r["arms"]) == set(r["prompts"]) == set(r["treatments"]) == {"b"}
+    assert r["treatments"]["b"] == f"snippet:{tip}" and r["arms"]["b"]["check"]["passed"] is True
+    assert r["arms"]["b"]["looked_outside"] is False and r["fidelity"] is None and r["arms"]["b"]["brief"] is None
+    meta = json.loads(Path(r["output"], "meta.json").read_text())
+    assert set(meta["clones"]) == {"b"} and set(meta["temps"]) == {"b", "h"}
+    assert [c["role"] for c in agents()] == ["worker"] and (Path(r["output"]) / "b.prompt.md").exists()
+    assert "only arm B runs" in err and "Logged as a run" in err
+    summary = cli.score.summary(frozen(), entries())                 # score reads trials, never runs
+    assert summary["trials"] == 0 and summary["failed"]["trials"] == 0
+
+
+@pytest.mark.parametrize("extra", [("--aa",), ()])
+def test_only_goes_with_a_task_file_and_not_with_a_noise_check(agents, repo, tip, tmp_path, extra):
+    assert init(repo, f"snippet:{tip}", *CHECK)[0] == 0
+    task = ["--task", str(task_file(tmp_path, repo))] if extra else ["Make result.txt say what it is"]
+    code, err = bench(["ab", *task, "--only", "b", *extra], "", cwd=tmp_path)
+    assert code == 2 and "--only runs one arm" in err and entries() == []
+
+
+def test_a_run_of_the_plain_prompt_runs_arm_a(agents, repo, tip, tmp_path):
+    assert init(repo, f"snippet:{tip}", *CHECK)[0] == 0
+    assert bench(["ab", "--task", str(task_file(tmp_path, repo)), "--only", "a"], "", cwd=tmp_path)[0] == 0
+    [r] = entries()
+    assert r["side"] == "a" and r["prompts"] == {"a": "Make result.txt say what it is"}
+    assert r["arms"]["a"]["check"]["passed"] is False
+
+
+def test_a_run_is_kept_from_the_data_folder_the_keys_and_other_clones(agents, repo, tip, tmp_path):
+    assert init(repo, f"snippet:{tip}", *CHECK)[0] == 0
+    (tmp_path / "keys" / "t-001").mkdir(parents=True)            # as a generator lays them out: KEYS/<task>/task.json
+    path = task_file(tmp_path, repo).rename(tmp_path / "keys" / "t-001" / "task.json")
+    assert bench(["ab", "--task", str(path), "--only", "b"], "", cwd=tmp_path)[0] == 0
+    [worker] = [c for c in agents() if c["role"] == "worker"]
+    denied = json.loads(worker["argv"][worker["argv"].index("--settings") + 1])["sandbox"]["filesystem"]["denyRead"]
+    assert denied[0] == os.environ["BRIEFBENCH_HOME"] and str(tmp_path / "keys") in denied
+    assert not worker["data_home"] and "BRIEFBENCH_HOME" not in worker["env"]
+
+
+def test_a_run_of_a_skill_version_interviews_through_the_stand_in(agents, repo, tmp_path):
+    stand_in(repo)
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=FACTS)), "--only", "b"], "", cwd=tmp_path)
+    assert code == 0, err
+    [r] = entries()
+    assert r["task"]["answered_by"] == "stand-in" and r["task"]["questions"][0]["a"] == FACTS[0]
+    assert r["task"]["interview"] == {f"skill:{SKILL}": {"turns": 1, "capped": False}}
+    assert r["prompts"]["b"].startswith("BRIEF:") and r["arms"]["b"]["brief"]["tokens"] > 0
+    assert r["fidelity"] == {"b": {"added": None, "dropped": None, "changed": None}}
+    meta, calls = json.loads(Path(r["output"], "meta.json").read_text()), agents()
+    for role in ("asker", "rewriter"):           # the skill's calls run in the one clone, confined as its arm
+        call = next(c for c in calls if c["role"] == role)
+        assert call["cwd"] == meta["clones"]["b"] and call["env"]["TMPDIR"] == meta["temps"]["h"]
+
+
+def test_a_failed_run_is_logged_with_its_arm_and_kept_out_of_score(agents, repo, tip, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_WORKER", "limit")
+    assert init(repo, f"snippet:{tip}", *CHECK)[0] == 0
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo)), "--only", "b"], "", cwd=tmp_path)
+    assert code == 4 and "arm B reported an error" in err
+    [f] = entries()
+    assert f["kind"] == "failed" and f["only"] == "b" and f["treatments"] == {"b": f"snippet:{tip}"}
+    assert cli.score.summary(frozen(), entries())["failed"]["trials"] == 0
+
+
+def test_from_a_git_worktree_the_main_checkout_is_denied_too(tmp_path, monkeypatch, repo):
+    """The main checkout of a worktree holds the same generators, the bench's seeds and the other worktrees."""
+    worktree = tmp_path / "wt"
+    cli.runner.git(repo, "worktree", "add", "--detach", "--quiet", str(worktree))
+    monkeypatch.setattr(cli, "_bench_source", lambda: worktree)
+    assert cli._bench_places() == [worktree, repo.resolve()]
+    monkeypatch.setattr(cli, "_bench_source", lambda: repo)
+    assert cli._bench_places() == [repo]

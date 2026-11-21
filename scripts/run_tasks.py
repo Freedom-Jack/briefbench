@@ -48,7 +48,7 @@ def seen(entries: list[dict], sha256: str, aa: bool) -> dict[str, int]:
             continue
         if e.get("kind") == ("aa" if aa else "trial"):
             counts["done"] += 1
-        elif e.get("kind") == "failed" and bool(e.get("aa")) == aa:
+        elif e.get("kind") == "failed" and bool(e.get("aa")) == aa and not e.get("only"):     # not the bench's runs
             counts["failed"] += 1
     return counts
 
