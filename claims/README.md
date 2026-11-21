@@ -47,7 +47,7 @@ The first cards come from the project's research, read on 4 Nov 2026: the [value
 
 ### By article
 
-Each article or guide, broken into its tricks, with one line on how helpful it has been so far (added 20 Nov 2026). The line sums up its tricks' results; each trick keeps its own result on its card. Only a trick that changes what a request says, or, for settings advice, the note after the brief, in a form its card names, can enter the skill; the others still get a result from the bench. Settings tricks wait for settings arms in the bench ([build plan](../docs/build-plan.md), P2, "Settings tricks").
+Each article or guide, broken into its tricks, with one line on how helpful it has been so far (added 20 Nov 2026). Since 20 Nov 2026 every trick runs first on the bench, one fixed set of tasks shared by every trick, whose table, [bench/board.md](../bench/board.md), compares them all ([docs/bench.md](../docs/bench.md)); its results are development data, never evidence, and a line here says so when it quotes one. The line sums up its tricks' results; each trick keeps its own result on its card. Only a trick that changes what a request says, or, for settings advice, the note after the brief, in a form its card names, can enter the skill; the others still get a result from the bench. Settings tricks wait for settings arms in the bench ([build plan](../docs/build-plan.md), P2, "Settings tricks").
 
 | Article | Its tricks | Could enter the skill | So far |
 | --- | --- | --- | --- |

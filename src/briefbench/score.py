@@ -253,7 +253,7 @@ def summary(exp: dict, entries: list[dict]) -> dict:
     made, policy = _reviews(mine), _policy(exp)
     fidelity = {s: _fidelity(used, s, made) if _is_skill(exp[s]) else None for s in "ab"}
     order = {id(e): i for i, e in enumerate(mine)}
-    failed = [e for e in mine if e.get("kind") == "failed" and not e.get("aa")]
+    failed = [e for e in mine if e.get("kind") == "failed" and not e.get("aa") and not e.get("only")]   # not runs
     rerun = [f for f in failed if any(_task(t) == _task(f) and order[id(t)] > order[id(f)] for t in trials)]
     unresolved = len(failed) - len(rerun)
     # With the stand-in requester nobody reviews a brief during the trial: the briefs the policy chooses wait for your
