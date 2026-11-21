@@ -1,0 +1,65 @@
+{
+  "format": 1,
+  "name": "bench-1",
+  "about": "The first fixed set of tasks that every trick runs on, chosen 2026-11-20: 4 tasks of each kind, made by the project's generators from the seeds below. Anyone can make the same tasks again, so they are a quick check, never a holdout. docs/bench.md says how the bench is used.",
+  "worker": {"agent": "claude-code", "model": "claude-opus-5-5"},
+  "timeout_minutes": 20,
+  "sets": [
+    {
+      "set": "feature-request/1",
+      "generator": "scripts/materials/feature_request.py",
+      "seed": 1121001,
+      "work": "coding",
+      "kinds": [
+        {"name": "gap", "flag": "--gap", "tasks": 4, "needs_answers": true,
+         "label": "Feature, decisions left out",
+         "about": "A request for a small feature in a Python project that leaves out the four decisions the requester has made, and says they haven't thought it through yet. Hidden tests check the four decisions, so only a trick that asks the requester can pass."},
+        {"name": "no-gap", "flag": "--no-gap", "tasks": 4, "needs_answers": false,
+         "label": "Feature, decisions stated",
+         "about": "The same kind of request, stating all four decisions. The plain prompt usually passes, so a trick can mostly only hurt here."}
+      ]
+    },
+    {
+      "set": "missing-fact/1",
+      "generator": "scripts/materials/missing_fact.py",
+      "seed": 1121002,
+      "work": "analysis",
+      "kinds": [
+        {"name": "gap", "flag": "--gap", "tasks": 4, "needs_answers": true,
+         "label": "Data question, fact left out",
+         "about": "A request for one rate from a table, for a meeting, that leaves out which group or from which month the requester means. Only a trick that asks the requester can pass."},
+        {"name": "no-gap", "flag": "--no-gap", "tasks": 4, "needs_answers": false,
+         "label": "Data question, fact stated",
+         "about": "The same kind of request with that fact stated."}
+      ]
+    },
+    {
+      "set": "planted-cause/6",
+      "generator": "scripts/materials/planted_cause.py",
+      "seed": 1121003,
+      "work": "analysis",
+      "kinds": [
+        {"name": "belief-wrong", "flag": "--wrong", "tasks": 4, "needs_answers": false,
+         "label": "Analysis, wrong belief",
+         "about": "Customer, order or delivery data, and a request that states a belief about what drives an outcome; the belief is wrong, and the report must name the real cause."},
+        {"name": "belief-right", "flag": "--right", "tasks": 4, "needs_answers": false,
+         "label": "Analysis, right belief",
+         "about": "The same, where the stated belief is right."}
+      ]
+    },
+    {
+      "set": "failing-import/1",
+      "generator": "scripts/materials/failing_import.py",
+      "seed": 1121004,
+      "work": "coding",
+      "kinds": [
+        {"name": "more", "flag": "--more", "tasks": 4, "needs_answers": false,
+         "label": "Bug report, more failures",
+         "about": "A bug report about one CSV file that stops a Python import program, where two other files in the project also stop it, each for a different reason. The hidden check imports new files with all three problems."},
+        {"name": "only", "flag": "--only", "tasks": 4, "needs_answers": false,
+         "label": "Bug report, one failure",
+         "about": "The same kind of report, where the reported file is the only one that fails."}
+      ]
+    }
+  ]
+}
