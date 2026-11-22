@@ -4,9 +4,8 @@
   "tricks": [
     {"id": "ask-questions-first", "treatment": "skill:variants/interview",
      "kinds": ["feature-request/1:gap"]},
-    {"id": "outcome-over-task", "treatment": null,
-     "kinds": ["failing-import/1:more"],
-     "waits": "its bug-report tasks (failing-import/1) and its skill version (variants/essay-outcome), being built in another session"},
+    {"id": "outcome-over-task", "treatment": "skill:variants/essay-outcome",
+     "kinds": ["failing-import/1:more"]},
     {"id": "test-your-belief", "treatment": "snippet:snippets/test-your-belief.md",
      "kinds": ["planted-cause/6:belief-wrong"]},
     {"id": "unreasonable-goals", "treatment": null, "kinds": [],
