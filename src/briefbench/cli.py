@@ -104,6 +104,8 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     a.add_argument("--task", type=Path, metavar="FILE",
                    help="run the task in this task file, with no questions (materials with an answer key)")
     a.add_argument("--aa", action="store_true", help="noise check: treatment A in both arms")
+    a.add_argument("--only", choices=("a", "b"), help="with --task: run only this arm, once, logged as a run, not a "
+                                                      "trial; the bench compares runs (docs/bench.md)")
     a.add_argument("--experiment", metavar="NAME", help="default: the newest experiment")
     s = commands.add_parser("score", allow_abbrev=False, help="the report on an experiment")
     s.add_argument("name", nargs="?", help="default: the newest experiment")
@@ -391,6 +393,18 @@ def _bench_source() -> Path | None:
     return root if (root / "pyproject.toml").is_file() and (root / "src" / "briefbench").is_dir() else None
 
 
+def _bench_places() -> list[Path]:
+    """The bench's own source and, when it runs from a git worktree, the main checkout that worktree belongs to, which
+    holds the same generators, the bench's seeds (bench/) and the other worktrees: an arm may read none of them."""
+    if (root := _bench_source()) is None:
+        return []
+    try:
+        common = Path(root, runner.git(root, "rev-parse", "--git-common-dir").strip()).resolve()
+    except (ConfigError, OSError):
+        return [root]
+    return [root] + ([common.parent] if common.name == ".git" and common.parent != root else [])
+
+
 def _bench_commit() -> dict | None:
     """The commit of the bench's own source and whether its tracked files differ from it, so that a finding names the
     code that ran it (the first pilot ran on code committed only afterwards). None when it runs from an installed copy."""
@@ -474,6 +488,9 @@ def _ready(name: str, environ):
 # ----------------------------------------------------------------------------- ab
 
 def cmd_ab(args, con, environ, cwd, secrets) -> int:
+    if args.only and (args.aa or not args.task):
+        raise UsageError("--only runs one arm of the experiment on a task file, for the bench: use it with --task, "
+                         "and without --aa.")
     exp = experiment.load(args.experiment, environ)
     for side in ("a", "b"):
         treatments.check_unchanged(exp[side])
@@ -507,11 +524,15 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     commit = runner.commit(root, task_file["commit"]) if task_file and task_file["commit"] else runner.head(root)
     prompt = task_file["prompt"] if task_file else _read_prompt(args, con)
     log_path = prepare(environ)
-    specs = {"a": exp["a"], "b": exp["a"] if args.aa else exp["b"]}
+    # With --only, one arm runs, once: a run, which the bench compares with other runs on the same task file
+    # (docs/bench.md). Otherwise both arms run, as a trial, or A twice as a noise check.
+    specs = ({args.only: exp[args.only]} if args.only else {"a": exp["a"], "b": exp["a"] if args.aa else exp["b"]})
+    first = next(iter(specs))                   # the skill's headless calls run in this arm's folder
     base = {"experiment": exp["name"], "experiment_created": exp.get("created"),
             "repo": {"root": str(root), "commit": commit}}
-    con.say(f"Experiment {exp['name']}: A is {exp['a']['spec']}, B is {specs['b']['spec']}"
-            + (" (noise check: A in both arms)." if args.aa else "."))
+    con.say(f"Experiment {exp['name']}: " + (f"only arm {args.only.upper()} runs, {specs[args.only]['spec']}."
+                                             if args.only else f"A is {exp['a']['spec']}, B is {specs['b']['spec']}"
+                                             + (" (noise check: A in both arms)." if args.aa else ".")))
     if runner.dirty(root):
         con.say(f"Uncommitted changes are left out: both arms start from commit {commit[:12]}.")
     if task_file:          # materials are chosen for one-shot handoffs, so the file stands in for the questions
@@ -539,7 +560,7 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
             experiment.save_repo_settings(root, settings, environ)
     if scoring == "check" and not answers["check"]:
         raise UsageError(f"experiment {exp['name']} is scored by the check alone, so every trial needs a check.")
-    trial = header("aa" if args.aa else "trial") | base
+    trial = header("run" if args.only else "aa" if args.aa else "trial") | base
     (data_dir(environ) / "trials").mkdir(mode=0o700, exist_ok=True)    # private, like the data folder it is in
     out = data_dir(environ) / "trials" / trial["id"] / "output"
     out.parent.mkdir(mode=0o700)
@@ -550,8 +571,8 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
         # to the key, the other arm or the records, and a sandboxed worker can't write to the other arm. Each arm also
         # gets a temporary folder of its own, so the two can't see each other's scratch files, and so do the skill's
         # headless calls (h).
-        worktrees = runner.add_clones(root, commit, _runs_folder(environ))
-        temps = {s: runner.temp_folder() for s in ("a", "b", "h")}
+        worktrees = runner.add_clones(root, commit, _runs_folder(environ), sides=tuple(specs))
+        temps = {s: runner.temp_folder() for s in (*specs, "h")}
         meta = {"root": str(root), "commit": commit, "clones": {s: str(p) for s, p in worktrees.items()},
                 "temps": {s: str(p) for s, p in temps.items()}}
         experiment.write_private(out / "meta.json", meta | {"pid": os.getpid()})
@@ -566,28 +587,29 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     if task_file:
         task["source"] = {key: task_file[key] for key in ("id", "set", "file", "sha256", "stratum")}
     stage, keys, confine = "questions", Path(task_file["file"]).parent.parent if task_file else None, None
-    if task_file and exp.get("rewriter"):        # the skill's headless calls run in arm A's folder, confined as arm A
+    if task_file and exp.get("rewriter"):    # the skill's headless calls run in the first arm's folder, confined as it
         found, rewriter = _confinement(worktrees, temps, keys, environ), AGENTS[exp["rewriter"]["agent"]]
-        confine = {"deny": found["a"]["deny"] + [str(temps["a"])], "tokens": found["a"]["tokens"] + [temps["a"].name],
+        confine = {"deny": found[first]["deny"] + [str(temps[first])],
+                   "tokens": found[first]["tokens"] + [temps[first].name],
                    "env": found["env"] | {"TMPDIR": str(temps["h"])}
                    | ({rewriter.temp_env: str(temps["h"])} if rewriter.temp_env else {})}
     try:
         try:
-            _skill_questions(task, specs, exp, agents, worktrees["a"], out, environ, con,
+            _skill_questions(task, specs, exp, agents, worktrees[first], out, environ, con,
                              facts=task_file["facts"] if task_file else None, confine=confine)
             stage = "rewrite"
-            prompts = _render(specs, task, agents, exp, worktrees["a"], out, environ, con, confine=confine)
+            prompts = _render(specs, task, agents, exp, worktrees[first], out, environ, con, confine=confine)
             stage = "run"
             arms = _run_arms(prompts, agents["worker"], exp, settings, answers["check"], worktrees, commit, out,
                              environ, con, role=_role("worker", scoring), keys=keys,
                              temps=temps if task_file else None)
             if confine:                          # a headless call that named such a place marks the arms it reached
-                for s in "ab":
+                for s in specs:
                     arms[s]["looked_outside"] |= any(c.get("looked_outside") for c in _calls_for(specs[s], exp,
                                                                                                 task["headless"]))
             # An arm stopped at the timeout is an outcome; one that ended in an error, such as a usage limit or a
             # sandbox that didn't start, measured the service. The message gives each arm's error in the CLI's words.
-            said = {s: " ".join(arms[s]["error"].split()).removesuffix(".") for s in "ab"
+            said = {s: " ".join(arms[s]["error"].split()).removesuffix(".") for s in specs
                     if arms[s]["error"] and not arms[s]["timed_out"]}
             if scoring == "check" and said:
                 cause = (f"arms A and B both reported an error: {said['a']}" if said.get("a") == said.get("b")
@@ -596,28 +618,34 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
                                  "not the prompt, so the trial is logged as failed: rerun its task once.")
         except (AgentError, ConfigError) as e:   # kept, so a step that keeps failing on some tasks shows in score
             append(log_path, header("failed") | base | {"aa": args.aa, "stage": stage, "task": task, "error": str(e),
-                                                       "treatments": {s: specs[s]["spec"] for s in "ab"},
-                                                       "versions": versions, "output": str(out)}, secrets)
+                                                       "treatments": {s: specs[s]["spec"] for s in specs},
+                                                       "versions": versions, "output": str(out)}
+                   | ({"only": args.only} if args.only else {}), secrets)
             raise
-        for side in "ab":                        # written only now that both arms are done
+        for side in specs:                       # written only now that the arms are done
             (out / f"{side}.prompt.md").write_text(prompts[side])
             arms[side]["brief"] = _briefing(specs[side], exp, task["headless"])
-        sides = dict(zip(("1", "2"), random.sample(("a", "b"), 2)))
-        decision = _decide(arms, sides, answers["check"], specs, out, con, scoring)
-        verdict = None
-        if "judge" in agents and decision["by"] == "you" and _judge_allowed(exp, root, settings, con, environ):
-            verdict = _judge(exp, agents["judge"], answers["why"], arms, sides, out, environ, con)
+        decision = verdict = None
+        if not args.only:                        # a run is compared later, with other runs on the same task file
+            sides = dict(zip(("1", "2"), random.sample(("a", "b"), 2)))
+            decision = _decide(arms, sides, answers["check"], specs, out, con, scoring)
+            if "judge" in agents and decision["by"] == "you" and _judge_allowed(exp, root, settings, con, environ):
+                verdict = _judge(exp, agents["judge"], answers["why"], arms, sides, out, environ, con)
         fidelity = _fidelity(specs, prompts, out, con, ask=scoring != "check")
     finally:
         experiment.write_private(out / "meta.json", meta | {"pid": None})
     trial |= {"task": task,
               "settings": {"setup": settings["setup"], "check": answers["check"], "protected": settings["protected"],
                            "timeout_s": exp["timeout_s"]},
-              "treatments": {s: specs[s]["spec"] for s in "ab"}, "prompts": prompts,
+              "treatments": {s: specs[s]["spec"] for s in specs}, "prompts": prompts,
               "worker": {k: exp["worker"][k] for k in ("agent", "model", "version")}, "versions": versions,
-              "arms": arms, "decision": decision, "judge": verdict, "fidelity": fidelity, "output": str(out)}
+              "arms": arms, **({"side": args.only} if args.only else {"decision": decision, "judge": verdict}),
+              "fidelity": fidelity, "output": str(out)}
     append(log_path, trial, secrets)
-    _report(trial, specs, root, out, con, environ)
+    if args.only:
+        _report_run(trial, out, con, environ)
+    else:
+        _report(trial, specs, root, out, con, environ)
     return 0
 
 
@@ -875,25 +903,29 @@ def _briefing(t, exp, headless) -> dict | None:
 
 def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, environ, con, role="worker",
               keys=None, temps=None) -> dict:
-    """Both arms at once, then the check in each. role is the worker's template: worker may run the check command
-    itself; task-worker, for experiments scored by the check alone, never gets it. With keys, the folder that holds
-    the task files and answer keys, the trial runs a task file: each arm works with its own temporary folder (temps)
-    and is kept from reading the data folder, the keys, the other arm's folders, any other trial's leftover clone, the
-    bench's own source and other sessions' files (PRIVATE_PLACES). Nothing in its environment names those places, and
-    its output is searched for them afterwards; arms.<side>.looked_outside records a hit."""
+    """The arms, one for each prompt (both, or one in a run), at once, then the check in each. role is the worker's
+    template: worker may run the check command itself; task-worker, for experiments scored by the check alone, never
+    gets it. With keys, the folder that holds the task files and answer keys, the trial runs a task file: each arm
+    works with its own temporary folder (temps) and is kept from reading the data folder, the keys, the other arm's
+    folders, any other trial's leftover clone, the bench's own source and other sessions' files (PRIVATE_PLACES).
+    Nothing in its environment names those places, and its output is searched for them afterwards;
+    arms.<side>.looked_outside records a hit."""
+    sides = list(prompts)
     if settings["setup"]:
-        con.say("Running the setup command in both worktrees...")
+        con.say("Running the setup command in " + ("both worktrees..." if len(sides) == 2 else "the worktree..."))
         done = runner.wait([runner.start(settings["setup"], worktrees[s], agent_env(environ), out / f"{s}.setup.log")
-                            for s in "ab"], TIMEOUT_S["setup"])
+                            for s in sides], TIMEOUT_S["setup"])
         if any(d.code != 0 for d in done):
-            raise AgentError(f"the setup command failed; see {display_path(out, environ)}/a.setup.log and b.setup.log")
+            raise AgentError(f"the setup command failed; see {display_path(out, environ)}/"
+                             + " and ".join(f"{s}.setup.log" for s in sides))
     agent, executable = worker
-    con.say(f"Running both arms with {exp['worker']['agent']} (at most {exp['timeout_s'] / 60:g} minutes)...")
+    con.say(("Running both arms" if len(sides) == 2 else f"Running arm {sides[0].upper()}")
+            + f" with {exp['worker']['agent']} (at most {exp['timeout_s'] / 60:g} minutes)...")
     audit, env = keys is not None, agent_env(environ)
-    private, tokens, envs = {s: [] for s in "ab"}, {s: [] for s in "ab"}, {s: env for s in "ab"}
+    private, tokens, envs = {s: [] for s in sides}, {s: [] for s in sides}, {s: env for s in sides}
     if audit:
         found = _confinement(worktrees, temps, keys, environ)
-        for s in "ab":
+        for s in sides:
             private[s], tokens[s] = found[s]["deny"], found[s]["tokens"]
             envs[s] = found["env"] | {"TMPDIR": str(temps[s])} | ({agent.temp_env: str(temps[s])}
                                                                   if agent.temp_env else {})
@@ -901,9 +933,9 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
                                      check=check, deny=json.dumps(private[s]),
                                      deny_rules=json.dumps([f"Read(/{p}/**)" for p in private[s]])),
                           worktrees[s], envs[s], out / f"{s}.out", out / f"{s}.err")
-             for s in "ab"]
+             for s in sides]
     arms = {}
-    for s, done in zip("ab", runner.wait(procs, exp["timeout_s"])):
+    for s, done in zip(sides, runner.wait(procs, exp["timeout_s"])):
         reply = agent.parse((out / f"{s}.out").read_text(errors="replace"))
         arms[s] = {"exit_code": done.code, "timed_out": done.code is None, "seconds": done.seconds,
                    "tokens": reply.tokens, "model": reply.model, "error": reply.error,
@@ -914,27 +946,27 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
                     + (out / f"{s}.err").read_text(errors="replace"))     # not the CLI's own start-up report
             arms[s]["looked_outside"] = _names(seen, private[s], tokens[s], environ)
     if check:
-        con.say("Running your check in both worktrees...")
+        con.say("Running your check in " + ("both worktrees..." if len(sides) == 2 else "the worktree..."))
         env = agent_env(environ)      # the check runs, like the agents, without API key variables
         if audit:                     # one after the other, so two checks can't collide on a shared file or port
             done = [runner.wait([runner.start(check, worktrees[s], env, out / f"{s}.check.log")],
-                                TIMEOUT_S["check"])[0] for s in "ab"]
+                                TIMEOUT_S["check"])[0] for s in sides]
         else:
-            done = runner.wait([runner.start(check, worktrees[s], env, out / f"{s}.check.log") for s in "ab"],
+            done = runner.wait([runner.start(check, worktrees[s], env, out / f"{s}.check.log") for s in sides],
                                TIMEOUT_S["check"])
-        for s, d in zip("ab", done):
+        for s, d in zip(sides, done):
             arms[s]["check"] = {"exit_code": d.code, "seconds": d.seconds,
                                 "passed": d.code == 0 and not arms[s]["protected_changed"]}
     return arms
 
 
 def _confinement(worktrees, temps, keys, environ) -> dict:
-    """What each arm of a task file's trial may not read: the data folder, the keys, the other arm's folders and the
-    skill's headless calls' temporary folder (h), any other trial's leftover clone, the bench's own source and other
-    sessions' files (PRIVATE_PLACES). {side: {deny, tokens}}, where tokens are folder names that give those places
-    away, and under env the environment to start from, with nothing in it naming them."""
-    other, homes = {"a": "b", "b": "a"}, [w.parent for w in worktrees.values()]
-    shared = [p for p in [data_dir(environ), Path(keys), _bench_source(), *_private_places(environ), temps.get("h")]
+    """What each arm of a task file's trial or run may not read: the data folder, the keys, the other arm's folders and
+    the skill's headless calls' temporary folder (h), any other trial's leftover clone, the bench's own source and
+    other sessions' files (PRIVATE_PLACES). {side: {deny, tokens}}, where tokens are folder names that give those
+    places away, and under env the environment to start from, with nothing in it naming them."""
+    homes = [w.parent for w in worktrees.values()]
+    shared = [p for p in [data_dir(environ), Path(keys), *_bench_places(), *_private_places(environ), temps.get("h")]
               if p and not any(p == h or p in h.parents for h in homes)]    # never a folder an arm works in
     # Nothing in the environment points at those places: no BRIEFBENCH_HOME, no variable naming one, such as the
     # bench's virtual environment, and no PATH entry inside one.
@@ -943,13 +975,14 @@ def _confinement(worktrees, temps, keys, environ) -> dict:
     env["PATH"] = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep)
                                   if not any(_inside(d, p) for p in shared))
     found = {"env": env}
-    for s in "ab":
-        mine = worktrees[s].parent
-        places = [data_dir(environ), worktrees[other[s]].parent, temps[other[s]], *shared]
+    for s in worktrees:
+        mine, others = worktrees[s].parent, [o for o in worktrees if o != s]     # in a run, no other arm
+        places = [data_dir(environ), *(worktrees[o].parent for o in others), *(temps[o] for o in others), *shared]
         places += [p for p in mine.parent.iterdir() if p != mine]      # other trials' leftover clones
         # never a folder the arm works in, such as a keys folder that happens to sit above the runs folder
         found[s] = {"deny": list(dict.fromkeys(str(p) for p in places if p != mine and p not in mine.parents)),
-                    "tokens": [data_dir(environ).name, worktrees[other[s]].parent.name, temps[other[s]].name]}
+                    "tokens": [data_dir(environ).name, *(worktrees[o].parent.name for o in others),
+                               *(temps[o].name for o in others)]}
     return found
 
 
@@ -994,8 +1027,8 @@ def _fidelity(specs, prompts, out, con, ask=True) -> dict | None:
     under the check alone, nobody is there: each brief is recorded unreviewed, every answer None, until you review it
     apart from the outcomes."""
     review = {}
-    for s in "ab":
-        if specs[s]["kind"] != "skill" or (s == "b" and specs["b"]["spec"] == specs["a"]["spec"]):
+    for s in specs:
+        if specs[s]["kind"] != "skill" or (s == "b" and "a" in specs and specs["b"]["spec"] == specs["a"]["spec"]):
             continue                                 # in a noise check, both arms got the same brief
         if not ask:
             con.say(f"Arm {s.upper()}'s brief ({specs[s]['spec']}) waits for your fidelity review, made apart from the "
@@ -1080,6 +1113,16 @@ def _report(trial, specs, root, out, con, environ) -> None:
                 "(or b.diff)")
     con.say(f"Logged. Each arm's prompt, diff and logs are in {display_path(out, environ)}; the worktrees stay "
             "until `briefbench clean`.")
+
+
+def _report_run(run, out, con, environ) -> None:
+    side = run["side"]
+    arm, spec = run["arms"][side], run["treatments"][side]
+    con.say(f"\nArm {side.upper()} ({spec}): the check {'passed' if arm['check']['passed'] else 'failed'}; "
+            f"{arm['seconds']:g} s, " + (f"{arm['tokens']:,} tokens" if arm["tokens"] else "tokens not reported")
+            + (f", {arm['error']}" if arm["error"] else "") + ".")
+    con.say(f"Logged as a run. Its prompt, diff and logs are in {display_path(out, environ)}; the clone stays until "
+            "`briefbench clean`.")
 
 
 # ----------------------------------------------------------------------------- score and clean

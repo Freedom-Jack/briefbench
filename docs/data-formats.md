@@ -19,6 +19,7 @@ Every line has these fields:
 Kinds:
 - `trial`: one paired trial, written by `briefbench ab`.
 - `aa`: a noise-check trial, written by `briefbench ab --aa`, with treatment A in both arms. Same fields as `trial`.
+- `run`: one arm of an experiment, run once on a task file by `briefbench ab --task FILE --only SIDE`, for the bench ([bench.md](bench.md)). Added 2026-11-20. Same fields as `trial`, except that `arms`, `prompts` and `treatments` hold only that arm's side, `side` names it (`a` or `b`), and there is no `decision` or `judge`: the bench compares runs later, with the plain prompt's runs on the same task file. `fidelity` holds that arm's brief, unreviewed, when it is a skill. `score` reads trials and ignores runs.
 - `excluded`: a task that failed the eligibility questions, so it was not run.
 - `failed`: a trial stopped before the arms could be compared: by a failed headless call (the skill's questions or the rewrite), the setup command, or an error while running the arms or saving their results (see `stage`). Added 2026-11-05.
 - `fidelity`: your fidelity review of one brief, made apart from the outcomes with `scripts/review_briefs.py`. Added 2026-11-11. It has `experiment`, `experiment_created`, `trial` (the trial's `id`), `side` (`b`) and `added`, `dropped` and `changed`, each true or false, as the questions of a trial's own `fidelity` ask them. `score` uses the latest such line for a brief in place of the trial's own review. Since 2026-11-14 a `fidelity` line can also come from `scripts/check_briefs.py`, a factual check of a brief against its task file, for `missing-fact/1` tasks, that no person makes. Such a line also has `by`, `"check"`; `check_sha256`, the script's sha256; and `reasons`, a list of strings saying what failed, each starting with `added`, `dropped` or `changed`. A line without `by` is a person's review. `score` counts both kinds alike.
@@ -52,7 +53,7 @@ A `trial` or `aa` line also has:
 
 An `excluded` line has `experiment`, `experiment_created`, `repo`, `reasons` (any of `leans_on_chat`, `side_effects`, `steered`) and `task` (`{prompt}`).
 
-A `failed` line has `experiment`, `experiment_created`, `repo`, `aa` (true for a noise check), `stage` (`questions`, `rewrite` or `run`: setup, the arms, or saving their results), `task` (as in a trial, with whatever was asked before the failure), `treatments`, `versions`, `error` (the message `ab` printed) and `output`. `score` counts a failed trial as rerun when a later trial of the same experiment has the same prompt, repo and commit; a failed trial that wasn't rerun blocks adoption.
+A `failed` line has `experiment`, `experiment_created`, `repo`, `aa` (true for a noise check), since 2026-11-20 `only` (the side of a failed run, and missing otherwise; `score` leaves such lines out), `stage` (`questions`, `rewrite` or `run`: setup, the arms, or saving their results), `task` (as in a trial, with whatever was asked before the failure), `treatments`, `versions`, `error` (the message `ab` printed) and `output`. `score` counts a failed trial as rerun when a later trial of the same experiment has the same prompt, repo and commit; a failed trial that wasn't rerun blocks adoption.
 
 ## Experiments and repo settings
 

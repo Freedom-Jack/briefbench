@@ -59,14 +59,14 @@ def add_worktrees(root: Path, commit: str, trial_dir: Path) -> dict[str, Path]:
     return paths
 
 
-def add_clones(root: Path, commit: str, base: Path) -> dict[str, Path]:
-    """For materials with an answer key: a clone of the task repo for each arm, each in a randomly named folder of its
-    own under `base`, which lies outside the data folder and outside the system's temporary folders (a sandboxed
-    worker may write to those). Unlike worktrees, a clone holds no link back to the task's folder, and the arms share
-    nothing, so neither can find the other or the answer key by looking around."""
+def add_clones(root: Path, commit: str, base: Path, sides=("a", "b")) -> dict[str, Path]:
+    """For materials with an answer key: a clone of the task repo for each arm (both, or one in a run), each in a
+    randomly named folder of its own under `base`, which lies outside the data folder and outside the system's
+    temporary folders (a sandboxed worker may write to those). Unlike worktrees, a clone holds no link back to the
+    task's folder, and the arms share nothing, so neither can find the other or the answer key by looking around."""
     base.mkdir(mode=0o700, parents=True, exist_ok=True)
     paths = {}
-    for side in ("a", "b"):
+    for side in sides:
         path = Path(tempfile.mkdtemp(prefix="briefbench-", dir=base)) / "work"
         git(Path(path.parent), "clone", "--quiet", "--no-hardlinks", "--no-checkout", str(root), str(path))
         git(path, "checkout", "--quiet", "--detach", commit)
