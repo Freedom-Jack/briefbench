@@ -167,7 +167,7 @@ Once a result leads to a decision about the skill, a sixth section follows: `## 
 - `skill:<folder>`: the same, written by the skill in that folder, such as a variant.
 - `snippet:<file>`: your prompt with a fixed text added after it.
 
-A `settings` claim needs a settings arm, the same prompt run with different settings, which `init` can't name yet. A claim with three arms needs two experiments. Cards name variant folders such as `skill:variants/essay-outcome`; none of those exists yet. The two folders in `variants/` are the treatments of rounds 1 and 2.
+A `settings` claim needs a settings arm, the same prompt run with different settings, which `init` can't name yet. A claim with three arms needs two experiments. Cards name variant folders such as `skill:variants/essay-outcome`. The folders in `variants/` are the treatments of rounds 1 and 2 (`questions-first`, `questions-first-2`), of round 3 (`interview`) and of the pilot of "ask for the outcome" (`essay-outcome`).
 
 ### Sample sizes
 
