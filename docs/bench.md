@@ -2,6 +2,12 @@
 
 Revised 2026-11-23 after [bench-1's usage review](status/2026-11-23-bench-usage.md). A completed comparison should be inexpensive by construction. A consumption ceiling is a guardrail for exceptional runs, not the mechanism that makes ordinary runs affordable.
 
+## Upcoming work queue
+
+[BACKLOG.md](../BACKLOG.md#resume-here) is the standing queue for upcoming candidates and their prerequisites, including all 24 suggestions from the five practitioner articles and both maintainer ideas. Its unchecked entries are pending work, not automatically runnable comparisons. Claim cards and boards supply the detailed status and evidence.
+
+Every continuation of bench work starts with that queue's resume procedure. A request such as "continue bench work" is enough to locate the next task: follow the user's priority or resume unblocked preparation, record blockers, and update the queue at the stopping point. The maintainer need not name or reconstruct the sources each time. Before running models, still report expected usage and establish authorization for the concrete comparison. No scheduler, automatic sweep or adoption follows from being queued.
+
 ## Run a completed screen
 
 ```sh

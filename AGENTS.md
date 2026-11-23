@@ -6,7 +6,7 @@ Guidance for AI coding agents working in this repository, such as Claude Code, C
 
 Read [docs/design.md](docs/design.md) before changing anything, then the relevant work package in [docs/build-plan.md](docs/build-plan.md). The project is going public: a portable `brief` skill, and a small bench that tests prompting claims against it on the user's own tasks. [docs/design-review.md](docs/design-review.md) explains why the design is what it is.
 
-[BACKLOG.md](BACKLOG.md) is the central intake for sources, maintainer ideas, command/workflow proposals, current and retired claims, and prerequisites. Consult it before selecting more experiments. The 18 current claim cards are not the full backlog. Keep ideas such as model/effort recommendations and `/goal`/`/loop` command advice visible with their provenance and scope status; tracking them does not relax the rules below or authorize execution.
+[BACKLOG.md](BACKLOG.md) is the standing pending-work queue for sources, maintainer ideas, command/workflow proposals, current and retired claims, and prerequisites. **Every bench continuation must read its "Resume here" section and follow its standard continuation procedure**, even when the user does not name a candidate. Resume the first unblocked authorized task unless the user gives another priority; update its state, blocker and next action before handing off. Do not require the user to reconstruct the article list. The 18 current claim cards are not the full backlog. Keep ideas such as model/effort recommendations and `/goal`/`/loop` command advice visible with their provenance and scope status; tracking them does not relax the rules below or authorize execution.
 
 ## Rules
 

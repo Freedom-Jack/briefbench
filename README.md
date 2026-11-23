@@ -6,7 +6,7 @@ A prompt improver you use every day, and a small bench that checks on your own t
 
 Earlier rounds tested the skill's own instructions, not posted advice: round 1 was worse and nothing was adopted; round 2's final result remains owed ([record](claims/results/questions-first.md)). See the [build plan](docs/build-plan.md) for release gates.
 
-Start with the [central backlog](BACKLOG.md) for all captured articles, maintainer ideas, command/workflow suggestions such as `/goal` and `/loop`, retired proposals and evaluation prerequisites. The 18 claim cards are one subset. The backlog also explains why no validated skill addition is waiting merely for a PR merge.
+Start with the [standing candidate queue](BACKLOG.md#resume-here) for all captured articles, maintainer ideas, command/workflow suggestions such as `/goal` and `/loop`, retired proposals and evaluation prerequisites. Its pending tasks are the required starting point for future bench work: "continue bench work" resumes the queue without reconstructing the source list. The 18 claim cards are one subset. Model runs still require a concrete scope, expected usage and authorization.
 
 ## Why
 
