@@ -19,6 +19,10 @@ Inputs and replies from these checks were kept outside the repository. Synthetic
 
 **Pending:** real-use acceptance; installing from GitHub and calling the skill in an interactive session, in two hosts; and any evidence of better downstream results.
 
+On 23 Nov 2026 the maintainer delegated selection of the acceptance prompts. Five real-request candidates were frozen privately from existing briefbench conversations and the current Codex work: an adequate coding request, a consequential reference ambiguity, missing comparison material, a project-direction investigation, and a request with a required bench method. The packet's SHA-256 is `8ac726b16c4f86b923d6de50b7daff370ba243d96cbf3163c68975fc925f7ba5`. It includes each request's provenance, bounded context and review criteria; some are bounded replays rather than reproductions of every earlier conversation turn. The raw text is outside this repository. **Selection is complete; interactive runs and human acceptance are not.** This narrow project-specific set does not establish behavior across unrelated domains.
+
+The same day, both personal installation files were checked again and matched the current 56-line source exactly. This is current filesystem evidence only; it does not establish interactive discovery, installation from GitHub or acceptance.
+
 ## What the checks establish
 
 - Packaging validation checks the skill's structure and metadata. `uv run python scripts/package_skill.py` builds the release ZIP and prints the hash the bench records for the folder.

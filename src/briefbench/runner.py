@@ -141,7 +141,7 @@ class Conversation:
     """One CLI process for one skill's interview. Each exchange saves only that turn's output. No session survives
     the trial; timeout, EOF and cancellation all close the process group. The preset owns the wire format."""
 
-    def __init__(self, command, cwd, env, err, finished):
+    def __init__(self, command, cwd, env, err, finished, protocol=None):
         self.err = err
         with err.open("wb") as stderr:
             self.proc = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -149,17 +149,24 @@ class Conversation:
         self.selector = selectors.DefaultSelector()
         self.selector.register(self.proc.stdout, selectors.EVENT_READ)
         self.pending, self.finished, self.cost = b"", finished, 0.0
+        self.protocol, self.usage = protocol, {}
+
+    def send(self, messages):
+        for message in messages:
+            self.proc.stdin.write((message + "\n").encode())
+        self.proc.stdin.flush()
 
     def exchange(self, message: str, out: Path, timeout: float) -> Done:
         begin = time.monotonic()
         try:
-            self.proc.stdin.write((message + "\n").encode())
-            self.proc.stdin.flush()
+            self.send(self.protocol.message(message) if self.protocol else [message])
             with out.open("wb") as target:
                 while time.monotonic() - begin < timeout:
                     while b"\n" in self.pending:
                         line, self.pending = self.pending.split(b"\n", 1)
                         target.write(line + b"\n")
+                        if self.protocol:
+                            self.send(self.protocol.receive(line.decode("utf-8", "replace")))
                         if self.finished(line.decode("utf-8", "replace")):
                             return Done(0, round(time.monotonic() - begin, 1))
                     for key, _ in self.selector.select(0.1):
@@ -170,7 +177,7 @@ class Conversation:
                         self.pending += chunk
             self.close()
             return Done(None, round(time.monotonic() - begin, 1))
-        except (BrokenPipeError, OSError) as e:
+        except (BrokenPipeError, OSError, ValueError, KeyError) as e:
             raise AgentError(f"the interview stream failed: {e}") from e
 
     def close(self):

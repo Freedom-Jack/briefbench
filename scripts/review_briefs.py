@@ -10,6 +10,9 @@ one with only what the request said: the prompt, and the skill's questions with 
 never see a check, an outcome, a diff or the other arm. For each, you answer the three fidelity questions, as the
 requester would. Each review goes to the log as a `fidelity` line at once, so you can stop and go on later. Review every
 brief before you read `briefbench score`, which counts the reviews and applies the policy.
+
+Single-arm bench runs support review of every B brief, independently of the screen's check outcomes. Those reviews
+do not turn the runs into paired confirmatory trials. A paired-trial sampling policy is refused for single-arm runs.
 """
 from __future__ import annotations
 

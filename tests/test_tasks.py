@@ -335,7 +335,7 @@ def test_a_skill_scored_by_the_check_freezes_the_stand_in_and_confined_headless_
     code, err = bench(["init", "exp2", "--a", "original", "--b", f"skill:{SKILL}", "--worker", "claude-code",
                        "--worker-model", "", "--rewriter", "codex", "--rewriter-model", "", "--judge", "none", "--cap",
                        "50", "-y", *CHECK], cwd=repo)
-    assert code == 2 and "can't yet be kept from reading other folders" in err
+    assert code == 0, err
 
 
 def test_the_stand_in_answers_from_the_facts_and_the_brief_gets_them_word_for_word(agents, repo, tmp_path):
@@ -366,7 +366,8 @@ def test_the_stand_in_answers_from_the_facts_and_the_brief_gets_them_word_for_wo
     arm_a = next(c for c in calls if c["role"] == "worker" and c["cwd"] == meta["clones"]["a"])
     for role in ("asker", "rewriter"):           # confined as arm A, in its clone, and kept out of arm A's temp folder
         call = next(c for c in calls if c["role"] == role)
-        assert rules(call) == rules(arm_a) | {f"Read(/{meta['temps']['a']}/**)"} and not call["data_home"]
+        assert rules(call) == (rules(arm_a) - {f"Read(/{meta['temps']['h']}/**)"}) | {
+            f"Read(/{meta['temps']['a']}/**)"} and not call["data_home"]
         assert call["cwd"] == meta["clones"]["a"] and call["env"]["TMPDIR"] == meta["temps"]["h"]
     assert f"Read(/{meta['temps']['h']}/**)" in rules(arm_a)          # arms can't read the headless calls' temp
     assert next(c for c in calls if c["role"] == "answerer")["cwd"] not in meta["clones"].values()
@@ -709,7 +710,10 @@ def test_task_file_protected_paths_are_a_list(agents, repo, tip, tmp_path, monke
     assert t["arms"]["a"]["protected_changed"] and t["decision"]["check_tie"] == "both_failed"
 
 
-def test_a_worker_that_cant_be_confined_doesnt_run_check_scored_experiments(agents, repo, tip):
+def test_a_worker_that_cant_be_confined_doesnt_run_check_scored_experiments(agents, repo, tip, monkeypatch):
+    import dataclasses
+    from briefbench.presets import AGENTS
+    monkeypatch.setitem(AGENTS, "codex", dataclasses.replace(AGENTS["codex"], confines_reads=False))
     code, err = bench(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "codex", "--worker-model",
                        "", "--judge", "none", "--cap", "50", "--rule", "fixed:10", "--net-min", "0.05", "--scoring",
                        "check", "-y"], cwd=repo)

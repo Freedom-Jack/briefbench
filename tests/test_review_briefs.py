@@ -33,13 +33,13 @@ def stand_in(repo, *extra, b=None):
                   "--cap", "50", "--rule", "fixed:10", "--net-min", "0", "--scoring", "check", "-y", *extra], cwd=repo)
 
 
-def trials(tmp_path, repo, count):
+def trials(tmp_path, repo, count, *extra):
     path = tmp_path / "task.json"
     path.write_text(json.dumps({"format": 1, "id": "t-001", "set": "demo/1", "repo": str(repo), "facts": FACTS,
                                 "prompt": "Make result.txt say what it is", "type": "analysis",
                                 "goal": "Say what it is", "check": "grep -q brief result.txt"}))
     for _ in range(count):
-        code, err = bench(["ab", "--task", str(path)], cwd=tmp_path)
+        code, err = bench(["ab", "--task", str(path), *extra], cwd=tmp_path)
         assert code == 0, err
 
 
@@ -120,3 +120,28 @@ def test_the_policy_goes_with_a_skill_run_from_task_files(agents, repo, tmp_path
     assert stand_in(repo, b=f"snippet:{tip}")[0] == 0
     assert experiment.load("exp", os.environ)["fidelity_policy"] is None
     assert reviewed("")[0] == 2                                            # nothing to review apart from outcomes
+
+
+def test_single_arm_briefs_can_be_reviewed_without_becoming_paired_evidence(agents, repo, tmp_path):
+    assert stand_in(repo)[0] == 0
+    trials(tmp_path, repo, 1, "--only", "a")
+    trials(tmp_path, repo, 2, "--only", "b")
+    exp = experiment.load("exp", os.environ)
+    queue, why = score.review_queue(exp, entries())
+    assert why is None and len(queue) == 2
+    assert {r["side"] for r in queue} == {"b"}
+    code, shown = reviewed("n\nn\nn\n" * 2)
+    assert code == 0 and shown.count("Brief ") == 2
+    assert not any(word in shown for word in ("passed", "wins", " tie", "check", "diff"))
+    assert {r["trial"] for r in entries() if r["kind"] == "fidelity"} == {r["id"] for r in queue}
+    assert score.review_queue(exp, entries()) == ([], None)
+    assert score._used(exp, score._lines(exp, entries()))[1] == []
+    assert reviewed("")[0] == 0
+
+
+def test_single_arm_reviews_do_not_reinterpret_a_paired_sampling_policy(agents, repo, tmp_path):
+    assert stand_in(repo, "--review-sample", "3")[0] == 0
+    trials(tmp_path, repo, 1, "--only", "b")
+    queue, why = score.review_queue(experiment.load("exp", os.environ), entries())
+    assert queue == [] and "paired-trial sampling policy" in why
+    assert reviewed("")[0] == 2

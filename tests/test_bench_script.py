@@ -371,8 +371,8 @@ def test_each_trick_names_a_treatment_that_is_there_and_kinds_the_recipe_has_or_
 
 def test_the_recipe_names_four_tasks_of_each_kind_from_generators_with_the_same_command_shape():
     seeds = [s["seed"] for s in RECIPE["sets"]]
-    assert len(set(seeds)) == len(seeds) and RECIPE["name"] == "bench-2"
-    assert RECIPE["worker"] == {"agent": "claude-code", "model": "claude-opus-5-5"}
+    assert len(set(seeds)) == len(seeds) and RECIPE["name"] == "bench-2-codex"
+    assert RECIPE["worker"] == {"agent": "codex", "model": "gpt-6.1-sol"}
     for s in RECIPE["sets"]:
         generator = ROOT / s["generator"]
         for k in s["kinds"]:

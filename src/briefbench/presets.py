@@ -18,7 +18,9 @@ import json
 import os
 import re
 import shutil
+import tomllib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Mapping
 
 from .redact import MIN_SECRET
@@ -104,6 +106,9 @@ class Agent:
     actions: Callable[[str], str] = lambda stdout: stdout
     message: Callable[[str], str] | None = None  # prompt -> one input line for a conversation
     turn_done: Callable[[str], bool] | None = None
+    session: Callable | None = None            # optional stateful wire protocol, owned by the preset
+    slots: Callable | None = None              # derived, host-specific command slots
+    session_version: str = ""                 # frozen with experiments that use a stateful protocol
 
     def find(self) -> str | None:
         for name in self.commands:
@@ -113,6 +118,8 @@ class Agent:
         return max(copies, key=_natural) if copies else None
 
     def argv(self, executable: str, role: str, **slots: str) -> list[str]:
+        if self.slots:
+            slots |= self.slots(role, slots)
         out = [executable]
         for arg in self.roles[role]:
             optional, arg = arg.startswith("?"), arg.removeprefix("?")
@@ -225,15 +232,29 @@ def _claude_error(data: dict) -> str:
 def _codex_reply(stdout: str) -> Reply:
     text, tokens, error = "", 0, None
     detail = None
-    for line in stdout.splitlines():                          # --json prints one event per line
+    complete, session_usage = False, None
+    for line in stdout.splitlines():                          # --json or the session's JSON-RPC notifications
         try:
             event = json.loads(line)
         except ValueError:
             continue
         kind, item = event.get("type"), event.get("item") or {}
+        method, params = event.get("method"), event.get("params") or {}
+        if method == "item/completed" and params.get("item", {}).get("type") == "agentMessage":
+            text = params["item"].get("text", "")
+        elif method == "thread/tokenUsage/updated":
+            session_usage = (params.get("tokenUsage") or {}).get("total")
+        elif method == "turn/completed":
+            turn = params.get("turn") or {}
+            complete = turn.get("status") == "completed"
+            if not complete:
+                error = (turn.get("error") or {}).get("message") or "interview turn did not complete"
+        elif event.get("error") and "id" in event:
+            error = str(event["error"].get("message") or "session request failed")
         if kind == "item.completed" and item.get("type") == "agent_message":
             text = str(item.get("text") or "")
         elif kind == "turn.completed":
+            complete = True
             usage = event.get("usage") or {}
             tokens += _int(usage.get("input_tokens")) + _int(usage.get("output_tokens"))   # cached are inside input
             detail = detail or dict.fromkeys(("input", "cache_write", "cache_read", "output"), 0)
@@ -243,7 +264,112 @@ def _codex_reply(stdout: str) -> Reply:
             detail["output"] += _int(usage.get("output_tokens"))
         elif kind in ("turn.failed", "error"):
             error = str((event.get("error") or {}).get("message") or event.get("message") or kind)
+    if session_usage:
+        cached, written = _int(session_usage.get("cachedInputTokens")), _int(session_usage.get("cacheWriteInputTokens"))
+        detail = {"input": _int(session_usage.get("inputTokens")) - cached - written,
+                  "cache_write": written, "cache_read": cached, "output": _int(session_usage.get("outputTokens"))}
+        tokens = sum(detail.values())
+    if not complete and not error:
+        error = "no completed turn on stdout"
     return Reply(text, tokens or None, None, error, detail)
+
+
+# Check-scored roles use an explicit allowlist of readable runtime paths and their own workspace/temp.
+# No user configuration, skills, plugins, memories, MCP tools or proactive delegation enter a task.
+_CODEX_CONFIG = ('model_reasoning_effort="medium"', 'forced_login_method="chatgpt"', 'approval_policy="never"',
+                 'model_provider="openai"', 'web_search="disabled"', 'project_doc_max_bytes=0', 'notify=[]',
+                 'skills.bundled.enabled=false', 'skills.include_instructions=false', 'tools.update_plan.enabled=false',
+                 'features.skip_host_skill_discovery=true', 'features.skill_search=false', 'features.plugins=false',
+                 'features.apps=false', 'features.memories=false', 'features.hooks=false',
+                 'features.multi_agent=false', 'features.multi_agent_v2=false', 'features.shell_snapshot=false',
+                 'features.view_image=false', 'features.image_generation=false', 'features.workspace_dependencies=false',
+                 'features.sleep_tool=false')
+_CODEX_FLAGS = tuple(arg for value in _CODEX_CONFIG for arg in ("-c", value))
+_CODEX_CONFINED = (*_CODEX_FLAGS, "-c", 'default_permissions="briefbench"', "-c",
+                   "permissions.briefbench={permission_profile}", "-c", "mcp_servers={disabled_servers}")
+_CODEX_EXEC = ("exec", "--json", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--strict-config")
+
+
+def _codex_slots(role, slots):
+    if not (role.startswith("task-") or role == "answerer"):
+        return {}
+    mode = "write" if role == "task-worker" else "read"
+    fs = {":root": "deny", ":minimal": "read", "/Library": "read", "/private/var/db": "read",
+          ":workspace_roots": {".": mode, **{p: "read" for p in (".git", ".agents", ".codex", ".aws")}}}
+    if temp := slots.get("temp"):
+        fs[temp] = "write"
+    denied = slots.get("deny") or "[]"
+    for path in ["{deny}"] if denied == "{deny}" else json.loads(denied):
+        fs[path] = "deny"
+
+    def toml(value):
+        return ("{" + ",".join(json.dumps(k) + "=" + toml(v) for k, v in value.items()) + "}"
+                if isinstance(value, dict) else json.dumps(value))
+    # The app server has no --ignore-user-config flag. Disable every configured MCP server explicitly there too.
+    path = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "config.toml"
+    config = tomllib.loads(path.read_text()) if role == "task-interviewer" and path.is_file() else {}
+    servers = {name: {"enabled": False} for name in config.get("mcp_servers", {})}
+    return {"permission_profile": toml({"filesystem": fs, "network": {"enabled": False}}),
+            "disabled_servers": toml(servers)}
+
+
+class _CodexSession:
+    """One ephemeral thread over the subscription CLI's stdio app server; no SDK or paid API client."""
+    def __init__(self, cwd, slots):
+        self.cwd, self.schema = str(cwd), json.loads(slots["schema_json"])
+        self.thread, self.serial, self.prompt = None, 0, None
+
+    def request(self, method, params):
+        self.serial += 1
+        return json.dumps({"id": self.serial, "method": method, "params": params})
+
+    def turn(self):
+        return self.request("turn/start", {"threadId": self.thread, "input": [{"type": "text", "text": self.prompt}],
+                                            "effort": "medium", "outputSchema": self.schema})
+
+    def message(self, prompt):
+        self.prompt = prompt
+        return [self.turn() if self.thread else self.request("initialize", {
+            "clientInfo": {"name": "briefbench", "version": "1"}, "capabilities": {"experimentalApi": True}})]
+
+    def receive(self, line):
+        event = json.loads(line)
+        if event.get("id") == 1 and "result" in event:
+            return [json.dumps({"method": "initialized"}), self.request("thread/start", {
+                "cwd": self.cwd, "runtimeWorkspaceRoots": [self.cwd], "ephemeral": True,
+                "approvalPolicy": "never", "permissions": "briefbench",
+                "allowProviderModelFallback": False})]
+        if event.get("id") == 2 and "result" in event:
+            result = event["result"]
+            if result.get("approvalPolicy") != "never" or (result.get("activePermissionProfile") or {}).get("id") != "briefbench":
+                raise ValueError("the requested confined permission profile was not applied")
+            self.thread = result["thread"]["id"]
+            return [self.turn()]
+        if "method" in event and "id" in event:
+            return [json.dumps({"id": event["id"], "error": {"code": -32601, "message": "Unattended requests are refused"}})]
+        return []
+
+
+def _codex_turn_done(line):
+    try:
+        event = json.loads(line)
+        return event.get("method") == "turn/completed" or ("id" in event and "error" in event)
+    except (ValueError, AttributeError):
+        return False
+
+
+def _codex_actions(stdout):
+    # RPC startup replies include internal paths; retain all actual actions, outputs and errors for the scan.
+    kept = []
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            kept.append(line)
+            continue
+        if "method" in event or "error" in event or "type" in event:
+            kept.append(line)
+    return "\n".join(kept)
 
 
 def _claude_turn_done(line: str) -> bool:
@@ -310,14 +436,20 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
           ("login", "status"), lambda report: "chatgpt" in report.lower(),
           "Open the ChatGPT app, or run `codex login`, and sign in with ChatGPT rather than an API key.",
           {"worker": ("exec", "--json", "--ephemeral", "-s", "workspace-write", "?--model={model}", "--", "{prompt}"),
-           "task-worker": ("exec", "--json", "--ephemeral", "-s", "workspace-write", "?--model={model}", "--",
-                           "{prompt}"),
+           "task-worker": (*_CODEX_EXEC, *_CODEX_CONFINED, "?--model={model}", "--", "{prompt}"),
+           "task-asker": (*_CODEX_EXEC, *_CODEX_CONFINED, "--output-schema", "{schema}", "?--model={model}",
+                          "--", "{prompt}"),
+           "task-rewriter": (*_CODEX_EXEC, *_CODEX_CONFINED, "?--model={model}", "--", "{prompt}"),
+           "task-interviewer": ("app-server", "--stdio", "--strict-config", *_CODEX_CONFINED,
+                                '?--config=model="{model}"'),
            "rewriter": ("exec", "--json", "--ephemeral", "-s", "read-only", "?--model={model}", "--", "{prompt}"),
            "asker": ("exec", "--json", "--ephemeral", "-s", "read-only", "--output-schema", "{schema}",
                      "?--model={model}", "--", "{prompt}"),
            "judge": ("exec", "--json", "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "--output-schema",
                      "{schema}", "?--model={model}", "--", "{prompt}"),
-           "answerer": ("exec", "--json", "--ephemeral", "-s", "read-only", "--skip-git-repo-check",
-                        "--output-schema", "{schema}", "?--model={model}", "--", "{prompt}")},
-          _codex_reply),
+           "answerer": (*_CODEX_EXEC, *_CODEX_CONFINED, "-c", "features.shell_tool=false", "-c",
+                        "features.unified_exec=false", "--skip-git-repo-check", "--output-schema", "{schema}",
+                        "?--model={model}", "--", "{prompt}")},
+          _codex_reply, confines_reads=True, actions=_codex_actions, message=lambda prompt: prompt,
+          turn_done=_codex_turn_done, session=_CodexSession, slots=_codex_slots, session_version="json-rpc/1"),
 )}

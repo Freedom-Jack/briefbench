@@ -10,9 +10,9 @@ uv run python scripts/bench.py run ask-questions-first
 uv run python scripts/bench.py board --write
 ```
 
-`make` creates the fixed task bank without model calls. `run` explains the work and estimated usage before asking; `--yes` accepts it noninteractively. `board --write` writes `bench/board-2.md`. Private tasks, prompts and logs stay in the data folder.
+`make` creates the fixed task bank without model calls. `run` explains the work and estimated usage before asking; `--yes` accepts it noninteractively. `board --write` writes `bench/board-2-codex.md`. Private tasks, prompts and logs stay in the data folder.
 
-The default recipe is [bench-2](../bench/bench-2.json). Each current runnable trick has a **complete 10-task screen**:
+The default recipe is [bench-2-codex](../bench/bench-2-codex.json), using Codex with `gpt-6.1-sol`, explicit medium effort and fresh controls. The maintainer selected Codex on 23 Nov 2026. [bench-2](../bench/bench-2.json) retains the separate Claude Code configuration and its partial attempt; its controls cannot be reused for Codex. Each current runnable trick has a **complete 10-task screen**:
 
 - All eight tasks in its source's family: four matching the source's condition and four contrasting cases.
 - Two regression sentinels: the first complete task by task id from each of the first two other available families, sorted by family id. Selection never depends on results.
@@ -25,9 +25,11 @@ Only missing baselines are run: two plain runs per selected task, shared by ever
 
 ## Execution and reuse
 
-The task worker has four tools (Bash, Read, Edit and Write), no loaded skills, explicit medium effort and a five-minute timeout. It retains the OS sandbox and read restrictions. This replaces the larger inherited tool/skill context used by bench-1. Worker settings apply equally to controls and treatments; these results cannot be compared against bench-1's controls.
+Task workers use explicit medium effort and a five-minute timeout, without loaded skills, plugins, memory, MCP servers or multi-agent mode. Claude Code has four tools (Bash, Read, Edit and Write); Codex uses its native command/edit tools. The same configuration applies to controls and treatments within a host. These replace bench-1's larger inherited context; neither host's controls can be compared against another configuration's controls.
 
-For skill treatments, `--interview session` keeps one confined, read-only CLI process for the whole interview and returns the brief on its final turn. The skill and prompt are sent once, later turns send only the latest answers, and no separate rewrite call is needed. The stand-in remains a separate call that sees facts but never the hidden goal or check. Each worker starts fresh with only its rendered prompt. There is no session shared across tasks, arms or treatments.
+Codex task roles use a named permission profile, not the older write-only confinement from `--sandbox workspace-write`. It denies filesystem reads by default, allows the CLI's minimal runtime paths plus macOS developer runtime paths, and grants access only to the current clone and its private scratch folder. Keys, records, the bench source, other sessions and other arms remain denied. Workers can edit their clone; interviewers and rewriters cannot. The stand-in's shell and external tools are disabled. Tool network access and approval escalation are disabled. Subscription authentication is checked and forced; no API-key fallback is permitted.
+
+For skill treatments, `--interview session` keeps one confined, read-only CLI process for the whole interview and returns the brief on its final turn. Codex uses its CLI's stdio app server with one ephemeral thread; Claude Code uses stream-json. The skill and prompt are sent once, later turns send only the latest answers, and no separate rewrite call is needed. The stand-in remains a separate call that sees facts but never the hidden goal or check. Each worker starts fresh with only its rendered prompt. There is no session shared across tasks, arms or treatments. Codex's cumulative session usage is differenced before logging each turn, and the wire protocol version is frozen with the experiment.
 
 The skill's own rules still decide whether to ask questions. The ten-turn safety stop produces a failed, incomplete comparison if no brief is ready. It never manufactures a shorter interview to fit a spending limit. Session mode is an optional preset capability; unsupported CLIs refuse it before running. Ordinary interactive experiments retain the fresh-call interface.
 
@@ -46,6 +48,8 @@ The board reports screen completion separately. Unexamined kinds remain blank. T
 
 **These are development results, never adoption evidence.** A question-asking treatment receives information that the original prompt lacks. That comparison measures the whole workflow, not the special value of a rewrite or of a particular interview style. An equal-information test uses `clarified` against the skill: the same questions and answers, unrewritten. Such a test, fidelity review, fresh tasks, calibration, published plan and replication still belong to the [public-results method](design.md). No source advice or released skill text changed in this engineering revision.
 
+`scripts/review_briefs.py --experiment NAME` can review every brief from a screen's B-only runs with outcomes withheld. Reviews stay attached to their original run ids; the runs do not become paired confirmatory trials. A policy requesting a sample of paired trials is refused for single-arm runs. Review labels must come from the human reviewer.
+
 ## Usage and guardrails
 
 The board's execution totals include workers, all interview turns, stand-in answers and logged failed attempts. New records retain disjoint input, cache-write, cache-read and output token counts plus the CLI's dollar estimate. Cache reads still count as processed tokens. Dollar estimates are not subscription bills; unknown usage or prices remain explicitly unknown. The existing median extra-cost statistic excludes stand-in answers because it describes the user's workflow; execution totals include them because the bench actually spends them.
@@ -57,6 +61,8 @@ The structural saving is known before a model runs: a warm screen needs 10 treat
 ## Historical bench-1 and the task bank
 
 `--bench bench/bench-1.json board` reports the old experiments; `bench/board.md` is their committed table. Bench-1 had 32 tasks and ran every eligible kind per trick. Its 64 controls used 8,912,892 tokens; the interview and outcome variants used 7,047,487 and 6,602,926 respectively. The new worker and render templates require new experiments; old logs remain readable.
+
+Use `--bench bench/bench-2.json board` for the separate Claude Code attempt (`bench/board-2.md`). Default commands select Codex and write its own board. A Codex result on advice from Claude Code is a test of transfer to Codex, not a result on the source's original harness.
 
 The bank still uses four fixed-seed generator families, with four tasks per kind: `feature-request/1` (gap/no-gap), `missing-fact/1` (gap/no-gap), `planted-cause/6` (belief-wrong/belief-right), and `failing-import/1` (more/only). The seeds and tasks are public designs, not a holdout. Many controls were at 0% or 100% on bench-1, limiting what can be inferred. Better coverage requires better task design, not more repetitions of uninformative tasks.
 

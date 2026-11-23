@@ -29,7 +29,7 @@ from briefbench.log import data_dir, prepare, read_entries
 from briefbench.tasks import load
 
 ROOT = Path(__file__).resolve().parents[1]
-RECIPE, TRICKS, BOARD = ROOT / "bench" / "bench-2.json", ROOT / "bench" / "tricks.json", ROOT / "bench" / "board.md"
+RECIPE, TRICKS, BOARD = ROOT / "bench" / "bench-2-codex.json", ROOT / "bench" / "tricks.json", ROOT / "bench" / "board.md"
 WORTH = 3        # tasks gained, net, on a trick's own kinds that make it worth a full test
 HURT = 2         # tasks lost on any kind that count as hurting
 GUESS = {"tokens": 150_000, "seconds": 60}      # one run, until the bench's own plain runs say better
@@ -159,6 +159,8 @@ def current_worker(exp):
     for role in ("worker", "rewriter", "asker", "answerer"):
         if settings := exp.get(role):
             agent, executable = cli._ready(settings["agent"], os.environ)
+            if role == "asker" and exp.get("interview") == "session" and settings.get("session_version", "") != agent.session_version:
+                return False
             template = "task-interviewer" if role == "asker" and exp.get("interview") == "session" else cli._role(role, "check")
             if (cli._version(executable, os.environ) != settings["version"]
                     or cli._template(agent, executable, template, settings["model"] or "")[1:] != settings["argv"][1:]):
@@ -711,7 +713,7 @@ def read_card(card_id: str) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--bench", type=Path, default=RECIPE, help="the bench's recipe (default bench/bench-2.json)")
+    parser.add_argument("--bench", type=Path, default=RECIPE, help="the bench's recipe (default bench/bench-2-codex.json)")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("make", help="make the bench's tasks, once; no model is called")
     p = commands.add_parser("plain", help="the plain prompt, twice on each task")
@@ -743,7 +745,8 @@ def main(argv=None) -> int:
         text = board(recipe, tricks)
         print(text)
         if args.write:
-            target = BOARD if recipe["name"] != "bench-2" else ROOT / "bench" / "board-2.md"
+            target = (ROOT / "bench" / f"board-{recipe['name'].removeprefix('bench-')}.md"
+                      if recipe["name"] in ("bench-2", "bench-2-codex") else BOARD)
             target.write_text(text)
         return 0
     except BriefbenchError as e:

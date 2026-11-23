@@ -128,6 +128,8 @@ For each card in design.md's list ("Posts under test"), in its order, by the met
 
 Bench-1's first pass is recorded in `bench/board.md`: interview and outcome variants ran; test-your-belief had no room. Bench-2 requires new controls because worker settings and render templates changed. Keep the historical results separate. The source's scope, fixed selection and CLI versions are frozen before spending. Complete the compatibility checks and both offline suites before starting screens; report measured usage separately from estimates. The [implementation record](status/2026-11-23-cheap-comparisons.md) holds those checks.
 
+**Codex execution, selected 2026-11-23.** The maintainer clarified that the requested screen must run in Codex, then authorized implementing its missing support. The default is now `bench-2-codex`: the same bank design and ten-task scopes, fresh Codex controls, `gpt-6.1-sol` at medium effort, read-restricting permission profiles, and an ephemeral interview session. The older `workspace-write` limitation described in historical notes below no longer applies to these new task presets. Claude Code records stay separate, and no Claude Code run is authorized by a request to run in Codex. This host change does not implement settings arms, clear fidelity gates or authorize a larger campaign.
+
 The next substantive gates remain: human fidelity review and the public-results method for any promising trick; better task kinds for deferred claims; settings arms before settings advice is tested; and the real-use acceptance set in two hosts. A screen that resolves missing information measures workflow benefit. Isolating a rewrite requires the equal-information `clarified` control, not an adoption claim from a gain over the uninformed original.
 
 Boris Cherny's talk (July 2026) and the common advice (an expert persona, capitals and CRITICAL) stay untested unless a recent post repeats them ("Posts under test").
@@ -143,6 +145,8 @@ Your time per trick: about 15 minutes to label reports for the checker audit, a 
 - **Materials.** Coding tasks with hidden tests, of the kinds each card names: ordinary tasks with a clear scope, routine edits, and hard problems with easily missed cases. The generator built for round 3 (`feature-request/1`, P3, step 5) can serve both, if it can make each kind.
 
 The first settings test is Anthropic's advice to save max effort for hard problems Claude works on alone ([card](../claims/max-effort-for-hard-solo-work.md)): max against high, on Claude Code with `claude-opus-5-5`, on ordinary and hard tasks. Max runs use the most of your plan, so its runs on the bench come first, then the calibration, with the tokens per run reported before the plan sets N.
+
+**Codex continuation, 23 Nov 2026.** The original Claude-specific proposal above remains historical. For the selected Codex host, start preparation with `default-effort-first`. The maintainer subsequently said coding quality matters more than usage and rejected a universal loss allowance. [The revised settings design](status/2026-11-23-settings-proposal.md) therefore reports quality and usage separately by task kind, without arbitrary numerical weights. Savings cannot offset a known correctness regression. Future settings plans still need explicit, task-appropriate confirmatory criteria; unresolved accuracy is not equivalence. No frozen rule or previous comparison changes retroactively. [The queue record](status/2026-11-23-article-queue.md) tracks all 18 cards and their remaining prerequisites.
 
 ## 6. P3 The skill grows from empty
 

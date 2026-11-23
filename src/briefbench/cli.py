@@ -256,6 +256,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
             raise UsageError("this rewriter has no confined interview session preset.")
         roles["asker"]["argv"] = _template(agent, roles["asker"]["argv"][0], "task-interviewer",
                                            roles["asker"]["model"] or "")
+        roles["asker"]["session_version"] = agent.session_version
     # Task files have nobody to answer the skill's questions: the stand-in requester answers from each one's facts.
     roles["answerer"] = _answerer(roles["rewriter"]) if roles["rewriter"] and args.scoring == "check" else None
     review = None                     # how the briefs written for task files are reviewed, apart from the outcomes
@@ -480,7 +481,7 @@ def _version(executable: str, environ) -> str:
 
 def _template(agent, executable: str, role: str, model: str) -> list[str]:
     return agent.argv(executable, role, prompt="{prompt}", model=model, check="{check}", schema="{schema}",
-                      schema_json="{schema_json}", deny="{deny}", deny_rules="{deny_rules}")
+                      schema_json="{schema_json}", deny="{deny}", deny_rules="{deny_rules}", temp="{temp}")
 
 
 def _ready(name: str, environ):
@@ -527,6 +528,8 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
                 raise ConfigError(f"the {role} command differs from the one frozen in experiment {exp['name']}, "
                                   "perhaps after an update of briefbench. Start a new experiment.")
             agents[role] = (agent, executable)
+            if role == "asker" and exp.get("interview") == "session" and exp[role].get("session_version", "") != agent.session_version:
+                raise ConfigError("the interview protocol changed; start a new experiment before spending usage.")
             versions[role] = _version(executable, environ)
             if exp.get("pin_versions") and versions[role] != exp[role]["version"]:
                 raise ConfigError(f"the {role} CLI version changed; start a new experiment before spending usage.")
@@ -603,7 +606,7 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     stage, keys, confine = "questions", Path(task_file["file"]).parent.parent if task_file else None, None
     if task_file and exp.get("rewriter"):    # the skill's headless calls run in the first arm's folder, confined as it
         found, rewriter = _confinement(worktrees, temps, keys, environ), AGENTS[exp["rewriter"]["agent"]]
-        confine = {"deny": found[first]["deny"] + [str(temps[first])],
+        confine = {"deny": [p for p in found[first]["deny"] if p != str(temps["h"])] + [str(temps[first])],
                    "tokens": found[first]["tokens"] + [temps[first].name],
                    "env": found["env"] | {"TMPDIR": str(temps["h"])}
                    | ({rewriter.temp_env: str(temps["h"])} if rewriter.temp_env else {})}
@@ -754,13 +757,15 @@ def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, 
         slots |= {"deny": json.dumps(confine["deny"]),
                   "deny_rules": json.dumps([f"Read(/{p}/**)" for p in confine["deny"]])}
         env = confine["env"]
-    command = agent.argv(executable, role, prompt=prompt, model=model or "", **slots)
+    command = agent.argv(executable, role, prompt=prompt, model=model or "",
+                         temp="" if role == "answerer" else env.get("TMPDIR", ""), **slots)
     if sessions is None:
         [done] = runner.wait([runner.start(command, cwd, env, out / f"{name}.out", out / f"{name}.err")],
                              TIMEOUT_S[role.removeprefix("task-")])
     else:
         if skill not in sessions:
-            sessions[skill] = runner.Conversation(command, cwd, env, out / f"{name}.err", agent.turn_done)
+            sessions[skill] = runner.Conversation(command, cwd, env, out / f"{name}.err", agent.turn_done,
+                                                  protocol=agent.session(cwd, slots) if agent.session else None)
         try:
             done = sessions[skill].exchange(agent.message(prompt), out / f"{name}.out", TIMEOUT_S["asker"])
         except AgentError:
@@ -770,19 +775,29 @@ def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, 
             raise
     stdout = (out / f"{name}.out").read_text(errors="replace")
     reply = agent.parse(stdout)
+    usage, tokens, metering_error = reply.usage, reply.tokens, None
+    if sessions is not None and agent.session and usage is not None:
+        previous = sessions[skill].usage
+        sessions[skill].usage = usage
+        if any(value < previous.get(key, 0) for key, value in usage.items()):
+            usage, tokens = None, None
+            metering_error = "the session's cumulative usage decreased; review its metering before continuing"
+        else:
+            usage = {key: value - previous.get(key, 0) for key, value in usage.items()}
+            tokens = sum(usage.values())
     cost = reply.cost_usd
     if sessions is not None and cost is not None:
         cost, sessions[skill].cost = max(0, cost - sessions[skill].cost), cost
-    entry = {"step": name, "skill": skill, "seconds": done.seconds, "tokens": reply.tokens,
-             "usage": reply.usage, "cost_usd": cost}
+    entry = {"step": name, "skill": skill, "seconds": done.seconds, "tokens": tokens,
+             "usage": usage, "cost_usd": cost}
     if confine:
         err = sessions[skill].err if sessions is not None else out / f"{name}.err"
         entry["looked_outside"] = _names(agent.actions(stdout) + err.read_text(errors="replace"),
                                          confine["deny"], confine["tokens"], environ)
     if spent is not None:
         spent.append(entry)
-    if done.code != 0 or reply.error:
-        why = reply.error or ("stopped at the timeout" if done.code is None else f"exit {done.code}")
+    if done.code != 0 or reply.error or metering_error:
+        why = metering_error or reply.error or ("stopped at the timeout" if done.code is None else f"exit {done.code}")
         raise AgentError(f"the {what} failed ({why}); see {out / name}.err")
     return reply
 
@@ -981,6 +996,7 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
                                                                   if agent.temp_env else {})
     procs = [runner.start(agent.argv(executable, role, prompt=prompts[s], model=exp["worker"]["model"] or "",
                                      check=check, deny=json.dumps(private[s]),
+                                     temp=str(temps[s]) if temps else "",
                                      deny_rules=json.dumps([f"Read(/{p}/**)" for p in private[s]])),
                           worktrees[s], envs[s], out / f"{s}.out", out / f"{s}.err")
              for s in sides]

@@ -113,12 +113,13 @@ def test_live_confined_headless_calls(name, tmp_path):
     assert "PELICAN-4471" not in brief and "notes.md" in brief
 
 
-def test_live_session_comparison(tmp_path):
+@pytest.mark.parametrize("name", ["claude-code", "codex"])
+def test_live_session_comparison(tmp_path, name):
     """A complete tiny comparison: streamed interview, separate stand-in, fresh confined workers, hidden check.
     Compatibility and usage only; this artificial task is not evidence that a prompting trick helps."""
     from briefbench import cli
     from briefbench.log import read_entries
-    caller("claude-code", "task-worker", tmp_path)  # installed and authenticated; no model call
+    caller(name, "task-worker", tmp_path)  # installed and authenticated; no model call
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "value.py").write_text('LABEL = "unset"\n')
@@ -130,9 +131,9 @@ def test_live_session_comparison(tmp_path):
                                "repo": str(repo), "type": "code", "prompt": "Set LABEL in value.py to my chosen label. The label is private and unavailable in the repo.",
                                "goal": "The chosen label is used.", "facts": ["My chosen label is ORCHID-719."],
                                "check": "python3 -c 'from value import LABEL; assert LABEL == \"ORCHID-719\"'"}))
-    model = AGENTS["claude-code"].default_model
-    assert cli.run(["init", "session-smoke", "--a", "original", "--b", f"skill:{SKILL}", "--worker", "claude-code",
-                    "--worker-model", model, "--rewriter", "claude-code", "--rewriter-model", model, "--judge", "none",
+    model = AGENTS[name].default_model or "gpt-6.1-sol"
+    assert cli.run(["init", "session-smoke", "--a", "original", "--b", f"skill:{SKILL}", "--worker", name,
+                    "--worker-model", model, "--rewriter", name, "--rewriter-model", model, "--judge", "none",
                     "--cap", "100", "--timeout", "3", "--scoring", "check", "--rule", "fixed:10", "--net-min", "0",
                     "--interview", "session", "--pin-versions", "-y"]) == 0
     try:
@@ -143,6 +144,7 @@ def test_live_session_comparison(tmp_path):
         assert row["task"]["questions"] and not any(c["step"].startswith("rewrite") for c in row["task"]["headless"])
         calls = [*row["arms"].values(), *row["task"]["headless"]]
         print("Complete smoke comparison:", len(calls), "turns,", sum(c["tokens"] for c in calls), "tokens,",
-              sum(c["cost_usd"] for c in calls), "CLI USD estimate")
+              sum(c["cost_usd"] or 0 for c in calls), "known CLI USD estimate; unpriced calls:",
+              sum(c["cost_usd"] is None for c in calls))
     finally:
         cli.run(["clean"])

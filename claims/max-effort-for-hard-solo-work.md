@@ -3,7 +3,7 @@ id: max-effort-for-hard-solo-work
 title: Save max effort for hard problems Claude works on alone
 source: Anthropic, Claude Code docs, "Best practices", section "Change the model and effort" (no date shown; names Opus 5.5 and Fable 5.2)
 url: https://code.claude.com/docs/en/best-practices
-retrieved: 2026-11-20
+retrieved: 2026-11-23
 kind: settings
 status: deferred
 skill_fit: conditional
@@ -28,12 +28,14 @@ Conditional. Its skill form would be a note after the brief, used only when a re
 
 ## Proposed comparison
 
-Materials: coding tasks with hidden tests, of two kinds fixed in advance: ordinary tasks with a clear scope, where the advice says max is no better, and hard problems the worker works on alone, such as finding a planted security flaw or a subtle bug, where max may help ([design](../docs/design.md), "Tricks need matching materials"). The bench has none yet.
+Materials: coding tasks with hidden tests, of two kinds fixed in advance: ordinary tasks with a clear scope, where the advice says max is no better, and hard problems the worker works on alone, such as finding a planted security flaw or a subtle bug, where max may help ([design](../docs/design.md), "Tricks need matching materials"). The existing `feature-request/1:no-gap` tasks offer candidate ordinary work, but the shared bank has no validated hard solo-work kind. That kind must join the shared bank for every trick, rather than being built around this claim's losses.
 
 The same prompt (`original`) in both arms, on Claude Code with Opus 5.5: A at max, B at high. Measure each arm's pass rate for each kind of task, with its time and tokens. On ordinary tasks the claim predicts B as good as A at lower cost, checked by the method's bound for "as good" ([protocol](../docs/experiment-protocol.md), section 11, "Settings claims"); on hard tasks it allows A to be better. Record the model and effort as Claude Code reports them. Max runs use the most of the plan, so a pilot of about ten trials comes first.
 
 ## Status
 
-deferred: the bench can't yet run arms that differ only in settings (an effort option for each worker CLI, a settings arm and a verdict for "as good at lower cost" are owed, [build plan](../docs/build-plan.md), P2), and it has no coding tasks with hidden tests yet. It is the first settings test planned.
+deferred: the bench can't yet run arms that differ only in settings (a frozen per-arm effort option, a settings arm and a verdict for "as good at lower cost" are owed, [build plan](../docs/build-plan.md), P2). It also needs a shared hard solo-work task kind with hidden checks, plus a predeclared acceptable quality-loss margin and cost criterion. It is the first settings test planned. The primary guide's condition and max-versus-high comparison were verified again on 23 Nov 2026; the [queue review](../docs/status/2026-11-23-cheap-comparisons.md#article-queue-and-next-claim-2026-11-23) retains it as the next genuinely untested, skill-fitting claim, with these specific prerequisites. No settings arm was built or run. Bench-2's existing controls use medium effort and cannot serve as high/max arms; its frozen worker settings remain unchanged.
 
 briefbench evidence: none yet.
+
+Host clarification, 23 Nov 2026: this remains the original Claude-specific first settings proposal. With Codex selected as the execution host, the next source-faithful Codex candidate is [default-effort-first](default-effort-first.md); the Claude recommendation is not silently treated as a Codex result.

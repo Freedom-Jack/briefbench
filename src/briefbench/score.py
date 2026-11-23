@@ -178,13 +178,16 @@ def _used(exp: dict, mine: list[dict]):
 
 
 def review_queue(exp: dict, entries: list[dict]) -> tuple[list[dict], str | None]:
-    """The trials whose brief for B awaits your fidelity review apart from the outcomes, in an order drawn from the
-    experiment; or a reason there is nothing to review yet."""
+    """B's briefs awaiting review, including single-arm bench runs, without turning runs into paired evidence."""
     if not (policy := _policy(exp)):
         return [], (f"experiment {exp['name']} has no briefs to review apart from the outcomes: it has no skill "
                     "treatment in arm B run from task files, and briefs made with your answers are reviewed in the trial.")
     mine = _lines(exp, entries)
     _trials, used, stopped = _used(exp, mine)
+    runs = [e for e in mine if e.get("kind") == "run" and e.get("side") == "b"]
+    if runs and policy["sample"]:
+        return [], "Single-arm runs require review of every brief; the paired-trial sampling policy cannot select them."
+    used += runs
     if policy["sample"] and rule_kind(exp["rule"]) == "fixed" and len(used) < exp["rule"]["trials"] and not stopped:
         return [], (f"the {policy['sample']} briefs to review are drawn once all {exp['rule']['trials']} trials are in "
                     f"({len(used)} so far): review them then, before you read the score.")
