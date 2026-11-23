@@ -1,5 +1,22 @@
 # The bench
 
+Start all backend work with **`briefbench`**. Its `bench` subcommand runs the shared
+bank; `maintenance` handles due reviews and overlap lookup; study subcommands cover
+frozen task lists, fidelity review and confirmation planning. Use `--help` on any
+subcommand. These are operations of one backend. Only `brief` is a frontend skill.
+
+The shared bank and its study helpers need the repository's source checkout and
+public materials: run `uv sync`, then `uv run briefbench bench --help`. An installed
+backend without those files explains what is missing. The old `scripts/*.py`
+invocations remain compatible implementation tools, not the recommended user route.
+
+**Before backend use:** [maintenance](maintenance.md) checks for due source and
+adopted-instruction reviews. The first use opens a source review; later checks use
+30/90-day completion timestamps and relevant changes. Due reviews pause model
+execution even with `--yes`; reporting/preparation and cleanup remain available.
+Use `uv run briefbench maintenance` for the checklist and completion token. This
+creates no schedule and starts no model calls.
+
 Revised 2026-11-23 after [bench-1's usage review](status/2026-11-23-bench-usage.md). A completed comparison should be inexpensive by construction. A consumption ceiling is a guardrail for exceptional runs, not the mechanism that makes ordinary runs affordable.
 
 ## Upcoming work queue
@@ -11,9 +28,9 @@ Every continuation of bench work starts with that queue's resume procedure. A re
 ## Run a completed screen
 
 ```sh
-uv run python scripts/bench.py make
-uv run python scripts/bench.py run ask-questions-first
-uv run python scripts/bench.py board --write
+uv run briefbench bench make
+uv run briefbench bench run ask-questions-first
+uv run briefbench bench board --write
 ```
 
 `make` creates the fixed task bank without model calls. `run` explains the work and estimated usage before asking; `--yes` accepts it noninteractively. `board --write` writes `bench/board-2-codex.md`. Private tasks, prompts and logs stay in the data folder.
@@ -54,7 +71,7 @@ The board reports screen completion separately. Unexamined kinds remain blank. T
 
 **These are development results, never adoption evidence.** A question-asking treatment receives information that the original prompt lacks. That comparison measures the whole workflow, not the special value of a rewrite or of a particular interview style. An equal-information test uses `clarified` against the skill: the same questions and answers, unrewritten. Such a test, fidelity review, fresh tasks, calibration, published plan and replication still belong to the [public-results method](design.md). No source advice or released skill text changed in this engineering revision.
 
-`scripts/review_briefs.py --experiment NAME` can review every brief from a screen's B-only runs with outcomes withheld. Reviews stay attached to their original run ids; the runs do not become paired confirmatory trials. A policy requesting a sample of paired trials is refused for single-arm runs. Review labels must come from the human reviewer.
+`briefbench review --experiment NAME` can review every brief from a screen's B-only runs with outcomes withheld. Reviews stay attached to their original run ids; the runs do not become paired confirmatory trials. A policy requesting a sample of paired trials is refused for single-arm runs. Review labels must come from the human reviewer.
 
 ## Usage and guardrails
 
@@ -63,6 +80,64 @@ The board's execution totals include workers, all interview turns, stand-in answ
 The recipe's six-million-token guardrail is checked before each task against persisted consumption for that comparison, including its selected shared controls and previous failed attempts. Restarting does not reset it. `--max-tokens N` explicitly overrides the ceiling. A task already in flight may exceed it; the wall-clock timeout bounds such a task. A call without reported usage stops subsequent work for review. After review, `--allow-unknown-usage` acknowledges that gap for the invocation: the ceiling then bounds known consumption only, and reports keep the unknown entry. Guardrail stops say **comparison incomplete**, rather than pretending that the selected work finished. `briefbench init --cap` is an unrelated adoption criterion (median percentage overhead), not this execution guardrail.
 
 The structural saving is known before a model runs: a warm screen needs 10 treatment workers instead of 32; a cold first screen needs 20 controls instead of 64. Subsequent tricks reuse overlapping controls, and unchanged completed comparisons cost zero calls. Exact token savings depend on the tasks and number of interview/tool turns; a small compatibility test does not establish a representative cost. See the [implementation record](status/2026-11-23-cheap-comparisons.md) for measurements and limitations.
+
+## Coverage bank 3 (opt-in; no experiments run)
+
+The maintainer authorized two coverage additions on 23 Nov 2026 after the read-only
+work audit. [bench-3-codex](../bench/bench-3-codex.json) contains 48 development tasks:
+the same 32 task recipes and seeds from bench-2-codex, plus the following families.
+The default remains bench-2-codex. Its recipe, boards and private results are unchanged.
+
+| Family | Kinds, four tasks each | Quality evaluation |
+| --- | --- | --- |
+| `integration-state/1` | Execution accounting across a decoder, aggregation and command; persistent workflow recovery | Hidden behavioral checks for legacy compatibility, snapshot deduplication, unknown usage, cached tokens, failed executions, approval, edited payloads and uncertain completion across reopening |
+| `evidence-synthesis/1` | Complete resource observations; incomplete resource observations | Private fact/rubric packet for blind human review of correctness, support, completeness, scope/fidelity and judgment; no automatic quality verdict |
+
+These are deliberately authored synthetic fixtures under the repository's MIT
+license, ready for maintainer review. No private prompts, answers, outputs or actual
+business logs were copied. Provenance is the task *families* seen in the November
+work audit: cross-component support and accounting changes, scheduling/state
+diagnosis, repository inventory, and research/design comparisons. The fixtures are
+not historical replays, public-source research evidence or representative frequency
+estimates. All needed behavior and all available sources are supplied to the worker;
+missing metering is an explicit evidence limit, not a secret answer held by a requester.
+
+Material generation alone (no agent calls) uses:
+
+```sh
+uv run briefbench bench --bench bench/bench-3-codex.json make
+```
+
+This implementation was verified only in temporary test folders; no bank was made
+in the user's data folder and no experiment was initialized or run. The integration
+generator checks an unfixed build, a reference repair and broken repair mutations
+before listing a task. Those checks validate materials, not a model's performance.
+Each new kind currently uses one authored scenario template with seeded surface or
+numeric variation. Four generated cases are not four independent real-work designs.
+
+The recipe pins the original families as the sentinel pool, in their original sort
+order, so new family names cannot displace the easy complete-request checks. Existing
+tricks retain their source kinds and ten-task screens. The additions are available
+to all matching claims, but do not automatically make a deferred claim ready, change
+its treatment, add settings arms, or turn local sources into the multi-app condition.
+
+Human tasks have `evaluation: human` and an external `rubric` path. Automatic screens,
+whole-bank baseline runs and task-file execution refuse a selection containing them
+before CLI discovery, approval or spending. The synthesis `check` command also
+refuses to issue a passing verdict. Word count, citations, keywords or format are
+not quality grades. Material generation and board inspection still work. Running a
+synthesis comparison needs a separately planned use of the existing blind human-pick
+protocol; the shared automatic runner does not implement that workflow. A full-bank
+automatic run is therefore blocked, not silently narrowed to the check-scored tasks.
+
+Future plans must evaluate correctness, scope/fidelity, integrity and evidence quality
+as appropriate, with time/tokens separate and no universal loss allowance or weighted
+score. Clarification workflow benefit remains distinct from rewriting under equal
+information. Keep easy tasks even at 100%; do not harden them or weaken the worker to
+create a gain. These seeds/templates are development material. Reserve genuinely
+unseen requests and new independently authored cases for confirmation; changing only
+the seed does not establish a holdout for broader real-work claims. Any later live
+work still needs a concrete scope, usage estimate and authorization.
 
 ## Historical bench-1 and the task bank
 

@@ -1,8 +1,8 @@
 """Completed development screens of posted prompting advice, with shared baselines (docs/bench.md).
 
-    uv run python scripts/bench.py make
-    uv run python scripts/bench.py run TRICK [--yes] [--limit N]
-    uv run python scripts/bench.py board [--write]
+    uv run briefbench bench make
+    uv run briefbench bench run TRICK [--yes] [--limit N]
+    uv run briefbench bench board [--write]
 
 The default bench-2 screen covers a trick's source family and two fixed regression sentinels. Missing controls run
 on demand, twice per task, and are reused across tricks. A screen ends there; --full explicitly extends it to the
@@ -23,10 +23,10 @@ from collections import Counter
 from pathlib import Path
 from statistics import median
 
-from briefbench import cli, experiment, treatments
+from briefbench import cli, experiment, maintenance, treatments
 from briefbench.errors import BriefbenchError
 from briefbench.log import data_dir, prepare, read_entries
-from briefbench.tasks import load
+from briefbench.tasks import load, require_check
 
 ROOT = Path(__file__).resolve().parents[1]
 RECIPE, TRICKS, BOARD = ROOT / "bench" / "bench-2-codex.json", ROOT / "bench" / "tricks.json", ROOT / "bench" / "board.md"
@@ -44,7 +44,8 @@ def read(path: Path) -> dict:
 
 def kinds(recipe: dict) -> list[dict]:
     """Every kind of task in the recipe, in its order, each with its id, `<set>:<name>`, and its set's details."""
-    return [k | {"id": f"{s['set']}:{k['name']}", "set": s["set"], "work": s["work"], "generator": s["generator"]}
+    return [k | {"id": f"{s['set']}:{k['name']}", "set": s["set"], "work": s["work"], "generator": s["generator"],
+                 "evaluation": s.get("evaluation", "check")}
             for s in recipe["sets"] for k in s["kinds"]]
 
 
@@ -142,7 +143,8 @@ def selected(recipe, trick, treatment, tasks, full=False):
         return eligible
     families = {k.split(":")[0] for k in trick["kinds"]}
     own = [t for t in eligible if t["set"] in families]
-    other = sorted({t["set"] for t in eligible} - families)
+    other = recipe["screen"].get("sentinel_families", sorted({t["set"] for t in eligible}))
+    other = [family for family in other if family not in families]
     sentinels = [next((t for t in sorted(eligible, key=lambda x: x["id"])
                        if t["set"] == family and not on[kind_of(t)]["needs_answers"]), None) for family in other]
     return own + [t for t in sentinels if t][:recipe["screen"]["sentinels"]]
@@ -359,7 +361,7 @@ def go(exp: dict, todo: list[dict], extra: list[str], kind: str, limit: int, bef
             return 1
         if limit and ran >= limit:
             break
-    print(f"Ran {ran} task{'s' if ran != 1 else ''}. `uv run python scripts/bench.py board` shows the table.")
+    print(f"Ran {ran} task{'s' if ran != 1 else ''}. `uv run briefbench bench board` shows the table.")
     return 0
 
 
@@ -369,8 +371,9 @@ def plain(recipe: dict, args) -> int:
         return 0
     todo = bench_tasks(recipe)
     if not todo:
-        print("The bench has no tasks yet: `uv run python scripts/bench.py make` makes them.", file=sys.stderr)
+        print("The bench has no tasks yet: `uv run briefbench bench make` makes them.", file=sys.stderr)
         return 2
+    require_check(todo)
     exp = frozen(plain_name(recipe))
     if not same_worker(exp, recipe):
         print(f"{exp['name']} ran with another worker or model than the recipe names. A new model needs a new bench "
@@ -392,6 +395,7 @@ def plain(recipe: dict, args) -> int:
 
 
 def run(recipe: dict, tricks: dict, args) -> int:
+    maintenance.runnable(args.trick)
     trick = next((t for t in tricks["tricks"] if t["id"] == args.trick), None)
     if not trick:
         print(f"No trick {args.trick!r} in the trick list ({TRICKS.name}). It lists: "
@@ -408,9 +412,11 @@ def run(recipe: dict, tricks: dict, args) -> int:
               + (", ".join(trick["kinds"]) or "none named") + f"). It waits for {trick.get('waits') or 'them'}.",
               file=sys.stderr)
         return 2
+    scope_tasks = selected(recipe, trick, treatment, todo, args.full)
+    require_check(scope_tasks)
     plains, plain_exp = baseline(recipe, entries()), frozen(plain_name(recipe))
     if not recipe.get("screen") and (not plain_exp or any(not done(plain_exp, t, "aa", entries()) for t in todo)):
-        print("Run the plain prompt on every task first (`uv run python scripts/bench.py plain`): every trick is "
+        print("Run the plain prompt on every task first (`uv run briefbench bench plain`): every trick is "
               "compared with those runs.", file=sys.stderr)
         return 2
     if not same_worker(plain_exp, recipe):
@@ -418,7 +424,7 @@ def run(recipe: dict, tricks: dict, args) -> int:
               f"{plain_exp['name']} used. A new model needs a new bench (a new recipe, with its own name).",
               file=sys.stderr)
         return 2
-    todo = selected(recipe, trick, treatment, todo, args.full)
+    todo = scope_tasks
     name = trick_name(recipe, trick, treatment)
     exp = frozen(name)
     check = None
@@ -596,7 +602,7 @@ def board(recipe: dict, tricks: dict) -> str:
     log_rows = lines(exp, found) + [e for x, _r, _f in current.values() for e in lines(x, found)]
     versions = sorted({v for e in log_rows for v in [(e.get("versions") or {}).get("worker")] if v})
     out = ["# The bench's table", "",
-           "<!-- Written by `uv run python scripts/bench.py board --write`; don't edit it by hand. docs/bench.md "
+           "<!-- Written by `uv run briefbench bench board --write`; don't edit it by hand. docs/bench.md "
            "explains it. -->", "",
            f"**{recipe['name']}**: {len(tasks)} tasks, run by {recipe['worker']['agent']} with "
            f"`{recipe['worker']['model']}`" + (f" (CLI {', '.join(versions)})" if versions else "")
@@ -606,7 +612,7 @@ def board(recipe: dict, tricks: dict) -> str:
            "large effects show; one or two tasks either way is noise.", ""]
     if not tasks:
         return "\n".join(out + ["The bench's tasks haven't been made on this machine yet "
-                                "(`uv run python scripts/bench.py make`).", ""])
+                                "(`uv run briefbench bench make`).", ""])
     out += ["## Results", "",
             "| Trick | Its kinds of task | " + " | ".join(k["label"] for k in shown)
             + " | Extra tokens | Extra time | Reading |",
@@ -630,6 +636,9 @@ def board(recipe: dict, tricks: dict) -> str:
             continue
         row = []
         for k in shown:
+            if k["evaluation"] == "human":
+                row.append("human review")
+                continue
             if k["needs_answers"] and not can_ask(treatment):
                 row.append("can't")
                 continue
@@ -665,6 +674,7 @@ def board(recipe: dict, tricks: dict) -> str:
         runs = [a for t in mine for a in plains.get(t["sha256"], [])]
         out.append(f"| {k['label']} (`{k['id']}`) | {k['work']} | "
                    + (f"{len(mine)} | " + (f"{sum(map(passed, runs))} of {len(runs)} runs passed" if runs
+                                          else "human review required" if k["evaluation"] == "human"
                                           else "not run yet") if mine else "— | not made yet")
                    + f" | {k['about']} |")
     flagged = [e for e in log_rows if e.get("kind") in ("aa", "run") and any(a.get("looked_outside")
@@ -736,6 +746,12 @@ def main(argv=None) -> int:
         parser.error("--limit must be nonnegative")
     recipe, tricks = read(args.bench), read(TRICKS)
     try:
+        if args.command in {"plain", "run"}:
+            maintenance.require_review(os.environ)
+        else:
+            message = maintenance.notice(maintenance.check(os.environ))
+            if message:
+                print(message, file=sys.stderr)
         if args.command == "make":
             return make(recipe)
         if args.command == "plain":
@@ -746,7 +762,7 @@ def main(argv=None) -> int:
         print(text)
         if args.write:
             target = (ROOT / "bench" / f"board-{recipe['name'].removeprefix('bench-')}.md"
-                      if recipe["name"] in ("bench-2", "bench-2-codex") else BOARD)
+                      if recipe["name"].startswith(("bench-2", "bench-3")) else BOARD)
             target.write_text(text)
         return 0
     except BriefbenchError as e:

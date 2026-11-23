@@ -179,8 +179,16 @@ With an exact two-sided sign test at the 5% level and 80% power, true win rates 
 
 ## Adding a card
 
+First follow [deduplication and maintenance](../docs/maintenance.md). Search existing
+current and historical advice with `uv run briefbench maintenance --search "advice"`.
+Compare behavior, condition, environment and treatment form before creating a card;
+keep a repeated source on the canonical card and record typed links in
+[lifecycle.json](lifecycle.json). Similar wording alone does not transfer evidence.
+Adoption adds a scoped instruction record there; retirement preserves the card and
+its dated Decision, evidence and rollback target. No instruction is currently adopted.
+
 1. Copy a card and rename it to the new `id`.
 2. Write one claim, paraphrased, with a link to where it was posted. It must be advice that someone gave in public, about prompts or about which model, effort level or multi-agent mode to run a task with; other advice about the agent's setup, or an idea of your own, gets no card. A claim you can't trace to a source is `needs-source`.
 3. Add only outside evidence you have read, with its link.
 4. Add a row to the table above.
-5. Run `uv run pytest tests/test_claims.py -q`. It checks the format and the boundary rule, not whether the claim is true. A passing check is not evidence for the claim.
+5. Run `uv run pytest tests/test_claims.py tests/test_maintenance.py -q`. It checks the format and the boundary rule, not whether the claim is true. A passing check is not evidence for the claim.

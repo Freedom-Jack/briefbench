@@ -22,6 +22,12 @@ The bench has two jobs. First, it is a benchmark for prompting tricks from recen
 
 ## Two ways in
 
+There are exactly two public entry points: **`brief`**, the frontend skill, and
+**`briefbench`**, the backend command. The backend owns the shared bench, records,
+review, maintenance and study tools as subcommands. Plugin manifests install the
+same skill in different hosts; `variants/` contains test inputs. Neither adds a
+product or a separate user workflow.
+
 1. **Use the skill.** It makes your request clearer before an agent works on it. No setup beyond installing it as a plugin, or linking a folder.
 2. **Check the evidence.** Read the [claim cards](claims/README.md): each prompting claim, its outside evidence, and why the skill does or doesn't carry it. Run the bench on your own tasks, or [contribute](CONTRIBUTING.md) a claim, a counterexample or a replication.
 
@@ -65,17 +71,32 @@ You need Python 3.11 or later, [uv](https://docs.astral.sh/uv/), git, and Claude
 
 | Command | What it does |
 |---|---|
+| `briefbench bench make / run / board` | Prepare the shared bank, run an authorized trick comparison, or read its results; start with `briefbench bench --help` |
+| `briefbench maintenance` | Checks use-triggered reviews in a source checkout; `--search` finds overlapping current/historical advice. See [the procedure](docs/maintenance.md) |
 | `briefbench init <name>` | Freezes an experiment: two treatments (default: your original prompt against the brief), the agent CLIs that do the work, write the brief and judge, your cost cap, and the decision rule |
 | `briefbench ab "<prompt>"` | Runs one trial and prints the command that applies the winner's diff |
 | `briefbench score [--json]` | Wins, losses and ties, the net preference, the test's verdict, fidelity failures and the extra time and tokens |
 | `briefbench clean` | Removes finished trial worktrees |
 
-For example, with Codex doing the work and writing the brief:
+The standard shared-bank workflow is documented in [the bench guide](docs/bench.md).
+Use `uv run briefbench bench ...` from this source checkout; `uv run` launches the
+same backend command. Advanced study operations (`init`, `ab`, `tasks`, `score`,
+`review`, `plan`, `audit`, `check-briefs`) remain under `briefbench` because controlled
+comparisons still need them. Scripts are implementation/developer tools and retain
+compatibility with old commands; they are not additional public entry points.
+
+For a separate experiment on your own task, with Codex doing the work and writing the brief:
 
 ```bash
 briefbench init first --worker codex --rewriter codex
 briefbench ab "mean() in stats.py crashes on an empty list. Make it return 0.0 instead."
 ```
+
+In a source checkout, the first run opens a source-maintenance review. Later source
+and adopted-instruction reviews become due after 30/90 days or relevant changes,
+checked only when the backend is used. A due review pauses model work until its
+completion is recorded; it creates no schedule or automatic experiment. Follow
+[the maintenance procedure](docs/maintenance.md).
 
 `init` asks for anything you leave out and shows the exact commands before freezing them. Treatments: `original`, `brief` (your installed skill), `skill:<folder>` (another version), `snippet:<file>` (your prompt plus a claimed tip), and `clarified` (your prompt plus the skill's questions and your answers, unrewritten, which separates the information from the rewriting). The default rule is two-step, which stops early when the answer is clear; `--rule fixed:50` runs exactly 50 trials and tests once, for a claim you want to publish; a published result also follows the method in [docs/design.md](docs/design.md), "A method for public results". An optional judge from a third vendor (`--judge claude-code` when Codex does the work) rules after your pick, only in repos where you allow it, and never decides. Run `briefbench ab --aa` on a few tasks first: the same treatment in both arms shows how noisy your setup is.
 

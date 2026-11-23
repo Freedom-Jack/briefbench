@@ -11,6 +11,9 @@ dist/
 build/
 .briefbench/
 
+# Keep nested agent sessions out of searches of this checkout.
+.claude/worktrees/
+
 # Local-only research run outputs; see docs/research/README.md
 docs/research/*/raw/
 docs/research/LOCAL.md

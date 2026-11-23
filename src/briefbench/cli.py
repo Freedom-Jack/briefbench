@@ -1,4 +1,4 @@
-"""Command line: init, ab, score and clean. Vendor-neutral: agent CLIs come from presets.AGENTS by name."""
+"""One backend command for the bench and its study/maintenance operations. Vendor-neutral."""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import __version__, experiment, judge, runner, score, tasks, treatments
+from . import __version__, entrypoints, experiment, judge, maintenance, runner, score, tasks, treatments
 from .errors import AgentError, BriefbenchError, ConfigError, UsageError
 from .log import append, data_dir, display_path, header, prepare, read_entries, utc_now
 from .presets import AGENTS, PRIVATE_PLACES, agent_env, secret_values
@@ -52,6 +52,8 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
                                  "CLIs logged in with your subscriptions. See docs/design.md.")
     parser.add_argument("--version", action="version", version=f"briefbench {__version__}")
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    for name, (_, description) in entrypoints.COMMANDS.items():
+        commands.add_parser(name, add_help=False, help=description + " (source checkout)")
     i = commands.add_parser("init", allow_abbrev=False, help="freeze a new experiment")
     i.add_argument("name")
     i.add_argument("--a", default="original", metavar="TREATMENT",
@@ -114,6 +116,14 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     s.add_argument("name", nargs="?", help="default: the newest experiment")
     s.add_argument("--json", action="store_true", help="every number in the report, as JSON")
     commands.add_parser("clean", allow_abbrev=False, help="remove finished trials' worktrees; diffs and logs stay")
+    m = commands.add_parser("maintenance", allow_abbrev=False, help="check due reviews, find overlaps, or record review completion")
+    action = m.add_mutually_exclusive_group()
+    action.add_argument("--complete", choices=tuple(maintenance.INTERVALS))
+    action.add_argument("--flag", help="record an environment change or harm report requiring review")
+    action.add_argument("--search", help="find related public claims and backlog entries; advisory only")
+    m.add_argument("--token", help="the current review token printed by maintenance")
+    m.add_argument("--note-file", type=Path, help="private review note with decisions, blockers and next actions")
+    m.add_argument("--json", action="store_true", help="machine-readable results")
     for p in (parser, *commands.choices.values()):
         p.secrets = tuple(secrets)
     return parser
@@ -185,14 +195,22 @@ class Console:
 def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, cwd=None) -> int:
     environ = dict(os.environ) if environ is None else environ
     secrets = secret_values(environ)
-    try:                                         # argparse quotes what it rejects, so it scrubs the keys
-        args = build_parser(secrets).parse_args(argv)
-    except SystemExit as e:                      # --help, --version and usage errors (argparse prints them)
-        return e.code if isinstance(e.code, int) else 2
     con = Console(stdin or sys.stdin or io.StringIO(), stdout or sys.stdout or io.StringIO(),
                   stderr or sys.stderr or io.StringIO(), secrets)
     try:
+        if argv and argv[0] in entrypoints.COMMANDS:
+            return entrypoints.run(argv[0], argv[1:], con, environ, Path(cwd or os.getcwd()))
+        args = build_parser(secrets).parse_args(argv)
+        if args.command == "maintenance":
+            return cmd_maintenance(args, con, environ, Path(cwd or os.getcwd()), secrets)
+        if args.command in {"init", "ab"}:
+            maintenance.require_review(environ)
+        elif args.command == "score":
+            if message := maintenance.notice(maintenance.check(environ)):
+                con.say(message)
         return COMMANDS[args.command](args, con, environ, Path(cwd or os.getcwd()), secrets)
+    except SystemExit as e:                      # help and usage errors, including delegated workflows
+        return e.code if isinstance(e.code, int) else 2
     except KeyboardInterrupt:
         con.say("\nbriefbench: cancelled. A started trial is logged as incomplete; `briefbench clean` removes its worktrees.")
         return 130
@@ -202,6 +220,29 @@ def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, cwd=None) -
 
 
 # ----------------------------------------------------------------------------- init
+
+def cmd_maintenance(args, con, environ, cwd, secrets):
+    if not (maintenance.ROOT / "claims/lifecycle.json").exists():
+        raise ConfigError("Maintenance needs a source checkout containing claims/lifecycle.json.")
+    if bool(args.complete) != bool(args.token and args.note_file) or (not args.complete and (args.token or args.note_file)):
+        raise UsageError("--complete requires --token and --note-file together.")
+    try:
+        note = (cwd / args.note_file).read_text() if args.note_file else None
+    except (OSError, UnicodeError):
+        raise UsageError("Cannot read the review note file.") from None
+    result = (maintenance.search(args.search) if args.search else
+              maintenance.check(environ, complete=args.complete, token=args.token, note=note, flag=args.flag))
+    if args.json:
+        con.stdout.write(scrub(json.dumps(result, indent=2), secrets) + "\n")
+    elif args.search:
+        for row in result:
+            con.say(f"{row['id']}: {row['text']}\n  {row['path']}")
+            for link in row["relations"]:
+                con.say(f"  {link['from']} {link['relation']} {link['to']}: {link['reason']}")
+        con.say("Matches are suggestions; compare conditions before linking or merging.")
+    else:
+        con.say(maintenance.notice(result) or "No maintenance review is due. This does not establish efficacy.")
+    return 0
 
 def cmd_init(args, con, environ, cwd, secrets) -> int:
     experiment.check_name(args.name)
@@ -294,7 +335,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
             + (f" Kinds of task, tested apart: {strata['help']}, where B should help, is tested; {strata['harm']}, "
                f"where it could hurt, must show no loss over {strata['margin'] * 100:g} points." if strata else "")
             + (" The skill's questions are answered by a stand-in requester, from each task file's facts, and its "
-               "briefs wait for a fidelity review you make apart from the outcomes, with scripts/review_briefs.py: "
+               "briefs wait for a fidelity review you make apart from the outcomes, with briefbench review: "
                + ("all of them" if not review["sample"] else f"a random {review['sample']} of them")
                + f", of which at most {review['max_unfaithful']} may fail." if roles["answerer"] else "")
             + f" Stage: {experiment.stage_text(stage)}."
@@ -314,7 +355,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     prepare(environ)                                         # the data folder, private, before anything goes in it
     path = experiment.save(frozen, environ)
     con.say(f"Frozen in {display_path(path, environ)}. "
-            + ("Run a task file with: briefbench ab --task <file>, or a list of them with scripts/run_tasks.py"
+            + ("Run a task file with: briefbench ab --task <file>, or a list of them with briefbench tasks"
                if args.scoring == "check" else
                "In the repo of a task you'd hand off whole, run: briefbench ab \"<prompt>\""))
     return 0
@@ -518,6 +559,7 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
         if frozen.get(name) and frozen[name] != now:
             raise ConfigError(f"the {labels[name]} differ from those frozen in experiment {exp['name']}, perhaps "
                               "after an update of briefbench. Start a new experiment.")
+    task_file = _task_file(args, exp)
     agents, versions = {}, {}
     scoring = exp.get("scoring", "pick")
     for role in ("worker", "rewriter", "asker", "answerer", "judge"):
@@ -533,10 +575,9 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
             versions[role] = _version(executable, environ)
             if exp.get("pin_versions") and versions[role] != exp[role]["version"]:
                 raise ConfigError(f"the {role} CLI version changed; start a new experiment before spending usage.")
-    task_file = _task_file(args, exp)
     if scoring == "check" and not task_file:
         raise UsageError(f"experiment {exp['name']} is scored by the check alone, which runs task files: "
-                         "briefbench ab --task <file>, or scripts/run_tasks.py for a list of them.")
+                         "briefbench ab --task <file>, or briefbench tasks for a list of them.")
     root = runner.repo_root(Path(task_file["repo"]) if task_file else cwd)
     commit = runner.commit(root, task_file["commit"]) if task_file and task_file["commit"] else runner.head(root)
     prompt = task_file["prompt"] if task_file else _read_prompt(args, con)
@@ -683,6 +724,7 @@ def _task_file(args, exp) -> dict | None:
         raise UsageError(f"experiment {exp['name']} has a skill treatment but no stand-in requester to answer its "
                          "questions, so a task file can't run it. Freeze a new experiment with --scoring check.")
     task = tasks.load(args.task)
+    tasks.require_check([task])
     if (strata := exp.get("strata")) and task["stratum"] not in (strata["help"], strata["harm"]):
         raise UsageError(f"the task file {task['file']} is of kind {task['stratum']!r}, but experiment {exp['name']} "
                          f"tests only {strata['help']} and {strata['harm']}.")
@@ -1099,7 +1141,7 @@ def _fidelity(specs, prompts, out, con, ask=True) -> dict | None:
             continue                                 # in a noise check, both arms got the same brief
         if not ask:
             con.say(f"Arm {s.upper()}'s brief ({specs[s]['spec']}) waits for your fidelity review, made apart from the "
-                    "outcomes with scripts/review_briefs.py.")
+                    "outcomes with briefbench review.")
             review[s] = {key: None for key, _question in FIDELITY}
             continue
         con.say(f"\nNow check the brief that arm {s.upper()} got ({specs[s]['spec']}) against what you asked. It is "

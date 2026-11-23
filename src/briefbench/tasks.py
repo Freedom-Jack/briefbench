@@ -37,15 +37,34 @@ def load(path: Path) -> dict:
             ([f"no {', '.join(missing)}"] if missing else []) + ([f"a bad {', '.join(wrong)}"] if wrong else [])) + ".")
     if task["type"] not in TASK_TYPES:
         raise UsageError(f"the task file {path} has type {task['type']!r}; use one of {', '.join(TASK_TYPES)}.")
+    evaluation = task.get("evaluation", "check")
+    if evaluation not in ("check", "human"):
+        raise UsageError(f"the task file {path} has an invalid evaluation; use check or human.")
+    rubric = task.get("rubric")
+    if rubric is not None and not isinstance(rubric, str):
+        raise UsageError(f"the task file {path} has an invalid rubric path.")
+    if evaluation == "human" and (not isinstance(rubric, str) or not (path.parent / rubric).is_file()):
+        raise UsageError(f"the task file {path} needs an existing private rubric for human review.")
     repo = (path.parent / task["repo"]).resolve()
     if not repo.is_dir():
         raise UsageError(f"the task file {path} names a repo that isn't there: {repo}")
+    if evaluation == "human" and (path.parent / rubric).resolve().is_relative_to(repo):
+        raise UsageError(f"the task file {path} must keep its human rubric outside the worker repo.")
     return {"id": task["id"], "set": task.get("set") or None, "stratum": task.get("stratum") or None, "repo": str(repo),
             "commit": task.get("commit") or None, "prompt": task["prompt"].strip(), "type": task["type"],
             "goal": task["goal"].strip(), "check": task["check"].strip(), "setup": task.get("setup", "").strip(),
             "protected": task.get("protected", []), "facts": [f.strip() for f in task.get("facts", [])],
             "file": str(path.resolve()), "sha256": hashlib.sha256(data).hexdigest(),
-            **{key: task.get(key) or None for key in ("generator_sha256", "checker_sha256")}}
+            **{key: task.get(key) or None for key in ("generator_sha256", "checker_sha256")},
+            "evaluation": evaluation, "rubric": str((path.parent / rubric).resolve()) if rubric else None}
+
+
+def require_check(found):
+    """Reject human-evaluated materials before CLI discovery or any check-only execution."""
+    if any(t.get("evaluation", "check") != "check" for t in found):
+        raise UsageError("Human review required: this selection includes evidence-synthesis or other human-evaluated "
+                         "tasks. The automatic check-only runner cannot score them; use a separately planned blind "
+                         "human review. No automatic quality verdict is available.")
 
 
 def freeze(list_path: Path, kinds=None) -> dict:
@@ -59,6 +78,7 @@ def freeze(list_path: Path, kinds=None) -> dict:
     except OSError as e:
         raise UsageError(f"can't read the task list {path}: {e}") from None
     found = [load(path.parent / name) for name in names]
+    require_check(found)
     sets, makers, checkers = ({t[key] for t in found} for key in ("set", "generator_sha256", "checker_sha256"))
     if not found or None in sets | makers or len(sets) != 1 or len(makers) != 1 or len(checkers) != 1:
         raise UsageError(f"the task list {path} must name task files of one set, made by one generator: each file "

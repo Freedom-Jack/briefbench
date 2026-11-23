@@ -1,6 +1,6 @@
 """Run task files through `briefbench ab --task`, one trial after another, unattended.
 
-    uv run python scripts/run_tasks.py --experiment NAME [--limit N] [--aa] TASKS.txt
+    uv run briefbench tasks --experiment NAME [--limit N] [--aa] TASKS.txt
 
 TASKS.txt lists task files, one per line, relative to its own folder, in the order the experiment runs them. The
 experiment must be scored by the check alone (`init --scoring check`). The runner skips a task that already has a
@@ -27,9 +27,10 @@ import os
 import sys
 from pathlib import Path
 
-from briefbench import cli, experiment, score
+from briefbench import cli, experiment, maintenance, score
+from briefbench.errors import ConfigError
 from briefbench.log import data_dir, read_entries
-from briefbench.tasks import load
+from briefbench.tasks import load, require_check
 
 
 def lines(exp: dict) -> list[dict]:
@@ -60,6 +61,11 @@ def main(argv=None) -> int:
     parser.add_argument("--limit", type=int, default=0, help="stop after this many trials (default: no limit)")
     parser.add_argument("--aa", action="store_true", help="noise checks: treatment A in both arms")
     args = parser.parse_args(argv)
+    try:
+        maintenance.require_review(os.environ)
+    except ConfigError as e:
+        print(str(e), file=sys.stderr)
+        return e.exit_code
     exp = experiment.load(args.experiment, os.environ)
     if exp.get("scoring", "pick") != "check":
         print(f"Experiment {exp['name']} isn't scored by the check alone, so it needs your picks; freeze one with "
@@ -67,6 +73,7 @@ def main(argv=None) -> int:
         return 2
     files = [args.tasks.parent / line.strip() for line in args.tasks.read_text().splitlines() if line.strip()]
     tasks = [load(f) for f in files]           # checks every file before the first trial runs
+    require_check(tasks)
     if (frozen := exp.get("materials")) and [t["sha256"] for t in tasks] != frozen["tasks"]:
         print(f"{args.tasks} doesn't list the task files frozen with experiment {exp['name']}, in their order.",
               file=sys.stderr)

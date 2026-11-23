@@ -1,0 +1,169 @@
+{
+  "format": 1,
+  "name": "bench-3-codex",
+  "about": "Coverage expansion authorized 2026-11-23, development only. Preserve the 32 bench-2 recipes and easy sentinels; add fully specified integration/state repairs and human-evaluated evidence synthesis. No experiment execution is authorized by creating this recipe.",
+  "worker": {
+    "agent": "codex",
+    "model": "gpt-6.1-sol"
+  },
+  "timeout_minutes": 5,
+  "sets": [
+    {
+      "set": "feature-request/1",
+      "generator": "scripts/materials/feature_request.py",
+      "seed": 1121001,
+      "work": "coding",
+      "kinds": [
+        {
+          "name": "gap",
+          "flag": "--gap",
+          "tasks": 4,
+          "needs_answers": true,
+          "label": "Feature, decisions left out",
+          "about": "A request for a small feature in a Python project that leaves out the four decisions the requester has made, and says they haven't thought it through yet. Hidden tests check the four decisions, so only a trick that asks the requester can pass."
+        },
+        {
+          "name": "no-gap",
+          "flag": "--no-gap",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Feature, decisions stated",
+          "about": "The same kind of request, stating all four decisions. The plain prompt usually passes, so a trick can mostly only hurt here."
+        }
+      ]
+    },
+    {
+      "set": "missing-fact/1",
+      "generator": "scripts/materials/missing_fact.py",
+      "seed": 1121002,
+      "work": "analysis",
+      "kinds": [
+        {
+          "name": "gap",
+          "flag": "--gap",
+          "tasks": 4,
+          "needs_answers": true,
+          "label": "Data question, fact left out",
+          "about": "A request for one rate from a table, for a meeting, that leaves out which group or from which month the requester means. Only a trick that asks the requester can pass."
+        },
+        {
+          "name": "no-gap",
+          "flag": "--no-gap",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Data question, fact stated",
+          "about": "The same kind of request with that fact stated."
+        }
+      ]
+    },
+    {
+      "set": "planted-cause/6",
+      "generator": "scripts/materials/planted_cause.py",
+      "seed": 1121003,
+      "work": "analysis",
+      "kinds": [
+        {
+          "name": "belief-wrong",
+          "flag": "--wrong",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Analysis, wrong belief",
+          "about": "Customer, order or delivery data, and a request that states a belief about what drives an outcome; the belief is wrong, and the report must name the real cause."
+        },
+        {
+          "name": "belief-right",
+          "flag": "--right",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Analysis, right belief",
+          "about": "The same, where the stated belief is right."
+        }
+      ]
+    },
+    {
+      "set": "failing-import/1",
+      "generator": "scripts/materials/failing_import.py",
+      "seed": 1121004,
+      "work": "coding",
+      "kinds": [
+        {
+          "name": "more",
+          "flag": "--more",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Bug report, more failures",
+          "about": "A bug report about one CSV file that stops a Python import program, where two other files in the project also stop it, each for a different reason. The hidden check imports new files with all three problems."
+        },
+        {
+          "name": "only",
+          "flag": "--only",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Bug report, one failure",
+          "about": "The same kind of report, where the reported file is the only one that fails."
+        }
+      ]
+    },
+    {
+      "set": "integration-state/1",
+      "generator": "scripts/materials/integration_state.py",
+      "seed": 1123001,
+      "work": "coding",
+      "evaluation": "check",
+      "kinds": [
+        {
+          "name": "accounting",
+          "flag": "--accounting",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Integration, execution accounting",
+          "about": "Repair a record decoder, aggregation and command against a fully supplied contract. Preserve legacy rows, unknown usage, cached tokens, failed executions and snapshot deduplication."
+        },
+        {
+          "name": "resume",
+          "flag": "--resume",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "State, persistent recovery",
+          "about": "Repair workflow preview and persistent transitions. Preserve edited payloads and legacy state, require approval and hold uncertain submissions across restart; no live service actions."
+        }
+      ]
+    },
+    {
+      "set": "evidence-synthesis/1",
+      "generator": "scripts/materials/evidence_synthesis.py",
+      "seed": 1123002,
+      "work": "research",
+      "evaluation": "human",
+      "kinds": [
+        {
+          "name": "complete",
+          "flag": "--complete",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Synthesis, complete resource records",
+          "about": "Synthesize dated proposals, outcome audits and fully metered observations into a supported decision. Recovery evidence is limited. Human rubric and blind outcome review required."
+        },
+        {
+          "name": "incomplete",
+          "flag": "--incomplete",
+          "tasks": 4,
+          "needs_answers": false,
+          "label": "Synthesis, incomplete resource records",
+          "about": "Synthesize the same source types with incomplete metering. Unknown resources are not zero; missing evidence is not hard reasoning. Human rubric and blind outcome review required."
+        }
+      ]
+    }
+  ],
+  "screen": {
+    "sentinels": 2,
+    "sentinel_families": [
+      "failing-import/1",
+      "feature-request/1",
+      "missing-fact/1",
+      "planted-cause/6"
+    ]
+  },
+  "interview": "session",
+  "max_tokens": 6000000
+}

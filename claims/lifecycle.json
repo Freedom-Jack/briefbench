@@ -1,0 +1,175 @@
+{
+  "format": 1,
+  "relations": [
+    {
+      "from": "F02",
+      "to": "goal-brief-over-steps",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "R01",
+      "to": "outcome-over-task",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "R07",
+      "to": "unreasonable-goals",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "R08",
+      "to": "test-your-belief",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "R11",
+      "to": "depth-rewrite",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "R12",
+      "to": "range-other-fields",
+      "relation": "component",
+      "reason": "This entry is one component of the advice currently grouped on the card; bundle results cannot establish its individual effect."
+    },
+    {
+      "from": "R13",
+      "to": "range-other-fields",
+      "relation": "component",
+      "reason": "This entry is one component of the advice currently grouped on the card; bundle results cannot establish its individual effect."
+    },
+    {
+      "from": "B01",
+      "to": "ask-questions-first",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "B02",
+      "to": "max-effort-for-hard-solo-work",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "B03",
+      "to": "raise-effort-for-easy-to-miss-cases",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "B04",
+      "to": "smaller-model-for-routine-work",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "O01",
+      "to": "explore-broadly",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "L01",
+      "to": "controlled-language",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "M01",
+      "to": "effort-before-model",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "D01",
+      "to": "default-effort-first",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "D02",
+      "to": "multi-agent-for-divisible-work",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "P01",
+      "to": "presets-by-task-kind",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "X01",
+      "to": "expert-persona",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "X02",
+      "to": "caps-emphasis",
+      "relation": "equivalent",
+      "reason": "Existing source entry maps to this card; its original condition and treatments remain on the card."
+    },
+    {
+      "from": "F13",
+      "to": "F01",
+      "relation": "related",
+      "reason": "Both inventory descriptions concern giving the agent verification. Source-level equivalence still needs review; both setup forms remain outside the claim boundary."
+    },
+    {
+      "from": "goal-brief-over-steps",
+      "to": "outcome-over-task",
+      "relation": "related",
+      "reason": "Goal framing overlaps, but scope/exit criteria and the tested deliverable expansion are different interventions."
+    },
+    {
+      "from": "F19",
+      "to": "ask-questions-first",
+      "relation": "component",
+      "reason": "Questions overlap with the interview claim; the planning and session workflow is additional and cannot inherit the interview result."
+    },
+    {
+      "from": "max-effort-for-hard-solo-work",
+      "to": "default-effort-first",
+      "relation": "related",
+      "reason": "Similar portable settings note, different source environments and effort contrasts; evidence remains separate."
+    }
+  ],
+  "instructions": [],
+  "revisit": {},
+  "historical": {
+    "outside-check": {
+      "text": "Historical retired record: Outside validation; removed under the 18 Nov scope decision. See BACKLOG.md for provenance and the original record.",
+      "path": "https://github.com/Freedom-Jack/briefbench/blob/c893ab2/claims/outside-check.md"
+    },
+    "karpathy-claude-md": {
+      "text": "Historical retired record: Karpathy-inspired CLAUDE.md; removed under the 18 Nov scope decision. See BACKLOG.md for provenance and the original record.",
+      "path": "https://github.com/Freedom-Jack/briefbench/blob/c893ab2/claims/karpathy-claude-md.md"
+    },
+    "reason-prominent": {
+      "text": "Historical retired record: Keep the user's reason prominent; removed under the 18 Nov scope decision. See BACKLOG.md for provenance and the original record.",
+      "path": "https://github.com/Freedom-Jack/briefbench/blob/c893ab2/claims/reason-prominent.md"
+    },
+    "scope-boundary": {
+      "text": "Historical retired record: State the supplied scope boundary; removed under the 18 Nov scope decision. See BACKLOG.md for provenance and the original record.",
+      "path": "https://github.com/Freedom-Jack/briefbench/blob/c893ab2/claims/scope-boundary.md"
+    },
+    "autonomy-preference": {
+      "text": "Historical retired record: Carry the user's autonomy preference; removed under the 18 Nov scope decision. See BACKLOG.md for provenance and the original record.",
+      "path": "https://github.com/Freedom-Jack/briefbench/blob/c893ab2/claims/autonomy-preference.md"
+    },
+    "short-briefs": {
+      "text": "Historical retired record: Keep briefs short; removed under the 18 Nov scope decision. See BACKLOG.md for provenance and the original record.",
+      "path": "https://github.com/Freedom-Jack/briefbench/blob/c893ab2/claims/short-briefs.md"
+    },
+    "no-model-variants": {
+      "text": "Historical retired record: Keep one vendor-neutral skill rather than model-specific versions; removed under the 18 Nov scope decision. See BACKLOG.md for provenance and the original record.",
+      "path": "https://github.com/Freedom-Jack/briefbench/blob/c893ab2/claims/no-model-variants.md"
+    }
+  }
+}

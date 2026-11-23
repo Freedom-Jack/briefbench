@@ -1,7 +1,7 @@
 """A factual check of the briefs written for `missing-fact/1` tasks, in place of a person's fidelity review
 (claims/plans/questions-first-2.md, "Fidelity"). Standard library and briefbench only.
 
-    uv run python scripts/check_briefs.py --experiment NAME [--dry-run]
+    uv run briefbench check-briefs --experiment NAME [--dry-run]
 
 Round 1's fidelity review asked a person to judge each brief as its requester would. With generated tasks answered by
 the stand-in requester nobody holds that role, so its questions became a reading test. This check reads facts instead:

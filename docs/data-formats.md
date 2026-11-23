@@ -86,6 +86,8 @@ Added 2026-11-06. A task file is one JSON object that `ab --task` runs without a
 | `prompt` | str | The prompt both treatments start from. |
 | `goal` | str | What the result should achieve, kept like a goal you type: never in an arm's prompt. |
 | `check` | str | The check command, run in each worktree after both arms finish, as your check is. |
+| `evaluation` | str | Optional, added 2026-11-23: `check` (the default for existing files) or `human`. Human-evaluated packets can be generated and inspected, but check-only execution and calibration refuse them before agent CLI discovery. Their check command cannot supply a passing quality verdict. |
+| `rubric` | str | With `evaluation: human`, required path to an existing private human-review rubric, absolute or relative to the task file. Kept outside the worker repo with the keys; included in the bank's frozen key-directory hash. It is not rendered into the worker prompt. |
 | `setup` | str | Optional: the setup command for a fresh checkout. |
 | `protected` | list of str | Optional: protected paths inside the repo. |
 | `facts` | list of str | Optional, added 2026-11-10: what the requester knows and the prompt leaves out, each a non-empty string. Only the stand-in requester sees them; an arm gets a fact only as its answer to a skill's question, word for word. It names answers, so it stays with the keys. |
@@ -122,3 +124,29 @@ Only log lines are scrubbed of key values. The files in a trial's output folder 
 - Bench execution totals sum worker arms and every headless call once, including stand-in answers and failed attempts. Arm `brief` totals are not added again. The workflow overhead statistic still excludes stand-in answers. Unknown historical prices/usage are not converted to zero-cost claims.
 - Codex session experiments additionally freeze `asker.session_version` (`json-rpc/1`). The CLI and bench script refuse execution after this transport version changes. The stdio app server owns one ephemeral thread per interview; raw output files retain JSON-RPC notifications, while log usage remains incremental and has the same token meaning as other calls. Codex supplies no CLI dollar estimate, so `cost_usd` stays null.
 - Bench-2 keeps per-set `recipe.json` manifests under its private data folder, containing set configuration, generator and key-file hashes and repository commits. A per-treatment `.screen.json` or `.full.json` freezes recipe, selected task hashes and treatment hash. The token guardrail derives cumulative consumption from the existing log, so restarting does not reset it. These files contain local data and are not repository artifacts.
+
+## Lifecycle records (format 1, added 2026-11-23)
+
+These are separate from trial logs and frozen experiment formats; existing fields
+retain their meanings. [Maintenance](maintenance.md) defines the review workflow.
+
+- Public `claims/lifecycle.json`: `format: 1`, `relations` (`from`, `to`,
+  `relation`, `reason`), `instructions`, optional `historical` ID-to-text/path map
+  and `revisit` claim-to-reviewed-reason map. IDs refer to cards, source queue IDs
+  or retained historical records. Canonical equivalence has one destination and
+  no cycles. Other typed relations never pool evidence. Required instruction and
+  scoped review fields are listed in the maintenance procedure.
+- Private `maintenance/events.jsonl` under the data directory: append-only
+  `format: 1`, UTC `at`, `event` (`opened`, `completed`, `flagged`), `cycle`
+  (`sources`, `instructions`), `fingerprint` (SHA-256), `token` (SHA-256; empty for
+  a flag). Opened/completed events also carry `reason` and `steps`; completion and
+  flags carry a private `note`. A completed token must have been opened against
+  the same current inputs. Only completion starts the next interval. No event
+  updates an instruction's `last_evaluated`.
+
+Source fingerprints cover source/claim/eligibility fields, queue entries and typed
+links/history. Instruction fingerprints cover skill files, core source/templates,
+bench recipes, scripts/material generators, instruction records and their linked decisions/evidence. Both are
+local change detectors, not guarantees about remote models. A private file lock
+serializes checks and completions. Damaged journals fail closed and must be
+preserved for repair. Missing clocks mean first review due, never already reviewed.

@@ -26,7 +26,7 @@ Claim cards, documentation and public-readiness work can go on alongside any pha
 | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions per trial, `--rule fixed:N`, `score --json` | Built 2026-11-05 | Offline tests on Python 3.11 and 3.14; the two headless calls live through Claude Code 2.1.317 and Codex 0.166.0-alpha.6 |
 | Claim cards, community files, CI, skill packaging | Drafted 2026-11-05; four cards from recent sources added 2026-11-06; seven removed 2026-11-18, two for setup advice and five for the project's own suggestions; seven settings cards added 2026-11-20, all deferred | Offline validators; your review before publishing |
 | The method for public results in the bench: Tango's interval, pass rates and cost medians with exact intervals, noise checks as a calibration, kinds of task (`init --strata`), stage, plan and materials (`init --stage`, `--plan-commit`, `--tasks`), the halfway look (`--futility-at`); `scripts/plan_trials.py`, `scripts/audit_check.py` | Built 2026-11-09 | Offline tests on Python 3.11 and 3.14; one live smoke trial of kinds of task (P1, "Smoke trial of kinds of task") |
-| The bench: one fixed set of tasks for every trick (`bench/`, `scripts/bench.py`), the plain prompt's runs shared, a trick's runs of one arm (`ab --task --only`), one table ([bench.md](bench.md)) | Built 2026-11-20; bench-1's 24 tasks made, its runs owed after your yes | Offline tests on Python 3.11 and 3.14 |
+| The bench: one fixed set of tasks for every trick (`bench/`, `scripts/bench.py`), the plain prompt's runs shared, a trick's runs of one arm (`ab --task --only`), one table ([bench.md](bench.md)) | Built 2026-11-20; subsequent screens and host revisions are recorded in [the article queue record](status/2026-11-23-article-queue.md). [The bench workflow](bench.md) defines the current default and opt-in bank | Offline tests on Python 3.11 and 3.14 |
 | Plugin install from the repo for Claude Code and Codex (`plugin.json`, the marketplace file), `CHANGELOG.md`, the release workflow | Drafted 2026-11-06 | Offline tests (`tests/test_distribution.py`); installed from a local copy in Claude Code 2.1.317 and Codex 0.167.0-alpha.3.2. Installing from GitHub owed (P0.3); the release workflow has not run |
 
 The baseline for any code change:
@@ -70,6 +70,11 @@ Run one real task with `briefbench ab` with Claude Code as the worker, and one w
 
 ## 4. P1 Unattended trials and the first materials
 
+The steps below preserve the original implementation sequence and pilot evidence.
+Earlier task-treatment and host restrictions are historical; current supported
+roles, session interviews and confinement are in [the bench workflow](bench.md#execution-and-reuse).
+This history does not replace the [standing queue](../BACKLOG.md#resume-here) or authorize another pilot.
+
 Goal: test a trick from a recent post without you judging each pair, starting with Rieseberg's "test your belief against the raw data" ([card](../claims/test-your-belief.md)).
 
 1. **Check-only scoring.** `init --scoring check` freezes an experiment that the check alone scores. Exactly one arm passing wins; both passing or both failing is a tie, logged as `both_passed` or `both_failed`. No pick, no judge, no guess. `init` refuses the two-step rule with it, because most trials tie, and the fixed rule takes `--net-min` and `--alpha` (design.md, "When most trials tie").
@@ -111,11 +116,27 @@ Still owed **before the first test** (P2):
 
 ## 5. P2 Posts under test
 
+**Public entry points (23 Nov 2026).** `brief` is the one frontend skill;
+`briefbench` is the one backend executable. Its `bench` subcommand routes the
+existing shared-bank implementation, and study/maintenance subcommands keep the
+other backend operations under the same command. This changes discovery and
+routing, not treatments, evidence gates or experiment authorization.
+
+**Lifecycle support (implemented 23 Nov 2026).** Follow [maintenance](maintenance.md)
+for canonical intake, historical overlap search and reviews triggered on backend
+use. The maintainer authorized these local record/guard checks; they run no model
+and do not skip phase gates. P3 adoption adds scoped evidence and rollback records.
+P3/P5 consolidation or retirement comparisons use the incumbent and a frozen
+removal/replacement, matching shared task kinds and separate usage authorization.
+The three-adoption whole-skill checkpoint is recorded in the instruction review.
+No statistical equivalence verdict or replay engine is added.
+
+
 For each card in design.md's list ("Posts under test"), in its order, by the method for public results ([experiment-protocol.md](experiment-protocol.md), sections 4, 8, 10, 11 and 12):
 
 1. Check that the list is still recent, and that no newer post makes the same claim.
 2. Write the add-on, or the skill variant, with the condition its source gives, and name the materials and their kinds of task: where the trick should help, and where it could hurt.
-3. **The bench, then calibrate.** First the trick's runs on the bench ([bench.md](bench.md)), labelled development, not evidence, after your yes with their usage stated (until 2026-11-20, a pilot of about 10 trials on tasks of the trick's own). Only for a trick the bench's table marks worth a full test, after your yes and with its expected usage stated first, calibrate. Generate about 20 tasks where the trick should help and 10 where it could hurt, from a seed used only for calibration; freeze them under `init --stage calibration`; run the plain prompt twice on each with `scripts/run_tasks.py --aa` (60 runs). Go ahead only if, where the trick should help, the plain prompt fails at least twice the smallest gain worth detecting: 30% with the default 15 points. Otherwise make the materials harder and calibrate again, with a new seed. Then compare the checker with your own labels on 20 reports (`scripts/audit_check.py`), fix it if needed, and record the generator's and the checker's hashes.
+3. **The bench, then calibrate.** First the trick's runs on the bench ([bench.md](bench.md)), labelled development, not evidence, after your yes with their usage stated (until 2026-11-20, a pilot of about 10 trials on tasks of the trick's own). Only for a trick the bench's table marks worth a full test, after your yes and with its expected usage stated first, calibrate. Generate about 20 tasks where the trick should help and 10 where it could hurt, from a seed used only for calibration; freeze them under `init --stage calibration`; run the plain prompt twice on each with `briefbench tasks --aa` (60 runs). Go ahead only if, where the trick should help, the plain prompt fails at least twice the smallest gain worth detecting: 30% with the default 15 points. Otherwise make the materials harder and calibrate again, with a new seed. Then compare the checker with your own labels on 20 reports (`scripts/audit_check.py`), fix it if needed, and record the generator's and the checker's hashes.
 4. **Plan and publish.** Compute N for each kind with `scripts/plan_trials.py`, state the test's expected usage, and, after your yes, commit the plan to the public repository, in the card or a file it links to, naming the beacon round that will give the seed.
 5. **Freeze.** Generate the tasks from the beacon's value, with about 10% reserves, and freeze `init --scoring check --rule fixed:N --net-min 0 --strata <help>,<harm> --stage test --plan-commit <sha> --tasks <list> --seed-source "<beacon round>"`.
 6. Run all N trials unattended. Don't stop early or extend, except at a halfway look written in the plan.
@@ -131,6 +152,19 @@ Bench-1's first pass is recorded in `bench/board.md`: interview and outcome vari
 **Codex execution, selected 2026-11-23.** The maintainer clarified that the requested screen must run in Codex, then authorized implementing its missing support. The default is now `bench-2-codex`: the same bank design and ten-task scopes, fresh Codex controls, `gpt-6.1-sol` at medium effort, read-restricting permission profiles, and an ephemeral interview session. The older `workspace-write` limitation described in historical notes below no longer applies to these new task presets. Claude Code records stay separate, and no Claude Code run is authorized by a request to run in Codex. This host change does not implement settings arms, clear fidelity gates or authorize a larger campaign.
 
 The next substantive gates remain: human fidelity review and the public-results method for any promising trick; better task kinds for deferred claims; settings arms before settings advice is tested; and the real-use acceptance set in two hosts. A screen that resolves missing information measures workflow benefit. Isolating a rewrite requires the equal-information `clarified` control, not an adoption claim from a gain over the uninformed original.
+
+**Coverage materials authorized, 23 Nov 2026.** The work audit led to the opt-in
+`bench-3-codex` bank: original recipes and easy sentinels retained, with shared
+integration/state repairs and evidence synthesis. This is P2 materials preparation,
+not an experiment or a passed evidence gate. Reference/mutation checks and both
+offline Python suites validate the implementation. Human synthesis rubrics stay
+outside worker repositories; automatic execution refuses those tasks rather than
+substituting a formatting grade. See [the bank specification](bench.md#coverage-bank-3-opt-in-no-experiments-run).
+No source-kind reassignment, settings implementation, calibration, model change,
+fidelity judgment or adoption is implied. Before later live work: review the public
+fixture designs, plan the actual matching selection and human review where needed,
+state expected usage, and obtain authorization. New confirmation cases must remain
+unseen; numeric variants of inspected designs do not establish broad real-work coverage.
 
 Boris Cherny's talk (July 2026) and the common advice (an expert persona, capitals and CRITICAL) stay untested unless a recent post repeats them ("Posts under test").
 
@@ -149,6 +183,11 @@ The first settings test is Anthropic's advice to save max effort for hard proble
 **Codex continuation, 23 Nov 2026.** The original Claude-specific proposal above remains historical. For the selected Codex host, start preparation with `default-effort-first`. The maintainer subsequently said coding quality matters more than usage and rejected a universal loss allowance. [The revised settings design](status/2026-11-23-settings-proposal.md) therefore reports quality and usage separately by task kind, without arbitrary numerical weights. Savings cannot offset a known correctness regression. Future settings plans still need explicit, task-appropriate confirmatory criteria; unresolved accuracy is not equivalence. No frozen rule or previous comparison changes retroactively. [The queue record](status/2026-11-23-article-queue.md) tracks all 18 cards and their remaining prerequisites.
 
 ## 6. P3 The skill grows from empty
+
+The dated construction record below retains earlier host restrictions. Current
+Codex task roles and session interviews supersede those limitations as described
+in [the bench workflow](bench.md#execution-and-reuse); source, fidelity and adoption
+gates remain. Follow [the standing queue](../BACKLOG.md#resume-here) for pending work.
 
 1. **A stand-in requester.** A new `answerer` role in `presets.py`: a headless call with no tools that answers the skill's questions using only the task's facts, by quoting them, or says it doesn't know. Its template is frozen with the experiment, answers are logged as simulated, and `ab` accepts the new render value alongside the interactive one. **Built on 2026-11-10.** A task file's `facts` list what the requester knows; the stand-in chooses, for each question, the facts that answer it by number, or none, and the bench writes their text word for word as the answer, so the stand-in adds nothing of its own; none chosen is a skipped question. The experiment freezes it (`answerer`, `templates.answerer`, render `skill-questions/1+stand-in/1`); its call is logged as the step `answers` and isn't part of an arm's cost. Because a brief now reaches an arm unattended, the skill's two headless calls run confined like the worker (the roles `task-asker` and `task-rewriter`: a temporary folder of their own, the same denied places, their steps scanned, a hit marking the arms they reached), Codex is refused as their rewriter, a brief's fidelity is logged unreviewed, and `score` adopts nothing while any of B's briefs is unreviewed. Offline tests cover each of these. Live on 2026-11-10 through Claude Code 2.1.317: the stand-in chose the right fact for one question and none for another, the questions came back as JSON through stream-json, and a confined rewrite could not read a file in a denied folder that its prompt pointed at (without the rule, Claude Code headless also refused to read outside its folder).
 2. **Materials with gaps.** Generated tasks whose prompt leaves out a fact the requester knows and the check depends on, such as which customers the decision is about. **Built and calibrated on 2026-11-11.** `scripts/materials/missing_fact.py`, set `missing-fact/1`: a request for one rate (churn, returns or late deliveries) from one table, for a meeting. In a `gap` task the prompt leaves out which group or from which month the requester means, and shows that something is missing; the task file's `facts` hold it, with two that don't matter. In a `no-gap` task the prompt states it. The data is drawn before the fact and never depends on it, and every guess fails the check (tests show both). Calibrated on the plain prompt only, 60 runs on Claude Code 2.1.321 with `claude-opus-5-5`: `gap` 0 of 40 passed, `no-gap` 20 of 20, and two runs never disagreed. In 34 of the 40 gap runs the agent declined to give a number and asked for the missing fact, which a one-shot handoff can't answer; in 6 it guessed. So the materials leave the most room there is (private study note `interview-cal1`).
