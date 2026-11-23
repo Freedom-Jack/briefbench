@@ -10,6 +10,7 @@ briefbench turns posted advice about prompts, and about the settings a task runs
 
 | Document | Authority and purpose |
 | --- | --- |
+| [Central backlog](../BACKLOG.md) | Broad intake of articles, maintainer ideas, workflow/command proposals and prerequisites; links to evidence without overriding the product scope or adoption rules |
 | This document | Product direction, component boundaries, the built architecture, decisions and phase order |
 | [Build plan](build-plan.md) | Ordered work packages, acceptance checks, release gates and the next steps |
 | [The bench](bench.md) | The fixed set of tasks every trick runs on first, its table, and how to add a trick or a kind of task |

@@ -2,6 +2,8 @@
 
 A claim card records one prompting claim: a single recommendation that can be traced to its source and tested. It is not a summary of an article. An essay with ten pieces of advice can give ten cards.
 
+The [central backlog](../BACKLOG.md) is the broader intake, including maintainer ideas, command/workflow proposals, untriaged article themes and retired cards. This registry's 18 cards are a subset; absence here does not mean a source or idea was forgotten or experimentally rejected. Scope rules below still determine what may become a claim card or enter the skill.
+
 **Only advice that people have posted gets a card** ([design](../docs/design.md), "Only advice people have posted"): advice someone gave in public, in a post, a guide, a talk, a paper or a comment, about what a prompt says or how it says it, or, since 20 Nov 2026, about which model, effort level or multi-agent mode to run a task with. Other advice about the agent's setup, such as its tools, project files like CLAUDE.md, checks outside the model or how several agents are arranged, gets no card and no test. Neither do the project's own ideas, such as the instructions in version 0.2.0 of the skill or the suggestions in its research reports.
 
 Each card says who made the claim, what outside evidence exists, whether the claim could ever belong in the `brief` skill, and how briefbench could test it, on the kind of work its source is about.

@@ -2,6 +2,8 @@
 
 Background research for briefbench: what already exists, what the evidence says about prompting, and how to state a result. These reports inform the design but don't change it. Decisions live in [design.md](../design.md); [design-review.md](../design-review.md) shows where each research recommendation landed, and [design-research.md](../design-research.md) adds later primary-source checks.
 
+Use [the central backlog](../../BACKLOG.md) to track article themes and ideas across these reports, including those with no current claim card. A researched article is not necessarily fully decomposed, eligible for the skill, or experimentally tested. Keep new leads in the backlog while their source, scope and evaluation are resolved.
+
 ## Reports
 
 | Date | Topic | Question | Working copy (private) | Snapshot |

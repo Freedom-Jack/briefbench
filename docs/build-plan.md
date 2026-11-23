@@ -193,6 +193,7 @@ These are planning ranges, not promises; the pilot replaces them.
 ## 11. Next session
 
 1. Read this plan and design.md, and check the worktree state.
+   Consult [the central backlog](../BACKLOG.md) before selecting a candidate: the current claim cards omit some researched source themes, user ideas, command/workflow suggestions and retired proposals. Resolve an item's scope and evaluation prerequisites before running it; a PR merge is delivery, not an adoption result.
 2. Run the offline suites on 3.11 and 3.14.
 3. The bench first (P2, "The bench first", decided 2026-11-20; [bench.md](bench.md)): after your yes, completed bench-2 screens with controls created on demand, then the next kinds of task, each built once for the tricks waiting for it. Record each trick's bench result on its card and in the "By article" table, labelled development, not evidence. Round 3, Claude Code's interview advice (P3, step 5), had its pilot on 2026-11-20 and didn't stop; its factual check, calibration and public test wait. Rounds 1 and 2 tested the skill's own question section, not posted advice ([record](../claims/results/questions-first.md)): round 1 gave **worse**; round 2's result is still owed, as its plan sets out. "Test your belief" found no room on Claude Code with `claude-opus-5-5` (2026-11-09). Only advice people have posted, about prompts or settings, is tested (design.md); the settings tricks first need settings arms (P2, "Settings tricks"). Ask before building a large part.
 4. P0 when you have real prompts and tasks.

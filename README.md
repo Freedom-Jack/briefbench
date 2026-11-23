@@ -6,6 +6,8 @@ A prompt improver you use every day, and a small bench that checks on your own t
 
 Earlier rounds tested the skill's own instructions, not posted advice: round 1 was worse and nothing was adopted; round 2's final result remains owed ([record](claims/results/questions-first.md)). See the [build plan](docs/build-plan.md) for release gates.
 
+Start with the [central backlog](BACKLOG.md) for all captured articles, maintainer ideas, command/workflow suggestions such as `/goal` and `/loop`, retired proposals and evaluation prerequisites. The 18 claim cards are one subset. The backlog also explains why no validated skill addition is waiting merely for a PR merge.
+
 ## Why
 
 People post prompting tricks all the time, and little of the advice is tested. Independent tests, mostly on 2025 models, found that several popular tricks, such as expert personas or "think step by step" on reasoning models, gave no reliable gain, and small 2026 tests point the same way. Stating what you want, why, and what done looks like helped in the studies that tested it, including on 2026 models ([research](docs/research/README.md)).

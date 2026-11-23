@@ -6,6 +6,8 @@ Guidance for AI coding agents working in this repository, such as Claude Code, C
 
 Read [docs/design.md](docs/design.md) before changing anything, then the relevant work package in [docs/build-plan.md](docs/build-plan.md). The project is going public: a portable `brief` skill, and a small bench that tests prompting claims against it on the user's own tasks. [docs/design-review.md](docs/design-review.md) explains why the design is what it is.
 
+[BACKLOG.md](BACKLOG.md) is the central intake for sources, maintainer ideas, command/workflow proposals, current and retired claims, and prerequisites. Consult it before selecting more experiments. The 18 current claim cards are not the full backlog. Keep ideas such as model/effort recommendations and `/goal`/`/loop` command advice visible with their provenance and scope status; tracking them does not relax the rules below or authorize execution.
+
 ## Rules
 
 - **Keep the two parts separate.** The `brief` skill improves prompts: it clarifies intent and instructions, and once posted settings advice has won a round it may add one note after the brief suggesting the settings to run the task with. It never chooses domain methods, changes the host's settings, does the task, ingests prompting articles, logs, records or evaluates. It works without the bench. The bench runs it headless as a black box and keeps every record itself; the downstream agent owns methods and execution.

@@ -1,5 +1,7 @@
 # Article queue and release status, 23 Nov 2026
 
+Scope note added after the maintainer's follow-up: this dated report covers the 18 registered cards and the Codex screens below. [BACKLOG.md](../../BACKLOG.md) is the broader central intake for articles, maintainer ideas, command/workflow suggestions, untriaged themes and retired proposals. This report does not establish that every pending source or idea was covered by those 18 cards.
+
 The maintainer asked to continue the pending articles in Codex, push the resulting skill, and report the adopted tricks and scoreboard. This extends the earlier one-screen authorization to the remaining ready development screens. It does not waive the source, fidelity, equal-information, confirmation or real-use requirements. A completed queue review and a released improvement are separate deliverables.
 
 ## Execution boundary
