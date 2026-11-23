@@ -1,97 +1,63 @@
 # The bench
 
-Decided 2026-11-20. Every trick runs on one fixed set of tasks first. Before this, each trick got tasks of its own: a new generator, its own reviews, then a pilot of about ten trials that ran the plain prompt again. That made results on two tricks impossible to compare, cost a working session plus millions of tokens per trick, and grew the docs with each one. The bench is a quick check, not a benchmark of record like SWE-bench: it gives a first sense of each trick, cheaply, on the same tasks as every other trick.
+Revised 2026-11-23 after [bench-1's usage review](status/2026-11-23-bench-usage.md). A completed comparison should be inexpensive by construction. A consumption ceiling is a guardrail for exceptional runs, not the mechanism that makes ordinary runs affordable.
 
-## How it works
+## Run a completed screen
 
-1. **One fixed set of tasks.** `bench/bench-1.json` is the recipe: which generators, which seeds, how many tasks of each kind. A kind of task is one situation that posts talk about, such as "a coding request that leaves out the requester's decisions". `scripts/bench.py make` makes the tasks once, into the data folder. It calls no model.
-2. **The plain prompt runs once for the whole bench.** It runs twice on each task (`ab --task --aa`), so the table can tell a real difference from the run-to-run noise. Every trick is compared with these same runs, so a trick pays only for its own.
-3. **A trick runs once on each task it can change** (`ab --task --only b`, logged as a run, not a trial). Text added to a prompt skips the kinds where passing needs the requester's answers, since it can't ask for them. A skill version runs on every kind, with the stand-in requester answering its questions from each task's facts.
-4. **One table for every trick:** `bench/board.md`, written by `scripts/bench.py board --write` from the log.
+```sh
+uv run python scripts/bench.py make
+uv run python scripts/bench.py run ask-questions-first
+uv run python scripts/bench.py board --write
+```
 
-### bench-1
+`make` creates the fixed task bank without model calls. `run` explains the work and estimated usage before asking; `--yes` accepts it noninteractively. `board --write` writes `bench/board-2.md`. Private tasks, prompts and logs stay in the data folder.
 
-Claude Code with `claude-opus-5-5`, 4 tasks of each kind, made from the project's generators:
+The default recipe is [bench-2](../bench/bench-2.json). Each current runnable trick has a **complete 10-task screen**:
 
-| Kind | Work | What it is | Room for a trick |
-| --- | --- | --- | --- |
-| Feature, decisions left out | coding | A request for a small feature that leaves out the four decisions the requester has made (`feature-request/1`, `gap`) | Only a trick that asks the requester can pass |
-| Feature, decisions stated | coding | The same request, stating them (`no-gap`) | Mostly room to hurt |
-| Data question, fact left out | analysis | A request for one rate that leaves out which group or month (`missing-fact/1`, `gap`) | Only a trick that asks the requester can pass |
-| Data question, fact stated | analysis | The same, with the fact stated (`no-gap`) | Mostly room to hurt |
-| Analysis, wrong belief | analysis | Data and a stated belief about a cause, which is wrong (`planted-cause/6`, `belief-wrong`) | Little: on this and two earlier versions of these tasks, the plain prompt named the cause in 59 of 60 runs |
-| Analysis, right belief | analysis | The same, where the belief is right (`belief-right`) | Mostly room to hurt |
-| Bug report, more failures | coding | A bug report about one file, where two more files also fail (`failing-import/1`, `more`) | Room for tricks about the outcome behind a task. Joins when its generator is merged |
-| Bug report, one failure | coding | The same report, where nothing else fails (`only`) | Mostly room to hurt. Joins with the one above |
+- All eight tasks in its source's family: four matching the source's condition and four contrasting cases.
+- Two regression sentinels: the first complete task by task id from each of the first two other available families, sorted by family id. Selection never depends on results.
 
-Most kinds were built for one trick each, so many leave room in one direction only. That is still useful: every trick shows whether it breaks ordinary work. The kinds to add next are those that give room to the tricks still waiting (below).
+This is the entire default comparison, including when the result is promising. It never automatically expands. `run TRICK --full` explicitly adds the remaining eligible tasks. A wider sweep and a public test are different activities; neither follows automatically from a screen.
 
-## Reading the table
+Only missing baselines are run: two plain runs per selected task, shared by every trick on that task with the same configuration. A trick then needs one worker run per selected task. Repeating a completed command calls no models. Editing a treatment starts a new experiment by its content hash while preserving compatible baselines. `--limit N` limits the number of tasks attempted in that invocation, across controls and treatment; it does not declare the comparison complete.
 
-Each cell shows how many of a trick's runs passed the hidden check, such as `3/4`. The plain prompt's row counts both of its runs. A task counts as **gained** (`+`) when the trick passed it and the plain prompt failed both times, and as **lost** (`−`) when the trick failed it and the plain prompt passed both times. A task where the plain prompt passed once is noise either way.
+`plain --full` explicitly warms every baseline in the bank. Ordinary use needs no separate `plain` command. Text-only tricks skip tasks marked as requiring private answers; they cannot obtain those answers. A trick whose source kinds the baseline always passes has no room and is not run without `--anyway`.
 
-Each trick gets one line, by rules fixed before any trick ran:
-- **Worth a full test**: on the kinds its post is about, it gained at least 3 tasks more than it lost.
-- **It hurt**: it lost at least 2 tasks, on any kind.
-- **No room**: the plain prompt passed every task of the trick's kinds, both times, so the trick can't do better on this bench. `run` doesn't spend usage on it unless asked with `--anyway`.
-- **No clear difference**: otherwise.
+## Execution and reuse
 
-A trick whose post is about a kind of task the bench lacks, or that has no treatment yet, is listed under "Waiting" with what it waits for. The table also gives each trick's median extra tokens and time over the plain prompt on the same tasks, and, for a skill version, on how many tasks it asked the requester questions, on its own kinds and on the others: a trick from a post should act only when a request meets its source's condition ([design.md](design.md), "The skill grows from empty").
+The task worker has four tools (Bash, Read, Edit and Write), no loaded skills, explicit medium effort and a five-minute timeout. It retains the OS sandbox and read restrictions. This replaces the larger inherited tool/skill context used by bench-1. Worker settings apply equally to controls and treatments; these results cannot be compared against bench-1's controls.
 
-## Adding a trick
+For skill treatments, `--interview session` keeps one confined, read-only CLI process for the whole interview and returns the brief on its final turn. The skill and prompt are sent once, later turns send only the latest answers, and no separate rewrite call is needed. The stand-in remains a separate call that sees facts but never the hidden goal or check. Each worker starts fresh with only its rendered prompt. There is no session shared across tasks, arms or treatments.
 
-1. Its claim card, as now ([claims/README.md](../claims/README.md)).
-2. Its treatment, close to the post's words and tuned to nothing on the bench: a file of text added to the prompt (`snippets/`), or a skill version (`variants/`).
-3. Its line in `bench/tricks.json`: the treatment, and the kinds of task its post is about, written before it runs. Every card has a line; `tests/test_bench_script.py` checks that.
-4. `uv run python scripts/bench.py run <id>`. It says how many runs and about how many tokens it will use, and asks first. An edited treatment is a new one: its runs start afresh, under an experiment named by its hash. The treatment is copied into the bench's folder when it first runs, so its runs don't depend on the checkout, such as a worktree, they started from.
-5. `uv run python scripts/bench.py board --write`, and a line on the card's Status saying what the bench showed, labelled development, not evidence.
+The skill's own rules still decide whether to ask questions. The ten-turn safety stop produces a failed, incomplete comparison if no brief is ready. It never manufactures a shorter interview to fit a spending limit. Session mode is an optional preset capability; unsupported CLIs refuse it before running. Ordinary interactive experiments retain the fresh-call interface.
 
-## Adding a kind of task
+Reuse requires matching model, worker command, CLI version and timeout. New screen experiments pin every role's CLI version and refuse execution after an update. The scope freezes the selected task hashes, recipe and treatment hash. Task manifests also verify seeds, generator code, answer-key files and repository commits. Changed materials or settings require a new bench name. Historical records are never silently relabelled.
 
-A new kind is built when a post is about a situation that no kind covers, once, and then every trick can use it:
-- a generator in `scripts/materials/` with the shared command shape, `make --seed S --<kind> N --<kind> M --out REPOS --keys KEYS`, whose task files name their `set`, `stratum`, `facts`, `generator_sha256` and `checker_sha256`;
-- its set in the recipe, with 4 tasks of each kind and a plain description;
-- `make` adds it without touching the sets already made; `plain` runs the plain prompt on its tasks only; and `run` gives an earlier trick its runs on the new kind only.
+## Reading the results
 
-A set once made is never changed; a changed generator is a new set (`<name>/2`). The kinds the waiting tricks need, by how many tricks each would serve:
+Each cell reports passes over completed runs. A task is gained when the trick passes and both controls fail, lost when the trick fails and both controls pass. Split controls indicate noise. The fixed development rules remain:
 
-| Kind to add | Tricks waiting for it |
-| --- | --- |
-| Hard coding tasks with easily missed cases | Max effort for hard solo work, raise effort for easily missed cases, raise effort before a bigger model, presets by kind of task: all also need runs at another effort level or model |
-| A measurable target, such as speed, with tests the agent can't edit | Unreasonable goals |
-| An answer that needs looking in more than one place | Explore broadly |
-| Work that divides into parts | Multi-agent mode only for divisible work, which also needs runs with that mode on |
+- **Worth a full test:** at least three net gains on the source's kinds, after the screen finishes.
+- **It hurt:** at least two losses on the tasks examined.
+- **No room:** both controls pass every source-kind task.
+- **No clear difference:** otherwise; this does not establish equivalence.
 
-## A new model
+The board reports screen completion separately. Unexamined kinds remain blank. Ten tasks give less coverage than the old 32-task sweep; a completed screen is not a claim about the entire bank. Failed and excluded tasks remain visible. A failed step stops the command; a subsequent invocation can retry it once, and two failures exclude that task. Flags for possible reads outside the permitted folders remain visible and need log review.
 
-A bench is tied to its worker and model. A new model gets a new recipe (`bench-2`) with the same sets and seeds, the plain prompt's runs again, and the tricks rerun as wanted. The script refuses to compare a trick's runs with plain runs made with another worker, model, worker command or time limit, and the table marks such a row "not comparable". Changes of Claude Code's version within one bench are allowed, and the table's first line lists them.
+**These are development results, never adoption evidence.** A question-asking treatment receives information that the original prompt lacks. That comparison measures the whole workflow, not the special value of a rewrite or of a particular interview style. An equal-information test uses `clarified` against the skill: the same questions and answers, unrewritten. Such a test, fidelity review, fresh tasks, calibration, published plan and replication still belong to the [public-results method](design.md). No source advice or released skill text changed in this engineering revision.
 
-## What the bench can't say
+## Usage and guardrails
 
-- **It is a quick check: development data, not evidence.** One run per task for a trick and two for the plain prompt show only large effects; one or two tasks either way is noise. "No clear difference" doesn't mean no effect.
-- **The tasks are fixed and their seeds are public,** so the bench is no holdout. That is fine for a first look, as long as no treatment is tuned to it.
-- **A result holds for this worker, this model and these small generated tasks.** Each kind names the kind of work it stands for, and the table names each trick's own kinds.
-- **Extra time is rough.** The plain prompt's two runs on a task run at the same time, and a trick's run alone.
-- **A skill version's rewritten prompts get no fidelity review on the bench.** A gain there is a reason for a full test, where they are checked.
-- **A failed run is shown, not counted.** A run stopped by a failed step, such as a usage limit, is retried once; a task that fails twice is left out, and the trick's line says so.
-- **Open-ended work isn't covered.** Tricks judged by your blind pick, such as controlled language, wait for your own tasks through `ab`.
+The board's execution totals include workers, all interview turns, stand-in answers and logged failed attempts. New records retain disjoint input, cache-write, cache-read and output token counts plus the CLI's dollar estimate. Cache reads still count as processed tokens. Dollar estimates are not subscription bills; unknown usage or prices remain explicitly unknown. The existing median extra-cost statistic excludes stand-in answers because it describes the user's workflow; execution totals include them because the bench actually spends them.
 
-## After the bench
+The recipe's six-million-token guardrail is checked before each task against persisted consumption for that comparison, including its selected shared controls and previous failed attempts. Restarting does not reset it. `--max-tokens N` explicitly overrides the ceiling. A task already in flight may exceed it; the wall-clock timeout bounds such a task. A call without reported usage stops subsequent work for review. After review, `--allow-unknown-usage` acknowledges that gap for the invocation: the ceiling then bounds known consumption only, and reports keep the unknown entry. Guardrail stops say **comparison incomplete**, rather than pretending that the selected work finished. `briefbench init --cap` is an unrelated adoption criterion (median percentage overhead), not this execution guardrail.
 
-A trick the table marks worth a full test, and anything that would change the skill, goes on to the method for public results ([design.md](design.md), "A method for public results"), after your yes and with its usage stated first: a calibration on fresh tasks from the same generators with new seeds, a plan published before the tasks exist, and a second test before "better". The bench replaces the pilot that came first until 2026-11-20.
+The structural saving is known before a model runs: a warm screen needs 10 treatment workers instead of 32; a cold first screen needs 20 controls instead of 64. Subsequent tricks reuse overlapping controls, and unchanged completed comparisons cost zero calls. Exact token savings depend on the tasks and number of interview/tool turns; a small compatibility test does not establish a representative cost. See the [implementation record](status/2026-11-23-cheap-comparisons.md) for measurements and limitations.
 
-## Cost
+## Historical bench-1 and the task bank
 
-From the runs of November 2026 on Claude Code: about 0.11 to 0.17 million tokens and half a minute to a minute per run on these tasks. With 24 tasks, the plain prompt's 48 runs take about 6.7 million tokens, once for the bench. A trick then takes about 2.5 million tokens as added text (16 runs), or about 4.5 million as a skill version (24 runs, with its questions and rewrite). The bug-report kinds add 8 tasks. `scripts/bench.py` gives its own estimate before each run, from the bench's own plain runs once they exist.
+`--bench bench/bench-1.json board` reports the old experiments; `bench/board.md` is their committed table. Bench-1 had 32 tasks and ran every eligible kind per trick. Its 64 controls used 8,912,892 tokens; the interview and outcome variants used 7,047,487 and 6,602,926 respectively. The new worker and render templates require new experiments; old logs remain readable.
 
-## Files
+The bank still uses four fixed-seed generator families, with four tasks per kind: `feature-request/1` (gap/no-gap), `missing-fact/1` (gap/no-gap), `planted-cause/6` (belief-wrong/belief-right), and `failing-import/1` (more/only). The seeds and tasks are public designs, not a holdout. Many controls were at 0% or 100% on bench-1, limiting what can be inferred. Better coverage requires better task design, not more repetitions of uninformative tasks.
 
-| Where | What |
-| --- | --- |
-| `bench/bench-1.json` | The recipe: worker, model, sets, seeds and kinds |
-| `bench/tricks.json` | Every trick: its treatment and kinds, or what it waits for |
-| `bench/board.md` | The table, written by the script; numbers only, no prompts or outputs |
-| `scripts/bench.py` | `make`, `plain`, `run` and `board` |
-| `~/.briefbench/bench/bench-1/` | The made tasks: each set's repos and keys, and `tasks.txt`; and a copy of each trick's treatment, under `treatments/` |
-| `~/.briefbench/experiments/` | `bench-1.plain`, and `bench-1.<trick>-<hash>` for each treatment |
-| `~/.briefbench/log.jsonl` | The plain prompt's runs as `aa` lines and a trick's as `run` lines ([data-formats.md](data-formats.md)) |
+To add a trick, write its sourced claim card, untuned treatment and `bench/tricks.json` entry naming its source kinds before running it. A new kind joins the shared bank through a generator with the existing `make --seed ... --out ... --keys ...` interface. Never tune a treatment after seeing these tasks' losses and call it posted advice. Settings tricks and open-ended work remain at their existing implementation and human-review gates.

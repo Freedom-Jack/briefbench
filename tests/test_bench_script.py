@@ -263,6 +263,89 @@ def test_a_trick_that_ran_on_part_of_its_tasks_says_so(setup):
     assert "2 of 5 runs so far." in next(line for line in text.splitlines() if line.startswith("| [tip]"))
 
 
+def screen_recipe(paths):
+    recipe = json.loads(paths["recipe"].read_text())
+    generator = paths["recipe"].parent / "extra.py"
+    generator.write_text(GENERATOR.replace('"demo/1"', '"extra/1"'))
+    recipe.update(screen={"sentinels": 1}, max_tokens=100_000)
+    recipe["sets"][-1] = {"set": "extra/1", "generator": str(generator), "seed": 8, "work": "coding",
+                          "kinds": [kind("down", 3)]}
+    paths["recipe"].write_text(json.dumps(recipe))
+    return recipe
+
+
+def test_completed_screen_creates_only_needed_baselines_and_reruns_nothing(setup, agents):
+    recipe = screen_recipe(setup)
+    assert main(setup, "make")[0] == 0
+    assert main(setup, "plain", "--yes")[0] == 0 and not entries()
+    code, said = main(setup, "run", "tip", "--yes")
+    assert code == 0, said
+    controls = [e for e in entries() if e["kind"] == "aa"]
+    runs = [e for e in entries() if e["kind"] == "run"]
+    assert len(controls) == len(runs) == 6     # five source-family tasks, one sentinel; nine exist
+    assert len({e["task"]["source"]["sha256"] for e in controls + runs}) == 6
+    calls = len(agents())
+    assert "already complete" in main(setup, "run", "tip", "--yes")[1]
+    assert len(agents()) == calls
+    assert "Screen 6/6 completed" in main(setup, "board")[1]
+    setup["tip"].write_text("BRIEF: another posted treatment.\n")
+    assert main(setup, "run", "tip", "--yes")[0] == 0
+    assert len([e for e in entries() if e["kind"] == "aa"]) == 6
+    assert len(agents()) == calls + 6     # same controls, only the new treatment's workers
+    assert main(setup, "run", "tip", "--full", "--yes")[0] == 0
+    assert len([e for e in entries() if e["kind"] == "aa"]) == 8  # explicit wider sweep, still skips private facts
+
+
+def test_guardrail_counts_work_before_resume_and_never_claims_completion(setup, agents):
+    screen_recipe(setup)
+    main(setup, "make")
+    code, said = main(setup, "run", "tip", "--yes", "--max-tokens", "1")
+    assert code == 3 and "Comparison incomplete" in said and len(entries()) == 1
+    calls = len(agents())
+    assert main(setup, "run", "tip", "--yes", "--max-tokens", "1")[0] == 3
+    assert len(agents()) == calls
+    assert "Worth a full test" not in main(setup, "board")[1]
+
+
+def test_changed_materials_or_worker_never_reuse_a_baseline(setup, agents, monkeypatch):
+    recipe = screen_recipe(setup)
+    main(setup, "make")
+    assert main(setup, "run", "tip", "--yes", "--limit", "1")[0] == 0
+    calls = len(agents())
+    monkeypatch.setenv("FAKE_VERSION", "2.0")
+    assert "installed worker changed" in main(setup, "run", "tip", "--yes")[1]
+    assert len(agents()) == calls
+    monkeypatch.delenv("FAKE_VERSION")
+    recipe["sets"][0]["seed"] += 1
+    setup["recipe"].write_text(json.dumps(recipe))
+    code, said = main(setup, "run", "tip", "--yes")
+    assert code and "materials or recipe changed" in said and len(agents()) == calls
+
+
+def test_board_keeps_flags_and_counts_failed_worker_usage(setup, monkeypatch, tmp_path):
+    main(setup, "make")
+    main(setup, "plain", "--yes", "--limit", "1")
+    path = Path(os.environ["BRIEFBENCH_HOME"]) / "log.jsonl"
+    rows = entries()
+    rows[0]["arms"]["a"]["looked_outside"] = True
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert "named a folder it must not read" in main(setup, "board")[1]
+    spent = bench.usage([{"kind": "failed", "stage": "run", "arms": {"b": {"tokens": 17}},
+                          "task": {"headless": [{"tokens": 5}, {"tokens": 7}]}}])
+    assert spent["tokens"] == 29 and spent["calls"] == 3
+    assert bench.usage([{"kind": "failed", "stage": "run"}])["unknown"] == 1
+
+
+def test_unknown_usage_needs_an_explicit_acknowledgement_and_stays_unknown(monkeypatch):
+    rows = [{"experiment": "e", "kind": "failed", "stage": "run", "usage_incomplete": True,
+             "task": {"source": {"sha256": "t"}}, "arms": {"b": {"tokens": 10}}}]
+    monkeypatch.setattr(bench, "entries", lambda: rows)
+    assert not bench.guardrail({}, ["e"], [{"sha256": "t"}], 100)
+    assert bench.guardrail({}, ["e"], [{"sha256": "t"}], 100, allow_unknown=True)
+    assert not bench.guardrail({}, ["e"], [{"sha256": "t"}], 5, allow_unknown=True)
+    assert bench.usage(rows)["unknown"] == 1
+
+
 # ----------------------------------------------------------------------------- the repository's own bench
 
 RECIPE, TRICKS = json.loads(bench.RECIPE.read_text()), json.loads(bench.TRICKS.read_text())
@@ -288,7 +371,7 @@ def test_each_trick_names_a_treatment_that_is_there_and_kinds_the_recipe_has_or_
 
 def test_the_recipe_names_four_tasks_of_each_kind_from_generators_with_the_same_command_shape():
     seeds = [s["seed"] for s in RECIPE["sets"]]
-    assert len(set(seeds)) == len(seeds) and RECIPE["name"] == "bench-1"
+    assert len(set(seeds)) == len(seeds) and RECIPE["name"] == "bench-2"
     assert RECIPE["worker"] == {"agent": "claude-code", "model": "claude-opus-5-5"}
     for s in RECIPE["sets"]:
         generator = ROOT / s["generator"]
@@ -296,3 +379,16 @@ def test_the_recipe_names_four_tasks_of_each_kind_from_generators_with_the_same_
             assert k["tasks"] == 4 and k["flag"].startswith("--") and k["label"] and k["about"]
             if generator.exists():                              # a generator not merged yet waits
                 assert f'"{k["flag"]}"' in generator.read_text() or f"'{k['flag']}'" in generator.read_text()
+
+
+def test_default_recipe_completes_ten_tasks_without_automatic_promotion():
+    tasks = [{"set": s["set"], "stratum": k["name"], "id": f"{s['set']}-{k['name']}-{i}"}
+             for s in RECIPE["sets"] for k in s["kinds"] for i in range(k["tasks"])]
+    assert len(tasks) == 32
+    for trick in TRICKS["tricks"]:
+        if treatment := bench.treatment_of(trick):
+            scope = bench.selected(RECIPE, trick, treatment, tasks)
+            assert len(scope) == 10
+            assert sum(bench.kind_of(t) in trick["kinds"] for t in scope) == 4
+            assert {t["id"] for t in bench.selected(RECIPE, trick, treatment, list(reversed(tasks)))} == \
+                {t["id"] for t in scope}

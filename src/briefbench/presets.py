@@ -71,6 +71,8 @@ class Reply:
     tokens: int | None      # input and output tokens, cached ones included, when the CLI reports them
     model: str | None       # the model that answered, when the CLI reports it
     error: str | None       # what went wrong, when the CLI says the run failed
+    usage: dict | None = None  # disjoint token counts; unknown stays null
+    cost_usd: float | None = None  # CLI estimate, not a subscription bill
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,8 @@ class Agent:
     # stdout -> what the agent did and said, for the scan for forbidden folders: what the CLI says of itself goes, such
     # as its start-up report, which names the arm's own memory folder under ~/.claude/projects.
     actions: Callable[[str], str] = lambda stdout: stdout
+    message: Callable[[str], str] | None = None  # prompt -> one input line for a conversation
+    turn_done: Callable[[str], bool] | None = None
 
     def find(self) -> str | None:
         for name in self.commands:
@@ -164,7 +168,8 @@ def _unsaved(event: dict) -> bool:
         call = block.get("tool_use_id") if isinstance(block, dict) and block.get("type") == "tool_result" else None
         if not call or not isinstance(call, str):
             continue
-        own = re.compile(rf"/projects/[^/]+/{re.escape(session)}/tool-results/{re.escape(call)}(\.\w+)?$")
+        # The CLI can save under its parent session's UUID. The tool call id still identifies this result.
+        own = re.compile(rf"/\.claude/projects/[^/]+/[^/]+/tool-results/{re.escape(call)}(\.\w+)?$")
         inner = block.get("content")             # the result's text, or a list of parts
         texts = ([(block, "content")] if isinstance(inner, str)
                  else [(p, "text") for p in (inner if isinstance(inner, list) else []) if isinstance(p, dict)])
@@ -198,7 +203,11 @@ def _claude_reply(stdout: str) -> Reply:
     model = max(models, key=lambda m: _int((models[m] or {}).get("outputTokens"))) if models else None
     found = data.get("structured_output")
     text = json.dumps(found) if found is not None else str(data.get("result") or "")
-    return Reply(text, tokens or None, model, _claude_error(data) if data.get("is_error") else None)
+    detail = {"input": _int(usage.get("input_tokens")), "cache_write": _int(usage.get("cache_creation_input_tokens")),
+              "cache_read": _int(usage.get("cache_read_input_tokens")), "output": _int(usage.get("output_tokens"))}
+    cost = data.get("total_cost_usd")
+    return Reply(text, tokens or None, model, _claude_error(data) if data.get("is_error") else None,
+                 detail if usage else None, cost if type(cost) in (float, int) else None)
 
 
 def _claude_error(data: dict) -> str:
@@ -215,6 +224,7 @@ def _claude_error(data: dict) -> str:
 
 def _codex_reply(stdout: str) -> Reply:
     text, tokens, error = "", 0, None
+    detail = None
     for line in stdout.splitlines():                          # --json prints one event per line
         try:
             event = json.loads(line)
@@ -226,9 +236,21 @@ def _codex_reply(stdout: str) -> Reply:
         elif kind == "turn.completed":
             usage = event.get("usage") or {}
             tokens += _int(usage.get("input_tokens")) + _int(usage.get("output_tokens"))   # cached are inside input
+            detail = detail or dict.fromkeys(("input", "cache_write", "cache_read", "output"), 0)
+            cached = _int(usage.get("cached_input_tokens"))
+            detail["input"] += _int(usage.get("input_tokens")) - cached
+            detail["cache_read"] += cached
+            detail["output"] += _int(usage.get("output_tokens"))
         elif kind in ("turn.failed", "error"):
             error = str((event.get("error") or {}).get("message") or event.get("message") or kind)
-    return Reply(text, tokens or None, None, error)
+    return Reply(text, tokens or None, None, error, detail)
+
+
+def _claude_turn_done(line: str) -> bool:
+    try:
+        return json.loads(line).get("type") == "result"
+    except (ValueError, AttributeError):
+        return False
 
 
 def _claude_on_plan(report: str) -> bool:
@@ -252,6 +274,7 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
            # each step in the output (stream-json), so the bench can scan it; no MCP servers, which run outside the
            # sandbox; and none of your user-level settings, which could loosen it. Checked live against 2.1.317.
            "task-worker": ("-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
+                           "--tools", "Bash,Read,Edit,Write", "--disable-slash-commands", "--effort", "medium",
                            "--permission-prompts", "none", "--settings", _SANDBOX, "--strict-mcp-config",
                            "--setting-sources", "project,local", "--no-session-persistence", "?--model={model}",
                            "--", "{prompt}"),
@@ -266,6 +289,11 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
                           "--json-schema", "{schema_json}", "--permission-prompts", "none", "--settings", _READ_DENY,
                           "--strict-mcp-config", "--setting-sources", "project,local", "--disable-slash-commands",
                           "--no-session-persistence", "?--model={model}", "--", "{prompt}"),
+           "task-interviewer": ("-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                                "--tools", "Read,Grep,Glob", "--json-schema", "{schema_json}", "--effort", "medium",
+                                "--permission-prompts", "none", "--settings", _READ_DENY, "--strict-mcp-config",
+                                "--setting-sources", "project,local", "--disable-slash-commands",
+                                "--no-session-persistence", "?--model={model}"),
            "task-rewriter": ("-p", "--output-format", "stream-json", "--verbose", "--tools", "Read,Grep,Glob",
                              "--permission-prompts", "none", "--settings", _READ_DENY, "--strict-mcp-config",
                              "--setting-sources", "project,local", "--disable-slash-commands",
@@ -274,7 +302,9 @@ AGENTS: dict[str, Agent] = {a.name: a for a in (
                         "--strict-mcp-config", "--setting-sources", "project,local", "--disable-slash-commands",
                         "--no-session-persistence", "?--model={model}", "--", "{prompt}")},
           _claude_reply, default_model="claude-opus-5-5", confines_reads=True, temp_env="CLAUDE_CODE_TMPDIR",
-          actions=_claude_actions),
+          actions=_claude_actions,
+          message=lambda prompt: json.dumps({"type": "user", "message": {"role": "user", "content": prompt}}),
+          turn_done=_claude_turn_done),
     Agent("codex", "openai", ("codex",),
           ("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",),
           ("login", "status"), lambda report: "chatgpt" in report.lower(),

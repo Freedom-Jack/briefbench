@@ -80,6 +80,69 @@ def test_a_threshold_belongs_to_a_fixed_rule(agents, repo, tip):
 CHECK = ("--rule", "fixed:10", "--net-min", "0", "--scoring", "check")
 
 
+@pytest.mark.parametrize("mode,turns", [("none", 1), ("one", 2), ("two", 3)])
+def test_session_interview_reuses_context_and_returns_the_brief(agents, repo, tmp_path, monkeypatch, mode, turns):
+    monkeypatch.setenv("FAKE_ASKER", mode)
+    code, err = init(repo, f"skill:{SKILL}", *CHECK, "--rewriter", "claude-code", "--rewriter-model", "",
+                     "--interview", "session", "--pin-versions")
+    assert code == 0, err
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=["For the team."]))])
+    assert code == 0, err
+    [row] = entries()
+    calls = [c for c in agents() if c["role"] == "asker"]
+    assert len(calls) == turns and len({c["pid"] for c in calls}) == 1
+    assert "<skill>" in calls[0]["prompt"] and all("<skill>" not in c["prompt"] for c in calls[1:])
+    assert all("Say what it is" not in c["prompt"] and "grep" not in c["prompt"] for c in calls)
+    assert not any(c["role"] == "rewriter" for c in agents())
+    headless = [c for c in row["task"]["headless"] if c["skill"]]
+    assert sum(c["cost_usd"] for c in headless) == pytest.approx(turns * .01)
+    assert sum(c["tokens"] for c in headless) == sum(15 + n * 10 for n in range(turns))
+    assert row["prompts"]["b"] == "BRIEF: do it.\n"
+    assert row["arms"]["b"]["check"]["passed"] and row["arms"]["a"]["brief"] is None
+
+
+def test_session_turn_guardrail_is_an_incomplete_comparison(agents, repo, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_ASKER", "endless")
+    init(repo, f"skill:{SKILL}", *CHECK, "--rewriter", "claude-code", "--rewriter-model", "",
+         "--interview", "session")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))])
+    assert code == 4 and "without a finished brief" in err
+    [row] = entries()
+    assert row["kind"] == "failed" and row["task"]["interview"][f"skill:{SKILL}"]["capped"]
+    assert not any(c["role"] in ("worker", "rewriter") for c in agents())
+
+
+def test_pinned_versions_refuse_drift_before_model_calls(agents, repo, tmp_path, tip, monkeypatch):
+    init(repo, f"snippet:{tip}", *CHECK, "--pin-versions")
+    monkeypatch.setenv("FAKE_VERSION", "2.0")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))])
+    assert code == 3 and "CLI version changed" in err and not agents() and not entries()
+
+
+def test_interrupted_work_records_unknown_usage_for_the_guardrail(agents, repo, tmp_path, tip, monkeypatch):
+    init(repo, f"snippet:{tip}", *CHECK)
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt()
+    monkeypatch.setattr(cli, "_run_arms", interrupted)
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))])
+    assert code == 130 and "cancelled" in err
+    [row] = entries()
+    assert row["kind"] == "failed" and row["usage_incomplete"]
+
+
+def test_session_clarified_uses_the_answers_without_charging_it_for_the_final_brief(agents, repo, tmp_path):
+    init(repo, f"skill:{SKILL}", *CHECK, "--a", "clarified", "--rewriter", "claude-code", "--rewriter-model", "",
+         "--interview", "session")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=["For the team."]))])
+    assert code == 0, err
+    [row] = entries()
+    assert "For the team." in row["prompts"]["a"] and "BRIEF" not in row["prompts"]["a"]
+    calls = [c for c in row["task"]["headless"] if c["skill"]]
+    assert [c["phase"] for c in calls] == ["questions", "brief"]
+    assert row["arms"]["a"]["brief"]["tokens"] == calls[0]["tokens"]
+    assert row["arms"]["b"]["brief"]["tokens"] == sum(c["tokens"] for c in calls)
+
+
 @pytest.mark.parametrize("extra,words", [
     (("--strata", "belief-wrong,belief-right"), "with --scoring check"),          # pick scoring
     (CHECK + ("--strata", "belief-wrong"), "two kinds of task"),

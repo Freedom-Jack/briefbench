@@ -65,6 +65,9 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     i.add_argument("--cap", type=_number, metavar="PERCENT",
                    help="the most extra time and tokens B may use, as a median percentage of A's")
     i.add_argument("--timeout", type=_number, default=30.0, metavar="MINUTES", help="per arm (default: 30)")
+    i.add_argument("--interview", choices=("fresh", "session"), default="fresh",
+                   help="session: reuse one confined CLI process through questions and the finished brief")
+    i.add_argument("--pin-versions", action="store_true", help="refuse runs after an agent CLI version changes")
     i.add_argument("--rule", type=_rule, default="two-step", metavar="RULE",
                    help="two-step (the default), or fixed:N for one test after exactly N trials")
     i.add_argument("--net-min", type=_fraction, metavar="X",
@@ -191,7 +194,7 @@ def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, cwd=None) -
     try:
         return COMMANDS[args.command](args, con, environ, Path(cwd or os.getcwd()), secrets)
     except KeyboardInterrupt:
-        con.say("\nbriefbench: cancelled. Nothing was logged; `briefbench clean` removes a trial's worktrees.")
+        con.say("\nbriefbench: cancelled. A started trial is logged as incomplete; `briefbench clean` removes its worktrees.")
         return 130
     except BriefbenchError as e:
         con.say(f"briefbench: {e}")
@@ -245,6 +248,14 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         roles["rewriter"] = _agent_settings(name, "rewriter", args.rewriter_model, con, environ,
                                             template_role=_role("rewriter", args.scoring))
     roles["asker"] = _asker(roles["rewriter"], args.scoring) if roles["rewriter"] else None
+    if args.interview == "session":
+        if not roles["asker"] or args.scoring != "check":
+            raise UsageError("a session interview requires a skill treatment and --scoring check.")
+        agent = AGENTS[roles["asker"]["agent"]]
+        if "task-interviewer" not in agent.roles or not agent.message or not agent.turn_done:
+            raise UsageError("this rewriter has no confined interview session preset.")
+        roles["asker"]["argv"] = _template(agent, roles["asker"]["argv"][0], "task-interviewer",
+                                           roles["asker"]["model"] or "")
     # Task files have nobody to answer the skill's questions: the stand-in requester answers from each one's facts.
     roles["answerer"] = _answerer(roles["rewriter"]) if roles["rewriter"] and args.scoring == "check" else None
     review = None                     # how the briefs written for task files are reviewed, apart from the outcomes
@@ -269,6 +280,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
               "rule": rule, "scoring": args.scoring, "strata": strata, **stage, "bench": _bench_commit(),
               "fidelity_policy": review,
+              "interview": args.interview, "pin_versions": args.pin_versions,
               "render": (experiment.RENDER_STAND_IN if roles["answerer"] else experiment.RENDER)
               if roles["rewriter"] else None,
               "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
@@ -294,7 +306,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     for role, settings in roles.items():
         if settings:
             con.say(f"{ROLE_LABELS[role]} command:\n  {shlex.join(settings['argv'])}")
-    con.say("Each agent CLI starts with stdin closed and without API key variables, so it runs on your plan.")
+    con.say("Each agent CLI runs without API key variables, on your plan. Only a session interview keeps stdin open.")
     if not args.yes and con.pick("Freeze this experiment?", ("y", "n"), "y") != "y":
         con.say("Nothing was saved.")
         return 0
@@ -510,12 +522,14 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     for role in ("worker", "rewriter", "asker", "answerer", "judge"):
         if exp.get(role):
             agent, executable = _ready(exp[role]["agent"], environ)
-            template = _role(role, scoring)
+            template = "task-interviewer" if role == "asker" and exp.get("interview") == "session" else _role(role, scoring)
             if _template(agent, executable, template, exp[role]["model"] or "")[1:] != exp[role]["argv"][1:]:
                 raise ConfigError(f"the {role} command differs from the one frozen in experiment {exp['name']}, "
                                   "perhaps after an update of briefbench. Start a new experiment.")
             agents[role] = (agent, executable)
             versions[role] = _version(executable, environ)
+            if exp.get("pin_versions") and versions[role] != exp[role]["version"]:
+                raise ConfigError(f"the {role} CLI version changed; start a new experiment before spending usage.")
     task_file = _task_file(args, exp)
     if scoring == "check" and not task_file:
         raise UsageError(f"experiment {exp['name']} is scored by the check alone, which runs task files: "
@@ -593,6 +607,7 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
                    "tokens": found[first]["tokens"] + [temps[first].name],
                    "env": found["env"] | {"TMPDIR": str(temps["h"])}
                    | ({rewriter.temp_env: str(temps["h"])} if rewriter.temp_env else {})}
+    arms = {}
     try:
         try:
             _skill_questions(task, specs, exp, agents, worktrees[first], out, environ, con,
@@ -616,10 +631,11 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
                          else "; ".join(f"arm {s.upper()} reported an error: {e}" for s, e in said.items()))
                 raise AgentError(f"{scrub(cause, secrets)}. With the check alone deciding, that measures the service, "
                                  "not the prompt, so the trial is logged as failed: rerun its task once.")
-        except (AgentError, ConfigError) as e:   # kept, so a step that keeps failing on some tasks shows in score
+        except (AgentError, ConfigError, KeyboardInterrupt) as e:
             append(log_path, header("failed") | base | {"aa": args.aa, "stage": stage, "task": task, "error": str(e),
                                                        "treatments": {s: specs[s]["spec"] for s in specs},
-                                                       "versions": versions, "output": str(out)}
+                                                       "versions": versions, "output": str(out), "arms": arms,
+                                                       "usage_incomplete": isinstance(e, KeyboardInterrupt)}
                    | ({"only": args.only} if args.only else {}), secrets)
             raise
         for side in specs:                       # written only now that the arms are done
@@ -727,7 +743,7 @@ def _protected(root: Path, text) -> list[str]:
 
 
 def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, name: str, environ, spent=None,
-          skill=None, confine=None, **slots):
+          skill=None, confine=None, sessions=None, **slots):
     """One run of an agent CLI as rewriter, asker, stand-in requester or judge. Raises AgentError if it fails. With
     `spent`, a list, appends the call's {step, skill, seconds, tokens}, so briefing time and tokens count in the arm's
     cost. With `confine`, {deny, tokens, env} in a task file's trial, it may not read the denied places, runs in that
@@ -738,14 +754,30 @@ def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, 
         slots |= {"deny": json.dumps(confine["deny"]),
                   "deny_rules": json.dumps([f"Read(/{p}/**)" for p in confine["deny"]])}
         env = confine["env"]
-    [done] = runner.wait([runner.start(agent.argv(executable, role, prompt=prompt, model=model or "", **slots), cwd,
-                                       env, out / f"{name}.out", out / f"{name}.err")],
-                         TIMEOUT_S[role.removeprefix("task-")])
+    command = agent.argv(executable, role, prompt=prompt, model=model or "", **slots)
+    if sessions is None:
+        [done] = runner.wait([runner.start(command, cwd, env, out / f"{name}.out", out / f"{name}.err")],
+                             TIMEOUT_S[role.removeprefix("task-")])
+    else:
+        if skill not in sessions:
+            sessions[skill] = runner.Conversation(command, cwd, env, out / f"{name}.err", agent.turn_done)
+        try:
+            done = sessions[skill].exchange(agent.message(prompt), out / f"{name}.out", TIMEOUT_S["asker"])
+        except AgentError:
+            if spent is not None:
+                spent.append({"step": name, "skill": skill, "seconds": 0, "tokens": None,
+                              "usage": None, "cost_usd": None})
+            raise
     stdout = (out / f"{name}.out").read_text(errors="replace")
     reply = agent.parse(stdout)
-    entry = {"step": name, "skill": skill, "seconds": done.seconds, "tokens": reply.tokens}
+    cost = reply.cost_usd
+    if sessions is not None and cost is not None:
+        cost, sessions[skill].cost = max(0, cost - sessions[skill].cost), cost
+    entry = {"step": name, "skill": skill, "seconds": done.seconds, "tokens": reply.tokens,
+             "usage": reply.usage, "cost_usd": cost}
     if confine:
-        entry["looked_outside"] = _names(agent.actions(stdout) + (out / f"{name}.err").read_text(errors="replace"),
+        err = sessions[skill].err if sessions is not None else out / f"{name}.err"
+        entry["looked_outside"] = _names(agent.actions(stdout) + err.read_text(errors="replace"),
                                          confine["deny"], confine["tokens"], environ)
     if spent is not None:
         spent.append(entry)
@@ -771,23 +803,31 @@ def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con,
     if not sources:
         return
     schema = out / "questions.schema.json"
-    schema.write_text(json.dumps(treatments.QUESTIONS_SCHEMA))
+    session = exp.get("interview") == "session"
+    schema.write_text(json.dumps(treatments.INTERVIEW_SCHEMA if session else treatments.QUESTIONS_SCHEMA))
     asked = {spec: [] for spec in sources}            # each skill's questions so far, {q, a, turn} and facts
     asking, done = list(sources), False               # the skills that may still ask
+    sessions = {} if session else None
     try:
-        _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine)
+        _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine,
+                   sessions)
         done = True
     finally:                                          # kept on a failed trial's line too, with the turns it reached
+        for process in (sessions or {}).values():
+            process.close()
         task["answered_by"] = "you" if facts is None else "stand-in"
         task["listed"] = {spec: len(asked[spec]) for spec in sources}
         task["interview"] = {spec: {"turns": max([x["turn"] for x in asked[spec]], default=0),
                                     "capped": done and spec in asking} for spec in sources}
         task["questions"].extend({"skill": spec} | x for spec in sources for x in asked[spec])
+    if session and asking:
+        raise AgentError("the interview reached its turn guardrail without a finished brief; comparison incomplete.")
     if not any(asked.values()):
         con.say("No question to ask.")
 
 
-def _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine):
+def _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine,
+               sessions=None):
     """The turns of _skill_questions. `asked` gains each turn's questions and answers, and `asking` keeps the skills
     that asked something in the last turn, so after the safety stop it names the skills the stop ended. With two
     skills, each turn is announced once, without numbering the skills, so the questions of a skill still asking after
@@ -808,14 +848,23 @@ def _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree,
             def ask(request, n=n, spec=spec, turn=turn):
                 name = f"questions-{n}" + (f".{turn}" if turn > 1 else "")
                 (out / f"{name}.request.md").write_text(request)
-                reply = _call(agents["asker"], _role("asker", exp.get("scoring", "pick")),
+                reply = _call(agents["asker"], "task-interviewer" if sessions is not None else
+                              _role("asker", exp.get("scoring", "pick")),
                               "headless list of the skill's questions", exp["rewriter"]["model"], request,
                               readonly_tree, out, name, environ, spent=task["headless"], skill=spec, confine=confine,
-                              schema=str(schema), schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
+                              sessions=sessions, schema=str(schema), schema_json=schema.read_text())
                 if runner.changed(readonly_tree):
                     raise AgentError("the rewriter changed files, which it must not do; the trial was stopped.")
                 return reply.text
-            if listed := treatments.questions(sources[spec], task["prompt"], ask, asked[spec]):
+            if sessions is not None:
+                recent = [x for x in asked[spec] if x["turn"] == turn - 1]
+                listed, brief = treatments.interview(sources[spec], task["prompt"], recent, ask)
+                task["headless"][-1]["phase"] = "brief" if brief else "questions"
+                if brief:
+                    task.setdefault("prepared", {})[spec] = brief
+            else:
+                listed = treatments.questions(sources[spec], task["prompt"], ask, asked[spec])
+            if listed:
                 found[spec] = listed
         asking[:] = list(found)
         if not found:
@@ -862,7 +911,7 @@ def _stand_in(task, exp, agents, asked, facts, out, environ, con, turn=1) -> dic
 
 def _render(specs, task, agents, exp, readonly_tree, out, environ, con, confine=None) -> dict[str, str]:
     """Each arm's prompt. A skill treatment is run headless once, by the rewriter, in a worktree it may only read."""
-    rendered, prompts, prompt, asked = {}, {}, task["prompt"], task["questions"]
+    rendered, prompts, prompt, asked = dict(task.get("prepared", {})), {}, task["prompt"], task["questions"]
     source = next((t["spec"] for t in (exp["a"], exp["b"]) if t["kind"] == "skill"), None)
     for side, t in specs.items():
         if t["spec"] not in rendered:
@@ -886,7 +935,8 @@ def _calls_for(t, exp, headless) -> list[dict]:
     of the experiment's skill; none for original and snippet, and never the stand-in requester's."""
     if t["kind"] == "clarified":
         source = next(x["spec"] for x in (exp["a"], exp["b"]) if x["kind"] == "skill")
-        return [c for c in headless if c["skill"] == source and c["step"].startswith("questions-")]
+        return [c for c in headless if c["skill"] == source and c["step"].startswith("questions-")
+                and c.get("phase") != "brief"]
     return [c for c in headless if c["skill"] == t["spec"]] if t["kind"] == "skill" else []
 
 
@@ -939,6 +989,7 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
         reply = agent.parse((out / f"{s}.out").read_text(errors="replace"))
         arms[s] = {"exit_code": done.code, "timed_out": done.code is None, "seconds": done.seconds,
                    "tokens": reply.tokens, "model": reply.model, "error": reply.error,
+                   "usage": reply.usage, "cost_usd": reply.cost_usd,
                    "protected_changed": runner.restore_protected(worktrees[s], commit, settings["protected"]),
                    "diff": runner.save_diff(worktrees[s], commit, out / f"{s}.diff"), "check": None}
         if audit:

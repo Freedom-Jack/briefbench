@@ -34,7 +34,29 @@ if args[:2] in (["auth", "status"], ["login", "status"]):
                "none": "Not logged in"}[login], file=sys.stderr)
     sys.exit(0)
 if args == ["--version"]:
-    print(f"fake-{name} 1.0")
+    print(f"fake-{name} {env.get('FAKE_VERSION', '1.0')}")
+    sys.exit(0)
+
+if "--input-format" in args:
+    for turn, line in enumerate(sys.stdin):
+        prompt = json.loads(line)["message"]["content"]
+        with open(env["FAKE_CALLS"], "a") as calls:
+            calls.write(json.dumps({"role": "asker", "pid": os.getpid(), "prompt": prompt, "argv": args,
+                                    "keys": sorted(k for k in env if k.endswith("_API_KEY"))}) + "\n")
+        mode = env.get("FAKE_ASKER", "one")
+        if mode == "fail":
+            sys.exit(1)
+        if mode == "sleep":
+            time.sleep(30)
+        if mode == "peek":
+            print(Path(env["FAKE_PEEK_FILE"]).read_text(), file=sys.stderr, flush=True)
+        questions = [f"Question {turn + 1}?"] if (mode == "endless" or turn < (2 if mode == "two" else 1)) else []
+        if mode == "none":
+            questions = []
+        print(json.dumps({"type": "result", "is_error": False,
+                          "structured_output": {"questions": questions, "brief": "" if questions else "BRIEF: do it."},
+                          "usage": {"input_tokens": 10, "cache_read_input_tokens": turn * 10, "output_tokens": 5},
+                          "total_cost_usd": (turn + 1) * .01}), flush=True)
     sys.exit(0)
 
 prompt = args[args.index("--") + 1]

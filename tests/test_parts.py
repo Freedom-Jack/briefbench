@@ -12,6 +12,33 @@ from briefbench.presets import AGENTS, agent_env
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "brief"
 
 
+@pytest.mark.parametrize("mode,code", [("finish", 0), ("eof", 1), ("timeout", None)])
+def test_conversation_saves_turn_output_and_closes_on_eof_or_timeout(tmp_path, mode, code):
+    script = ("import sys,time\nfor line in sys.stdin:\n"
+              " print('partial', flush=True)\n"
+              + (" print('done', flush=True)\n" if mode == "finish" else
+                 " sys.exit(0)\n" if mode == "eof" else " time.sleep(30)\n"))
+    process = runner.Conversation([sys.executable, "-c", script], tmp_path, {}, tmp_path / "err",
+                                  lambda line: line == "done")
+    try:
+        result = process.exchange("hello", tmp_path / "out", 1)
+        assert result.code == code and (tmp_path / "out").read_text().startswith("partial\n")
+        if mode == "finish":
+            assert process.exchange("again", tmp_path / "out2", 1).code == 0
+            assert (tmp_path / "out2").read_text() == "partial\ndone\n"
+    finally:
+        process.close()
+    assert process.proc.poll() is not None
+
+
+@pytest.mark.parametrize("reply", ['{}', '{"questions": [], "brief": ""}',
+                                   '{"questions": ["Q?"], "brief": "B"}', '{"questions": "Q?", "brief": ""}'])
+def test_session_requires_questions_or_a_finished_brief(tmp_path, reply):
+    skill = treatments.parse(f"skill:{SKILL}", {}, tmp_path)
+    with pytest.raises(AgentError, match="either questions or a finished brief"):
+        treatments.interview(skill, "P", [], lambda request: reply)
+
+
 def test_optional_arguments_need_their_slots():
     claude = AGENTS["claude-code"]
     argv = claude.argv("claude", "worker", prompt="P", model="", check="")
@@ -53,6 +80,8 @@ def test_replies_are_parsed_from_each_cli():
         '{"type":"item.completed","item":{"type":"agent_message","text":"two"}}\n'
         '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":8,"output_tokens":2}}\n')
     assert (codex.text, codex.tokens, codex.model, codex.error) == ("two", 12, None, None)
+    assert codex.usage == {"input": 2, "cache_read": 8, "cache_write": 0, "output": 2}
+    assert claude.usage == {"input": 3, "cache_read": 4, "cache_write": 0, "output": 5}
     assert AGENTS["codex"].parse('{"type":"turn.failed","error":{"message":"usage limit"}}').error == "usage limit"
 
 
@@ -68,14 +97,14 @@ def test_the_scan_skips_the_path_in_claude_codes_notice_of_a_saved_output_but_no
         return json.dumps({"type": "user", "session_id": session, "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": call,
              "content": [{"type": "text", "text": text}] if parts else text}]}})
-    for line in (result(notice), result(notice, parts=True)):
+    for line in (result(notice), result(notice, parts=True), result(notice, session="s-parent")):
         seen = actions(line)
         assert ".claude/projects" not in seen and "saved to: [the CLI's own file]" in seen
         assert "/home/u/.briefbench/keys" in seen               # what the tool returned is still scanned
-    # another call's file, another session's, a notice that isn't the whole result, and one that isn't a result
+    # Another call's file, a notice that isn't the whole result, and one that isn't a result stay visible.
     assistant = {"type": "assistant", "session_id": "s-1", "message": {"role": "assistant", "content": [
         {"type": "text", "text": notice}]}}
-    for line in (result(notice, call="toolu_9"), result(notice, session="s-9"), result("Found:\n" + notice),
+    for line in (result(notice, call="toolu_9"), result("Found:\n" + notice),
                  json.dumps(assistant)):
         assert saved in actions(line)
     assistant["message"]["content"] = [{"type": "tool_use", "id": "toolu_2", "name": "Read",

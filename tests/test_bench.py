@@ -57,7 +57,7 @@ def test_init_freezes_the_experiment_once(agents, repo):
     assert exp["b"]["kind"] == "skill" and exp["b"]["version"] == "0.2.0" and len(exp["b"]["sha256"]) == 64
     assert exp["worker"]["agent"] == "codex" and exp["worker"]["argv"][-2:] == ["--", "{prompt}"]
     assert exp["rule"]["kind"] == "two-step" and exp["rule"]["adopt_first"] == 16 and exp["cap_percent"] == 50
-    assert exp["render"] == "skill-interview/1" and "--output-schema" in exp["asker"]["argv"]
+    assert exp["render"] == "skill-interview/2" and "--output-schema" in exp["asker"]["argv"]
     assert "read-only" in exp["asker"]["argv"] and exp["asker"]["model"] == exp["rewriter"]["model"]
     assert "Rule: two-step" in err and "listing the skill's questions" in err
     assert init(repo)[0] == 2                                    # frozen settings are never changed

@@ -41,6 +41,36 @@ NOTHING_ASKED = "No questions have been asked yet."
 QUESTIONS_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["questions"],
                     "properties": {"questions": {"type": "array", "items": {"type": "string"}}}}
 
+INTERVIEW_REQUEST = """\
+Follow the skill below for the requester's prompt. This is a headless interview. Return JSON with questions and brief:
+when the skill would ask the requester more questions, return those questions and an empty brief. Otherwise return
+an empty questions list and the finished brief's text (without a code fence). Answers arrive in subsequent messages;
+use only the answers given, and treat a skipped question as unanswered. Follow the skill's own conditions for asking.
+
+<skill>
+{skill}
+</skill>
+
+<prompt>
+{prompt}
+</prompt>"""
+INTERVIEW_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["questions", "brief"],
+                    "properties": QUESTIONS_SCHEMA["properties"] | {"brief": {"type": "string"}}}
+
+
+def interview(t: dict, prompt: str, asked: list[dict], ask: Callable[[str], str]) -> tuple[list[str], str]:
+    request = ("The requester's answers:\n" + _answers(asked) if asked else
+               INTERVIEW_REQUEST.format(skill=_skill_text(t), prompt=prompt))
+    try:
+        data = json.loads(ask(request))
+        questions, brief = data["questions"], data["brief"]
+        if (not isinstance(questions, list) or not all(isinstance(q, str) and q.strip() for q in questions)
+                or not isinstance(brief, str) or bool(questions) == bool(brief.strip())):
+            raise ValueError()
+    except (ValueError, KeyError, TypeError):
+        raise AgentError("the interview must return either questions or a finished brief; see its saved output.") from None
+    return questions, brief.rstrip() + "\n" if brief.strip() else ""
+
 # The second headless call: the brief, from the requester's answers to those questions.
 REWRITE_REQUEST = """\
 Follow the skill below to write a brief for the requester's prompt. This run is headless: ask nothing. The \
@@ -170,6 +200,7 @@ def templates_sha256() -> str:
     can't change a running experiment."""
     sample = [{"q": "Q1?", "a": "A1"}, {"q": "Q2?", "a": ""}]
     parts = (QUESTIONS_REQUEST, REWRITE_REQUEST, json.dumps(QUESTIONS_SCHEMA, sort_keys=True), str(MAX_TURNS),
+             INTERVIEW_REQUEST, json.dumps(INTERVIEW_SCHEMA, sort_keys=True),
              NOTHING_ASKED, _answers(sample), _answers([]), render({"kind": "clarified"}, "P", sample, None))
     return _sha256("\0".join(parts).encode())
 
