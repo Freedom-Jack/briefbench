@@ -4,6 +4,8 @@ A status report for the maintainer, who will do the engineering. Sections 1 to 5
 
 How the facts were measured is at the end ("Method").
 
+**Implementation follow-up, 2026-11-23:** this report is a historical snapshot; PR #10 subsequently merged in `5893523`. The [cheap-comparison implementation record](2026-11-23-cheap-comparisons.md) and revised [bench workflow](../bench.md) describe the response. The maintainer's reference to 8M tokens came from other jobs using Ultracode, as a scale comparison; it was not a claim that these bench runs used Ultracode.
+
 ## 1. Where the project stands
 
 - **`main` is at `c1f3948`.** It holds the bench (PR #8, merged 2026-11-21) and the bug-report tasks with the "ask for the outcome" version of the skill (PR #9, merged 2026-11-22).

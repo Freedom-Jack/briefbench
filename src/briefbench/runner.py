@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import selectors
 import shutil
 import signal
 import subprocess
@@ -134,6 +135,59 @@ def stop(p: subprocess.Popen) -> None:
             return
         except subprocess.TimeoutExpired:
             continue
+
+
+class Conversation:
+    """One CLI process for one skill's interview. Each exchange saves only that turn's output. No session survives
+    the trial; timeout, EOF and cancellation all close the process group. The preset owns the wire format."""
+
+    def __init__(self, command, cwd, env, err, finished, protocol=None):
+        self.err = err
+        with err.open("wb") as stderr:
+            self.proc = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=stderr, start_new_session=True)
+        self.selector = selectors.DefaultSelector()
+        self.selector.register(self.proc.stdout, selectors.EVENT_READ)
+        self.pending, self.finished, self.cost = b"", finished, 0.0
+        self.protocol, self.usage = protocol, {}
+
+    def send(self, messages):
+        for message in messages:
+            self.proc.stdin.write((message + "\n").encode())
+        self.proc.stdin.flush()
+
+    def exchange(self, message: str, out: Path, timeout: float) -> Done:
+        begin = time.monotonic()
+        try:
+            self.send(self.protocol.message(message) if self.protocol else [message])
+            with out.open("wb") as target:
+                while time.monotonic() - begin < timeout:
+                    while b"\n" in self.pending:
+                        line, self.pending = self.pending.split(b"\n", 1)
+                        target.write(line + b"\n")
+                        if self.protocol:
+                            self.send(self.protocol.receive(line.decode("utf-8", "replace")))
+                        if self.finished(line.decode("utf-8", "replace")):
+                            return Done(0, round(time.monotonic() - begin, 1))
+                    for key, _ in self.selector.select(0.1):
+                        chunk = os.read(key.fd, 65536)
+                        if not chunk:
+                            target.write(self.pending)
+                            return Done(1, round(time.monotonic() - begin, 1))
+                        self.pending += chunk
+            self.close()
+            return Done(None, round(time.monotonic() - begin, 1))
+        except (BrokenPipeError, OSError, ValueError, KeyError) as e:
+            raise AgentError(f"the interview stream failed: {e}") from e
+
+    def close(self):
+        stop(self.proc)
+        self.selector.close()
+        try:
+            self.proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        self.proc.stdout.close()
 
 
 def changed(worktree: Path, paths=()) -> bool:

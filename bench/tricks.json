@@ -33,7 +33,7 @@
     {"id": "effort-before-model", "treatment": null, "kinds": [],
      "waits": "runs of the same prompt at another effort level or with another model, and hard coding tasks the default often fails"},
     {"id": "default-effort-first", "treatment": null, "kinds": [],
-     "waits": "runs of the same prompt at another effort level, on Codex, which the bench can't keep from reading the answer keys yet"},
+     "waits": "frozen per-arm effort settings, an explicit default and quality/cost rule, and hard coding tasks with all needed information"},
     {"id": "multi-agent-for-divisible-work", "treatment": null, "kinds": [],
      "waits": "runs with multi-agent mode on, and a kind of task that divides into parts"},
     {"id": "presets-by-task-kind", "treatment": null, "kinds": [],

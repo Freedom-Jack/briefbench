@@ -2,7 +2,11 @@
 
 A prompt improver you use every day, and a small bench that checks on your own tasks whether it helps, at no cost beyond the Claude or ChatGPT plan you already have.
 
-> **Status:** the `brief` skill (0.2.0) and the bench (`init`, `ab`, `score`, `clean`, an optional judge) are built. The skill installs as a plugin straight from this repository in Claude Code and Codex, the two hosts maintained for now; that has been checked from a local copy, not yet from GitHub, and no release is published. The judge and the skill's headless calls pass live tests through Claude Code and Codex on subscription plans, and `ab` has run live through Codex, but not yet on a real task since this revision. Since 2026-11-06 the bench also runs unattended trials on generated tasks with a planted answer, scored by the check alone, to test tricks from recent prompting posts one at a time; the skill will grow from empty, keeping only posted advice that wins. The first test ran on 11 and 12 Nov 2026, on Claude Code with Opus 5.5. It tested the skill's own question section from version 0.2.0, not a trick from a post: ask up to three questions before writing the brief. The instruction helped where the prompt left out a fact but hurt where the prompt was complete, so the result is "worse" and it was not added to the skill ([record](claims/results/questions-first.md)). Round 2 tested a changed version on 14 and 15 Nov; its result is not recorded yet. No trick from a post has been tested yet: the first one tried, "test your belief", had no room to help on Opus 5.5. Since 20 Nov 2026, posted advice on which model, effort level or multi-agent mode to run a task with is in scope too; its seven cards wait for the bench to run the same prompt with two settings. Still owed: the skill's acceptance on real prompts in two hosts, and a real trial on each plan. Nothing here shows yet that the brief, or any trick, improves results. See the [build plan](docs/build-plan.md).
+> **Status, 23 Nov 2026:** `brief` 0.2.0 and the subscription-only bench are built; no improved skill release or adopted trick is claimed. The default bench host is Codex, with fresh, reusable controls and confined session interviews. The interview screen completed with no clear difference; the outcome screen completed and was flagged as worth a full test, but its tested form cannot enter the skill. See the [Codex scoreboard](bench/board-2-codex.md) and [all 18 queued claims](docs/status/2026-11-23-article-queue.md). These are development results, not adoption evidence. Settings claims still need evaluation support. Five real-request acceptance cases are selected privately; interactive acceptance in both hosts and installation from GitHub remain pending. Both personal skill files match the source; that alone does not establish host acceptance.
+
+Earlier rounds tested the skill's own instructions, not posted advice: round 1 was worse and nothing was adopted; round 2's final result remains owed ([record](claims/results/questions-first.md)). See the [build plan](docs/build-plan.md) for release gates.
+
+Start with the [standing candidate queue](BACKLOG.md#resume-here) for all captured articles, maintainer ideas, command/workflow suggestions such as `/goal` and `/loop`, retired proposals and evaluation prerequisites. Its pending tasks are the required starting point for future bench work: "continue bench work" resumes the queue without reconstructing the source list. The 18 claim cards are one subset. Model runs still require a concrete scope, expected usage and authorization.
 
 ## Why
 
@@ -17,6 +21,12 @@ A tip here means advice that people have posted: what to say in a prompt, or how
 The bench has two jobs. First, it is a benchmark for prompting tricks from recent posts: each trick runs as an add-on to a plain prompt, on tasks where it has room to act, and its result goes on its claim card whatever it is. Second, it is how the skill improves: posted advice that makes a request clearer, rather than telling the agent how to work, becomes one candidate instruction, kept close to its source's words, tested against the current skill and kept only if it wins. Posted advice about settings, such as which effort level suits a kind of task, is tested by running the same prompt with each setting; if it wins, the skill can add a note after the brief suggesting that setting, without changing the brief. The bench tests, you decide, and the bench never edits the skill. So most of a post's advice can only ever be a benchmark result, and the skill grows one tested instruction at a time. Tricks are tested one at a time from a short list of recent posts, checked again before each test.
 
 ## Two ways in
+
+There are exactly two public entry points: **`brief`**, the frontend skill, and
+**`briefbench`**, the backend command. The backend owns the shared bench, records,
+review, maintenance and study tools as subcommands. Plugin manifests install the
+same skill in different hosts; `variants/` contains test inputs. Neither adds a
+product or a separate user workflow.
 
 1. **Use the skill.** It makes your request clearer before an agent works on it. No setup beyond installing it as a plugin, or linking a folder.
 2. **Check the evidence.** Read the [claim cards](claims/README.md): each prompting claim, its outside evidence, and why the skill does or doesn't carry it. Run the bench on your own tasks, or [contribute](CONTRIBUTING.md) a claim, a counterexample or a replication.
@@ -61,17 +71,32 @@ You need Python 3.11 or later, [uv](https://docs.astral.sh/uv/), git, and Claude
 
 | Command | What it does |
 |---|---|
+| `briefbench bench make / run / board` | Prepare the shared bank, run an authorized trick comparison, or read its results; start with `briefbench bench --help` |
+| `briefbench maintenance` | Checks use-triggered reviews in a source checkout; `--search` finds overlapping current/historical advice. See [the procedure](docs/maintenance.md) |
 | `briefbench init <name>` | Freezes an experiment: two treatments (default: your original prompt against the brief), the agent CLIs that do the work, write the brief and judge, your cost cap, and the decision rule |
 | `briefbench ab "<prompt>"` | Runs one trial and prints the command that applies the winner's diff |
 | `briefbench score [--json]` | Wins, losses and ties, the net preference, the test's verdict, fidelity failures and the extra time and tokens |
 | `briefbench clean` | Removes finished trial worktrees |
 
-For example, with Codex doing the work and writing the brief:
+The standard shared-bank workflow is documented in [the bench guide](docs/bench.md).
+Use `uv run briefbench bench ...` from this source checkout; `uv run` launches the
+same backend command. Advanced study operations (`init`, `ab`, `tasks`, `score`,
+`review`, `plan`, `audit`, `check-briefs`) remain under `briefbench` because controlled
+comparisons still need them. Scripts are implementation/developer tools and retain
+compatibility with old commands; they are not additional public entry points.
+
+For a separate experiment on your own task, with Codex doing the work and writing the brief:
 
 ```bash
 briefbench init first --worker codex --rewriter codex
 briefbench ab "mean() in stats.py crashes on an empty list. Make it return 0.0 instead."
 ```
+
+In a source checkout, the first run opens a source-maintenance review. Later source
+and adopted-instruction reviews become due after 30/90 days or relevant changes,
+checked only when the backend is used. A due review pauses model work until its
+completion is recorded; it creates no schedule or automatic experiment. Follow
+[the maintenance procedure](docs/maintenance.md).
 
 `init` asks for anything you leave out and shows the exact commands before freezing them. Treatments: `original`, `brief` (your installed skill), `skill:<folder>` (another version), `snippet:<file>` (your prompt plus a claimed tip), and `clarified` (your prompt plus the skill's questions and your answers, unrewritten, which separates the information from the rewriting). The default rule is two-step, which stops early when the answer is clear; `--rule fixed:50` runs exactly 50 trials and tests once, for a claim you want to publish; a published result also follows the method in [docs/design.md](docs/design.md), "A method for public results". An optional judge from a third vendor (`--judge claude-code` when Codex does the work) rules after your pick, only in repos where you allow it, and never decides. Run `briefbench ab --aa` on a few tasks first: the same treatment in both arms shows how noisy your setup is.
 
@@ -99,7 +124,7 @@ Read [AGENTS.md](AGENTS.md) and [docs/design.md](docs/design.md) before changing
 | Built | `/brief`; `init`, `ab`, `score`, `clean`; the judge; the skill's own questions, `clarified`, fidelity reviews, two decision rules | Done; live tests of the judge and headless calls pass through Claude Code and Codex |
 | P0 Readiness | The skill accepted on real prompts in two hosts; a real trial on each plan, Claude Code and Codex as the worker; public release basics. No release yet | In progress: acceptance and trials need your real prompts and tasks |
 | P1 Unattended trials | Task files, check-only scoring, generated tasks with a planted answer, and a pilot of the first trick | In progress |
-| P2 Posts under test | Each trick from a recent post, first on the bench: one fixed set of tasks that every trick runs on, with one table comparing them ([docs/bench.md](docs/bench.md)); then a full test for the tricks it flags | Started: "test your belief" had no room on Claude Code with Opus 5.5, so it wasn't tested. The bench was built on 20 Nov; its first runs wait |
+| P2 Posts under test | Each trick first gets a completed source-family screen with fixed regression checks and shared controls ([docs/bench.md](docs/bench.md)); larger tests are explicit | Bench-1 remains historical. The default is Codex; one ten-task interview screen completed at 2.56M tokens, with two gains and no losses: no clear difference under its frozen rule. Development only; no adoption evidence |
 | P3 The skill grows from empty | Growth rounds, one piece of posted advice at a time, starting with Claude Code's advice to let Claude interview you | Started: rounds 1 and 2 tested the skill's own question section instead; round 1's was worse and was not added, and round 2's result is not recorded yet. Round 3, on Claude Code's interview advice, had its pilot on 20 Nov (development, not evidence): with the interview, 5 of 5 incomplete requests passed against 0 of 5, and 5 of 5 complete ones either way |
 | P4 First public release | The grown skill, with every result published | Not started |
 | P5 Replication | An outside reproduction, and rerunning tasks after a model change | Not started |

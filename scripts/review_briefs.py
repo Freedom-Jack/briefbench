@@ -1,7 +1,7 @@
 """Review the fidelity of the briefs written in an experiment's unattended trials, apart from their outcomes (docs/build-
 plan.md, P3, step 3). Standard library and briefbench only.
 
-    uv run python scripts/review_briefs.py --experiment NAME
+    uv run briefbench review --experiment NAME
 
 In a trial run from a task file, nobody is there to review the brief the skill wrote, so each one waits. This script
 shows the briefs that the experiment's fidelity policy, frozen at `init`, asks you to review: all of arm B's, or a
@@ -10,6 +10,9 @@ one with only what the request said: the prompt, and the skill's questions with 
 never see a check, an outcome, a diff or the other arm. For each, you answer the three fidelity questions, as the
 requester would. Each review goes to the log as a `fidelity` line at once, so you can stop and go on later. Review every
 brief before you read `briefbench score`, which counts the reviews and applies the policy.
+
+Single-arm bench runs support review of every B brief, independently of the screen's check outcomes. Those reviews
+do not turn the runs into paired confirmatory trials. A paired-trial sampling policy is refused for single-arm runs.
 """
 from __future__ import annotations
 

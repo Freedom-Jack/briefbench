@@ -1,7 +1,7 @@
 """How many trials a public test needs, from its calibration on the plain prompt (docs/experiment-protocol.md, section
 4, step 2, and section 8, "Planning a check-scored test"). Standard library and briefbench only.
 
-    uv run python scripts/plan_trials.py --failed F/R --disagreed X/T [--harm-disagreed Y/U] [--gain 0.15] [--margin 0.10]
+    uv run briefbench plan --failed F/R --disagreed X/T [--harm-disagreed Y/U] [--gain 0.15] [--margin 0.10]
 
 Where the trick should help: --failed is how many plain runs failed, of all its plain runs, and --disagreed how many
 tasks had two plain runs that disagreed, of all its tasks. Where it could hurt: --harm-disagreed, the same. The script

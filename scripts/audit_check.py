@@ -1,7 +1,7 @@
 """Check the checker before a test: label reports yourself, without seeing the check's verdict, and compare
 (docs/experiment-protocol.md, section 4, step 2). Standard library and briefbench only.
 
-    uv run python scripts/audit_check.py --experiment NAME --answers ANSWERS.json [--count 20] [--file report.md]
+    uv run briefbench audit --experiment NAME --answers ANSWERS.json [--count 20] [--file report.md]
 
 NAME is usually the calibration experiment. ANSWERS.json gives each task's planted answer: the list a generator's
 `explain` prints, whose items have an "id" and a "driver", or a JSON object mapping each task id to its answer. The

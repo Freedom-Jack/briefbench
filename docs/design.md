@@ -8,11 +8,21 @@ briefbench turns posted advice about prompts, and about the settings a task runs
 
 ## Read this design in layers
 
+Start with the applicable [agent instructions](../AGENTS.md), then use the table
+below for the task. Requirements and phase gates are not overridden by a code path
+or a research recommendation. Source and tests show the implemented behavior; if
+they disagree with a requirement, report the discrepancy. Dated status and research
+are evidence about their stated conditions, not instructions to resume old work.
+Follow explicit supersession links rather than choosing a document by date alone.
+
 | Document | Authority and purpose |
 | --- | --- |
+| [Central backlog](../BACKLOG.md#resume-here) | Standing pending-work queue and continuation procedure; links to evidence without overriding the product scope, authorization or adoption rules |
 | This document | Product direction, component boundaries, the built architecture, decisions and phase order |
+| [Agent walkthrough](#agent-walkthrough) | Task-to-symbol routes, related tests and bounded search scopes; verify behavior in current source |
 | [Build plan](build-plan.md) | Ordered work packages, acceptance checks, release gates and the next steps |
-| [The bench](bench.md) | The fixed set of tasks every trick runs on first, its table, and how to add a trick or a kind of task |
+| [Maintenance](maintenance.md) | Use-triggered reviews, canonical relationships, scoped adoption/retirement records and completion semantics |
+| [The bench](bench.md) | Current default and opt-in banks, execution, isolation, reuse and reporting; historical configurations are labeled separately |
 | [Experiment protocol](experiment-protocol.md) | Treatments, outcomes, decision rules, missing data and what a report must show |
 | [Data formats](data-formats.md) | The log, experiment and repo-settings files: a contract with later stages |
 | [Evidence records](evidence-records.md) | How claims, experiments, trials, findings and decisions map onto those files |
@@ -21,7 +31,8 @@ briefbench turns posted advice about prompts, and about the settings a task runs
 | [Design review](design-review.md) | Why this revision differs from the 2026-11-04 design and from the built redesign |
 | [Design research](design-research.md) | Primary-source checks behind consequential choices |
 | [Skill acceptance](skill-acceptance.md) | The skill's validation record and the real-use checks still owed |
-| [Research](research/README.md) | The four research reports |
+| [Research](research/README.md) | Source-linked research reports; recommendations inform the design but do not override it |
+| [Dated status records](status/2026-11-23-article-queue.md) | Results, validation and limitations at a named point in time; the backlog holds next actions |
 | [Design history](design-history.md) | How the design got here, with the commits that hold each earlier version |
 
 ## Decisions at a glance
@@ -32,6 +43,7 @@ briefbench turns posted advice about prompts, and about the settings a task runs
 | Front end | `brief`, an Agent Skill: one `SKILL.md`, no code. It improves prompts and, once posted settings advice has won a bench round, may add one note suggesting the settings to run the task with. It logs nothing and keeps no records. It grows from empty: a released version holds only its basic rules and posted advice that won a bench round, each piece applied only when a request meets the condition its source gives. Version 0.2.0, your hand-written skill, stays installed until then; none of its instructions is a candidate |
 | Which advice | Only advice that people have posted, about what a prompt says or how it says it (decided 2026-11-18), or about which model, effort level or multi-agent mode to run a task with (added 2026-11-20). Other advice about the agent's setup (tools, project files such as CLAUDE.md, outside checks, how several agents are arranged) is out of scope, and so are the project's own ideas. Each trick is tested on the kind of work its source is about |
 | Back end | `briefbench`, a small CLI that runs blind paired trials on your own repo tasks, or unattended on tasks read from files |
+| Public entry points | Exactly two: the `brief` frontend skill and the `briefbench` backend executable. Shared-bank execution, maintenance and study operations are subcommands; helpers, host manifests and experimental variants add no public products |
 | Interface | None at run time. The bench runs the skill's folder headless, as a black box, and keeps every record itself |
 | Cost | Your subscriptions only. Every model call goes through an agent CLI logged in with your Claude or ChatGPT plan, such as Claude Code or Codex. No API keys and no per-token charges. Plan usage stays light too: each new trick first runs on the bench, where the plain prompt's runs are shared by every trick (decided 2026-11-20), and a calibration or a public test runs only after your yes, with its expected usage stated first (decided 2026-11-19) |
 | Questions | Two jobs. A benchmark: does a trick from a post make Claude Code or Codex do better work? An improvement loop: does a trick that fits the skill's job, written in the skill's form, make the skill better than it is now? Each is a one-shot handoff, compared on the same task with and without the change. The bench tests, and you decide |
@@ -43,7 +55,7 @@ briefbench turns posted advice about prompts, and about the settings a task runs
 | Public results | After the trick's runs on the bench and your yes (2026-11-20), seven steps, adopted 2026-11-09: name what is measured, calibrate the materials on the plain prompt, plan N from the calibration, publish a dated plan before the tasks exist, analyse each kind of task apart, give the cost with intervals, and mark a trick better only after a second test agrees |
 | Evidence | Claim cards in `claims/` (public). Frozen experiments, the trial log and each trial's output under `~/.briefbench/` (private). A finding is the JSON from `briefbench score --json`. Nothing is published automatically |
 | Reuse | Agent Skills for the front end; Claude Code and Codex as runners; Arena-Hard-Auto's judge prompt (Apache-2.0); MT-Bench's both-orders rule; later, evalstats, promptfoo imports, Inspect and GEPA where they remove real work |
-| Size | Skill at most 150 lines (56 now). Bench about 2,900 lines of Python (2,980 on 2026-11-20, with runs of one arm for the bench; 2,937 on 2026-11-19, with the skill's interview; 2,863 on 2026-11-18; 2,721 on 2026-11-10, with the stand-in requester; 2,503 on 2026-11-09, from about 2,160 before the method for public results), with no runtime dependency; materials generators, the runner, the bench's script, the planning script and the checker audit live in `scripts/` |
+| Size | Skill at most 150 lines (56 now). Bench kept near its original 2,900-line budget (about 3,620 on 2026-11-23 including use-triggered lifecycle checks; previously about 3,140 on 2026-11-23, with session interviews and usage accounting; 2,980 on 2026-11-20, with runs of one arm for the bench; 2,937 on 2026-11-19, with the skill's interview; 2,863 on 2026-11-18; 2,721 on 2026-11-10, with the stand-in requester; 2,503 on 2026-11-09, from about 2,160 before the method for public results), with no runtime dependency; materials generators, the runner, the bench's script, the planning script and the checker audit live in `scripts/` |
 
 ## Only advice people have posted
 
@@ -82,7 +94,7 @@ Success has separate measures. Product: people use the skill, come back to it, a
 ## Constraints
 
 - **Two separate parts.** The skill is built only for the best brief, never for ease of measurement. It logs nothing and keeps no records. The bench tests it as a black box.
-- **Cheap.** The bench costs nothing beyond the subscriptions you already have. It calls models only through agent CLIs logged in with those plans, never a paid API. It keeps plan usage light too: a trick's runs on the bench before any larger run, and each larger run only after your yes, with its expected usage stated first ("A method for public results").
+- **Cheap.** The bench costs nothing beyond the subscriptions you already have. It calls models only through agent CLIs logged in with those plans, never a paid API. A completed development comparison should be naturally cheap: a fixed source-family screen with regression sentinels, lazily shared controls, a lean worker and reuse of context within an interview ([bench.md](bench.md), revised 2026-11-23). A cap is an exceptional guardrail, not the stopping rule that makes normal work affordable. Larger runs require your yes, with expected usage stated first ("A method for public results").
 - **Any model, any harness.** Nothing in the core depends on one vendor. Vendor details live in `presets.py`; host-specific skill metadata is limited to fields other hosts ignore.
 - **Small.** Build in stages; each must be useful on its own. Reuse before building.
 - **Every tip is a hypothesis.** No technique becomes a default because someone recommends it, the sources in this repository included. It has to win on your own tasks, and pass the fidelity review.
@@ -150,6 +162,13 @@ A source, a finding and an adoption decision are different things. Accepting a s
 
 **Decision.** A change to the skill needs a small diff, the linked finding, boundary and fidelity checks, the conditions it applies to, and a rollback target. Bump `metadata.version`, record the decision in the claim card and the commit message, rerun the affected acceptance checks, and package the release. Boundary fixes, literal-preservation fixes and packaging repairs can ship on demonstrated correctness without an efficacy claim. A change can be rejected despite a quality gain if it widens authority, changes intent, costs too much or adds maintenance out of proportion. An instruction can be removed for demonstrated harm, scope violations or upkeep; if the reason is simplicity under inconclusive evidence, say so.
 
+The [maintenance procedure](maintenance.md), adopted 23 Nov 2026, adds canonical
+relationships and dated, scoped instruction records. Review after 30 elapsed days
+for sources and 90 for active adopted instructions, or on relevant changes, at the
+next backend use. Only completed reviews reset the clock. There are no scheduled
+jobs, automatic removals or automatic model calls. A review does not renew outcome
+evidence.
+
 ## The skill grows from empty
 
 Decided 2026-11-06. The skill should hold only instructions that earned their place on the bench, so it is rebuilt from nothing, one tested change at a time. Since 2026-11-18 every candidate is a piece of advice that people have posted, about prompts or, since 2026-11-20, settings ("Only advice people have posted"). Anthropic's Opus 5.5 guide gives similar advice for prompts carried over from older models: remove lines the new model no longer needs ([guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)). Boris Cherny said the same of Claude Code's system prompt in July ([value report](research/value-of-prompting/report.md), "Boris Cherny").
@@ -186,6 +205,19 @@ Decided 2026-11-06. A trick can only show an effect on tasks where it has room t
 - **Real tasks still count.** Your own tasks through `ab` are the closest test of your work, and the only test of open-ended tricks. A result on generated materials holds for those materials.
 - **No pooling.** Results on different materials are separate findings, never one win rate.
 
+**Coverage revision, 23 Nov 2026.** After a read-only audit of recent work, the
+maintainer authorized integration/state diagnosis and evidence-synthesis materials
+in a new bank, without experiments. The opt-in `bench-3-codex` recipe preserves all
+32 earlier task recipes and pins the original easy sentinel pool, adding eight
+fully specified coding repairs and eight local-source synthesis cases. The latter
+require human quality judgments; automatic check-only execution is blocked. These
+are new synthetic designs, not copies of private requests or representative task
+frequencies. They address missing work coverage, not a need to make a favored trick
+win. A saturated representative task remains useful; raising difficulty or weakening
+the worker to manufacture headroom is not this revision's purpose. Existing results,
+skill and variant text, defaults, settings and adoption gates remain intact. Details
+and limitations: [bench.md](bench.md#coverage-bank-3-opt-in-no-experiments-run).
+
 ## Posts under test
 
 Decided 2026-11-06. **Recent sources only:** models change every few months, and advice written for older ones often stops holding. A post qualifies when it was published within about three months and is about the models in use now. Every result names the worker's model and the date. A claim from an older post is tested only when a recent source repeats it. The five 2026 practitioner posts in the [value report](research/value-of-prompting/report.md) (Cherny, Mollick, Karpathy, Hashimoto and Osmani, January to July 2026) are records, not the list under test. Their prompt advice, such as giving the agent a clear goal, comes back in the recent sources below. Their advice about the agent's setup, such as giving it a real check or a CLAUDE.md file, is out of scope ("Only advice people have posted").
@@ -208,7 +240,9 @@ Added on 20 Nov 2026, for settings, from the [settings advice report](research/s
 | OpenAI, Codex's ["Models"](https://learn.chatgpt.com/docs/models) page (covers GPT-6.x) | Start with the default effort ([card](../claims/default-effort-first.md)); use multi-agent mode only when the work divides into parts ([card](../claims/multi-agent-for-divisible-work.md)) | Coding tasks with hidden tests on Codex; work that divides into parts beside work that doesn't |
 | Gabriel Anhaia, ["One Command per Kind of Task"](https://dev.to/gabrielanhaia/one-command-per-kind-of-task-model-and-effort-presets-for-claude-code-and-codex-fgp) (DEV, 19 Oct 2026) | Pick model and effort by the kind of task ([card](../claims/presets-by-task-kind.md)) | A mix of chores, features and hard problems with hidden tests, on Claude Code |
 
-**Order.** Test your belief came first: its materials are generated, run unattended with Claude Code as the worker (your preference; the bench doesn't yet let Codex run them, because its sandbox can't keep an arm from reading the answer keys or the other arm) and need no stand-in requester, and it is the essay's own churn example. It found no room on Claude Code with Opus 5.5 ([card](../claims/test-your-belief.md)). Rounds 1 and 2 of the skill's growth came next, but they tested the skill's own question section, not a trick from this list ("Only advice people have posted"). Next is Claude Code's interview advice, as its guide gives it, which needs coding feature tasks with hidden tests ([card](../claims/ask-questions-first.md)). Then the rest of Rieseberg's tricks on their materials. Anthropic's lines run with Claude Code as the worker too, your choice since 2026-11-06. A trick that is a line to add to a prompt runs as an add-on (`snippet:`) against your plain prompt, the way you would use the advice yourself. A trick that wins and fits the skill's boundary becomes a growth candidate in its skill form, tested in its own round ("How a trick reaches the skill"). The settings tricks wait until the bench can run settings arms ([build plan](build-plan.md), P2). The first is Anthropic's advice to save max effort for hard problems Claude works on alone: max against high, on Claude Code with Opus 5.5, on ordinary and hard coding tasks, which need the same generator of coding tasks with hidden tests as the interview round. The list is checked again before each new test, and a newer post replaces an older one that says the same thing.
+**Current order.** Follow [the standing queue](../BACKLOG.md#resume-here) and [the current bench workflow](bench.md). The selected host is Codex; [the settings proposal](status/2026-11-23-settings-proposal.md) names its next candidate. The sequence below records the earlier Claude Code plan and is not a continuation instruction.
+
+**Historical order (6–20 Nov 2026).** Test your belief came first: its materials are generated, run unattended with Claude Code as the worker (your preference; the bench doesn't yet let Codex run them, because its sandbox can't keep an arm from reading the answer keys or the other arm) and need no stand-in requester, and it is the essay's own churn example. It found no room on Claude Code with Opus 5.5 ([card](../claims/test-your-belief.md)). Rounds 1 and 2 of the skill's growth came next, but they tested the skill's own question section, not a trick from this list ("Only advice people have posted"). Next is Claude Code's interview advice, as its guide gives it, which needs coding feature tasks with hidden tests ([card](../claims/ask-questions-first.md)). Then the rest of Rieseberg's tricks on their materials. Anthropic's lines run with Claude Code as the worker too, your choice since 2026-11-06. A trick that is a line to add to a prompt runs as an add-on (`snippet:`) against your plain prompt, the way you would use the advice yourself. A trick that wins and fits the skill's boundary becomes a growth candidate in its skill form, tested in its own round ("How a trick reaches the skill"). The settings tricks wait until the bench can run settings arms ([build plan](build-plan.md), P2). The first is Anthropic's advice to save max effort for hard problems Claude works on alone: max against high, on Claude Code with Opus 5.5, on ordinary and hard coding tasks, which need the same generator of coding tasks with hidden tests as the interview round. The list is checked again before each new test, and a newer post replaces an older one that says the same thing.
 
 ## A method for public results
 
@@ -250,7 +284,9 @@ Both arms use the same worker (agent CLI, model and settings), start from the sa
 | `skill:<folder>` | The same, by the skill in that folder |
 | `snippet:<file>` | Your prompt plus a fixed text: a claimed tip, or a placebo for a mechanism study |
 
-A headless brief takes two kinds of call to the rewriter, an agent CLI that can read the repo but not change it, with the skill's `SKILL.md` in its prompt. The first lists the questions the skill would ask next, as JSON held to a schema, given the questions and answers so far; `ab` puts them to you, and the call runs again, turn after turn, until the skill asks nothing more (since 2026-11-19, the skill's interview; a safety stop ends it after 10 turns; before, it asked once and kept at most three). The second writes the brief from your answers. Removing one technique is just another treatment: a copy of the skill folder without it.
+In fresh-call mode, a headless brief takes two kinds of call to the rewriter, an agent CLI that can read the repo but not change it, with the skill's `SKILL.md` in its prompt. The first lists the questions the skill would ask next, as JSON held to a schema, given the questions and answers so far; `ab` puts them to you, and the call runs again, turn after turn, until the skill asks nothing more (since 2026-11-19, the skill's interview; a safety stop ends it after 10 turns; before, it asked once and kept at most three). The second writes the brief from your answers. Removing one technique is just another treatment: a copy of the skill folder without it.
+
+The current bench screens instead use [session interviews](bench.md#execution-and-reuse): one confined process retains the conversation and returns the final brief without a separate rewrite call. The mode and protocol are frozen with the experiment; the fresh-call interface remains available for ordinary interactive experiments.
 
 ### How a trial runs
 
@@ -258,7 +294,7 @@ A headless brief takes two kinds of call to the rewriter, an agent CLI that can 
 2. **Pick the task before any brief exists.** `ab` takes your prompt, never a brief. Three eligibility questions exclude tasks that lean on earlier chat, have side effects outside the repo, or that you will steer midway; an exclusion is logged. You give the task type: code, writing, research, analysis or other.
 3. **State the evaluation.** The goal (what the result should achieve) and the check (a command run in each worktree afterwards; Enter keeps the repo's saved check, `none` runs this trial without one). Neither agent's prompt contains either: they judge the results, like hidden tests. One caveat: Claude Code as worker is allowed to run exactly the check command, so it could learn the command from its permissions, in both arms alike.
 4. **The skill's questions.** The rewriter lists the questions the skill would ask about your prompt, and you answer each, or skip it. Since 2026-11-19 this is an interview: the next turn's list sees the questions and answers so far, and turns go on until the skill asks nothing more, with a safety stop after 10 turns; before, the skill was asked once and at most three questions were kept. With two skill treatments, each turn's questions from both are asked once each, in random order, without saying which skill asked, since knowing that would unblind your pick.
-5. **Render.** Each arm's prompt is built from its treatment; a skill treatment is rewritten once, headless.
+5. **Render.** Each arm's prompt is built from its treatment. A skill treatment uses the interview's final brief in session mode, or a separate headless rewrite in fresh-call mode.
 6. **Run.** Two git worktrees of the current commit, in a private temporary folder outside the data folder, so neither agent can find the trial's records, your answers or the saved check nearby; your setup command in each, run like the agents without API key variables; both arms at once, with a timeout. Your check runs in each worktree after the protected paths (your tests, given relative to the repo) are put back from the commit, so an agent that edited them fails.
 7. **Decide.** If exactly one arm passes the check, the check decides. Otherwise you pick 1, 2 or a tie, blind: the sides are random and you see only the diffs and the check output, never the prompts or the agents' summaries. A tie records whether both results are good enough or neither is. You may guess which side got B, which tests the blinding.
 8. **Judge, if on.** It rules in both orders on your goal, the diffs and the check output; a verdict that flips is a tie. It is recorded beside your pick and never decides.
@@ -273,7 +309,7 @@ Added 2026-11-06, for materials with an answer key. `init --scoring check --rule
 
 The hidden evaluation is protected by where things are kept, and checked after the run:
 - Each arm works in a clone of the task repo, in a randomly named folder of its own under `~/.cache/briefbench-runs`, outside the data folder and outside temp. No git link, sibling folder or parent leads to the other arm, the answer key or the records. The checks then run one after the other. The folder's path must not start with the data folder's: on 2026-11-06 a folder named `~/.briefbench-runs` made Claude Code's sandbox treat each working folder as the denied `~/.briefbench`. It denied ordinary commands, and the scan flagged every arm.
-- The worker never gets the check command. It runs in Claude Code's own sandbox, which the bench turns on for these trials and which refuses to start rather than run unsandboxed. Any shell command is allowed and runs inside the sandbox, so an analysis can run Python freely, while writes stay in the working folder and temp. The data folder, the answer keys, the other arm's clone and any leftover clone can't be read. Each arm has a temporary folder of its own: a review on 2026-11-09 found that both arms had shared the one temporary folder that every Claude Code session on the machine uses, and in one pilot trial an arm ran a script the other had just written. Claude Code moves its temporary folder only to a short path, so each arm's is a short folder under `/tmp`. The bench's own source, which describes how the materials hide their answers, and the places where agent CLIs keep other sessions' transcripts and scratch files can't be read either; since 2026-11-20, when the bench runs from a git worktree, neither can the main checkout it belongs to, which holds the same generators, the bench's seeds and the other worktrees. Nothing in the worker's environment, PATH included, names those places. The worker loads no MCP servers and none of your user settings (`--strict-mcp-config`, `--setting-sources project,local`), so your own tools and permissions don't leak into a trial. Codex's `workspace-write` sandbox limits writes but not reads, so `init` refuses Codex as the worker for these experiments. A plain permission rule for `python3` proved too coarse: on 2026-11-06 it denied ordinary analysis commands with a heredoc or a `<`, and told the agent not to retry. Claude Code reports each step it takes (`stream-json`), so the scan below covers its commands as well as its final message.
+- The worker never gets the check command. It runs in Claude Code's own sandbox, which the bench turns on for these trials and which refuses to start rather than run unsandboxed. Any shell command is allowed and runs inside the sandbox, so an analysis can run Python freely, while writes stay in the working folder and temp. The data folder, the answer keys, the other arm's clone and any leftover clone can't be read. Each arm has a temporary folder of its own: a review on 2026-11-09 found that both arms had shared the one temporary folder that every Claude Code session on the machine uses, and in one pilot trial an arm ran a script the other had just written. Claude Code moves its temporary folder only to a short path, so each arm's is a short folder under `/tmp`. The bench's own source, which describes how the materials hide their answers, and the places where agent CLIs keep other sessions' transcripts and scratch files can't be read either; since 2026-11-20, when the bench runs from a git worktree, neither can the main checkout it belongs to, which holds the same generators, the bench's seeds and the other worktrees. Nothing in the worker's environment, PATH included, names those places. The worker loads no MCP servers and none of your user settings (`--strict-mcp-config`, `--setting-sources project,local`), so your own tools and permissions don't leak into a trial. **Historical limitation, superseded 23 Nov 2026:** Codex's old `workspace-write` preset limited writes but not reads, so `init` then refused it for these experiments. Current task roles use [read-restricting permission profiles](bench.md#execution-and-reuse); the [dated decision](#2026-11-23-codex-is-the-requested-bench-host) records the change. A plain permission rule for `python3` proved too coarse: on 2026-11-06 it denied ordinary analysis commands with a heredoc or a `<`, and told the agent not to retry. Claude Code reports each step it takes (`stream-json`), so the scan below covers its commands as well as its final message.
 - An arm whose output names a folder it can't read, in any spelling such as `~/` or `$HOME/`, is flagged (`looked_outside`), and `score` reports it. Since 2026-11-09 the rule for a flag is fixed in advance: read the arm's log, and if it confirms the look, count that arm as failing its check. Counting it as a fail keeps every task in the analysis, and it doesn't hide a trick that makes agents look around more. A flag the log doesn't confirm changes nothing. The log is never rewritten, so the report's author makes this recount, as for a trial stopped by an outage.
 - An arm stopped with an error, such as a usage limit, measured the service, not the prompt. Its trial is logged as failed and its task rerun once.
 
@@ -362,6 +398,60 @@ Everything stays under `~/.briefbench/`, created at mode 0700, which keeps every
 
 ## Architecture
 
+### Agent walkthrough
+
+Use these routes after reading the applicable rules and work package. They are
+entry points rather than a complete call graph; follow definitions and usages in
+the current checkout. Names are more durable than copied line numbers.
+
+| Question | Source route | Representative existing test |
+| --- | --- | --- |
+| Where does a backend command start? | [cli.py](../src/briefbench/cli.py) `run`, `build_parser` → [entrypoints.py](../src/briefbench/entrypoints.py) `COMMANDS`, `run` → existing script implementation; [bench guide](bench.md) | [test_entrypoints.py](../tests/test_entrypoints.py): one skill/executable, help, argument/IO/environment forwarding, maintenance gate and redaction |
+| Is advice duplicate, retired or due for review? | [maintenance.py](../src/briefbench/maintenance.py) `registry`, `search`, `check`, `require_review`, `runnable`; `cli.py` `cmd_maintenance`; [public registry](../claims/lifecycle.json) | [test_maintenance.py](../tests/test_maintenance.py): interval boundaries, changed inputs, canonical cycles, retirement, command gates, concurrency and private journal |
+| Why will an experiment not resume? | [cli.py](../src/briefbench/cli.py) `cmd_ab` → [treatments.py](../src/briefbench/treatments.py) `check_unchanged`, `templates_sha256`; frozen inputs in [experiment.py](../src/briefbench/experiment.py) | [test_bench.py](../tests/test_bench.py) `test_a_changed_request_template_or_judge_prompt_is_refused`; [test_tasks.py](../tests/test_tasks.py) `test_pinned_versions_refuse_drift_before_model_calls` |
+| How do answers become a worker prompt? | [cli.py](../src/briefbench/cli.py) `_skill_questions` → `_interview` → `_render`; [treatments.py](../src/briefbench/treatments.py) `interview`; vendor session in [presets.py](../src/briefbench/presets.py) `_CodexSession` | [test_tasks.py](../tests/test_tasks.py) `test_session_interview_reuses_context_and_returns_the_brief` |
+| What may workers read, and where is the check withheld? | [cli.py](../src/briefbench/cli.py) `cmd_ab`, `_confinement`, `_run_arms`; role permissions in [presets.py](../src/briefbench/presets.py), processes and clones in [runner.py](../src/briefbench/runner.py) | [test_tasks.py](../tests/test_tasks.py) `test_the_worker_can_reach_neither_the_bench_source_nor_other_sessions_files`; [test_codex_support.py](../tests/test_codex_support.py) `test_task_roles_fail_closed_and_do_not_inherit_tools_or_effort` |
+| Why are controls reused, or why did a screen stop? | [scripts/bench.py](../scripts/bench.py) `selected`, `same_worker`, `comparable`, `guardrail`, `run` | [test_bench_script.py](../tests/test_bench_script.py) `test_completed_screen_creates_only_needed_baselines_and_reruns_nothing`, `test_changed_materials_or_worker_never_reuse_a_baseline`, `test_guardrail_counts_work_before_resume_and_never_claims_completion` |
+| Why is a promising result not adopted? | [cli.py](../src/briefbench/cli.py) `cmd_score` → [score.py](../src/briefbench/score.py) `summary`, `review_queue`; rules in [stats.py](../src/briefbench/stats.py) | [test_score.py](../tests/test_score.py) `test_a_win_over_the_cost_cap_is_not_adopted`; [test_review_briefs.py](../tests/test_review_briefs.py) `test_single_arm_briefs_can_be_reviewed_without_becoming_paired_evidence` |
+| What does trial cleanup preserve? | [cli.py](../src/briefbench/cli.py) `cmd_clean` reads private trial metadata and skips live trials; working clones, worktrees and scratch can be removed while output records remain | [test_bench.py](../tests/test_bench.py) `test_clean_removes_worktrees_and_keeps_the_output`; [record invariants](evidence-records.md#principles). Trial cleanup is separate from developer worktree housekeeping |
+
+**Execution trace.** Recipe and task selection → compatible shared controls →
+frozen experiment → interview and prompt rendering → confined worker → hidden
+check → append-only run or trial record. Start at `scripts/bench.py` for screen behavior,
+`cli.py` for a trial, and `presets.py` only for vendor commands, sessions and permissions.
+
+**Evidence trace.** Source in [the backlog](../BACKLOG.md) → claim card → named
+treatment and recipe → private frozen experiment and trial records → score →
+reviewed decision. Use [evidence-records.md](evidence-records.md) to follow identities
+and [the protocol](experiment-protocol.md) for interpretation. A development result,
+research recommendation or historical plan does not authorize adoption or execution.
+
+**Search current files first.** These commands list and search without running agents:
+
+```sh
+rg --files src/briefbench scripts tests
+rg -n 'check_unchanged|templates_sha256' src/briefbench tests
+rg -n 'same_worker|comparable|guardrail' scripts/bench.py tests/test_bench_script.py
+```
+
+This includes non-ignored untracked work. Search [claims](../claims/README.md),
+[research](research/README.md), dated status and [design history](design-history.md)
+explicitly when tracing evidence. Keep nested worktrees, environments, generated
+packages and caches out of ordinary searches. Ignore rules are not a privacy boundary.
+Materials generators embed synthetic programs as strings: regex matches on `def`
+or `class` there are not necessarily generator symbols. If definitions or import
+edges need indexing, use a live AST parse; [test_architecture.py](../tests/test_architecture.py)
+already has a small `local_imports` example. Static imports are not a runtime call graph.
+
+**Keep the routes accurate.** When mapped behavior, files or symbols change, review
+this table and its tests in the same change. Check local links and named definitions;
+put a supersession pointer beside obsolete guidance. Keep result counts in their
+dated records, not in this index. The [navigation research](research/agent-navigation/report.md)
+records the source evidence and proposed navigation checks; coding-performance
+improvement remains unmeasured here.
+
+### Component and data layout
+
 **Repo layout.**
 
 ```text
@@ -377,7 +467,7 @@ src/briefbench/
                             errors and exit codes, key scrubbing, the append-only log
   presets.py                the only vendor-specific module: Claude Code and Codex as worker, rewriter, asker, judge
                             and stand-in requester; their confined forms for task files
-  treatments.py             original, clarified, skill:<folder> and snippet:<file>; the two headless calls
+  treatments.py             original, clarified, skill:<folder> and snippet:<file>; interview and render templates
   experiment.py             init's frozen settings, the decision rules, repo settings
   runner.py                 worktrees, setup, both arms, protected paths, checks, diffs
   judge.py, judge_prompt.md pairwise judge, both orders
@@ -388,7 +478,8 @@ claims/                     claim cards, public
 scripts/package_skill.py    reproducible skill ZIP, with the bench's hash of the folder
 scripts/run_tasks.py        runs a list of task files unattended
 scripts/bench.py            the bench: makes its fixed tasks, runs the plain prompt and each trick, writes its table
-bench/                      the bench's recipe (bench-1.json), the trick list (tricks.json) and the table (board.md)
+bench/                      current default bench-2-codex.json and board-2-codex.md; tricks.json
+                            opt-in bench-3-codex.json; historical recipes and boards retained separately
 scripts/materials/          generators of materials with an answer key, such as planted_cause.py
 scripts/plan_trials.py      the trials a public test needs, from its calibration, by exact calculation
 scripts/audit_check.py      your labels of calibration reports, compared with the check
@@ -418,7 +509,14 @@ audits/<name>.json            your labels of an experiment's reports, from scrip
 
 Exit codes say what to do next: 2 fix the command, 3 fix the setup, 4 a trial step failed and its log says why, 130 cancelled.
 
-**Runner.** Each CLI's argument templates for its roles (worker, task worker, rewriter, asker, judge) live in `presets.py`, as argv lists with slots; there is no shell, so prompts need no quoting. Every CLI starts with stdin closed. The least permissive modes that let the worker edit and run your check, and the rewriter and judge only read: Claude Code with `--permission-mode acceptEdits`, only your check command allowed and `--permission-prompts none`; Codex with `-s workspace-write`. Under check scoring the task worker replaces the worker: Claude Code in its sandbox, as in "Unattended trials". The rewriter runs first, in worktree A, before setup; if it changes a file the trial stops. Time limits: each arm 30 minutes by default; each headless call and each judge call 10 minutes; setup and the check 15 minutes each. Tokens are parsed from each CLI's JSON output; Claude Code's `total_cost_usd` is a list-price estimate, not a charge on a plan, so it isn't used.
+**Runner.** Role commands live in `presets.py` as argument lists, not shell
+strings. `runner.py` owns processes, clones/worktrees, checks and diffs. Ordinary
+interactive experiments and check-scored bench screens use different role commands
+and timeouts; inspect the frozen experiment and recipe before reproducing a run.
+The current task-role permissions, session transport, usage accounting and reuse
+rules are described in [the bench workflow](bench.md#execution-and-reuse), with
+historical validation in [the implementation record](status/2026-11-23-cheap-comparisons.md).
+A CLI's dollar estimate is not a subscription bill.
 
 ## What to reuse
 
@@ -440,7 +538,13 @@ Publish the useful skill and the evidence process before trying to support every
 
 ## Build order and current state
 
-| Phase | Result | State on 2026-11-19 |
+For current next actions use [the standing queue](../BACKLOG.md#resume-here); for
+execution use [the bench workflow](bench.md), and for phase gates use [the build plan](build-plan.md).
+The table and account below preserve the earlier phase snapshot, including its
+20 Nov additions. Pending-run statements there are historical; later screens are
+recorded in [the 23 Nov article queue](status/2026-11-23-article-queue.md).
+
+| Phase | Result | Historical state, 19–20 Nov 2026 |
 | --- | --- | --- |
 | Built: stages 0–3 | The skill; `init`, `ab`, `score`, `clean`; the judge | Built 2026-11-03; skill 0.2.0 on 2026-11-04 |
 | Built: the 2026-11-05 revision | The skill's own questions, `clarified`, hidden evaluation, tie kinds, fidelity review, failed trials, versions, both rules, `score --json`; claim cards; community files; skill packaging | Built 2026-11-05: 185 offline tests on Python 3.11 and 3.14. Live tests of the judge and the two headless calls pass through Claude Code 2.1.317 and Codex 0.166.0-alpha.6. `ab` has not yet run on a real task with this revision |
@@ -524,6 +628,39 @@ Made while building stages 0–3, on 2026-11-02 to 2026-11-04, still holding:
 - The cost cap applies to both medians, extra time and extra tokens, as a percentage of A's.
 - Your rewrite of the skill is version 0.2.0; it runs only when called. The bench reads a linked or copied install, which you keep current, so experiments freeze a copy with `skill:<folder>`. Since 2026-11-06 it is not the base for the grown skill, and since 2026-11-18 not a source of its instructions.
 - Python 3.11+, standard library only, managed with uv; data under `~/.briefbench/`.
+
+### 2026-11-23: naturally cheap completed comparisons
+
+The maintainer approved replacing the default full-bank sweep with a complete source-family screen plus two fixed regression sentinels. The shared bank and two-run controls remain; controls are created only when selected and then reused. The lean confined worker, explicit medium effort, pinned CLI versions and session interview define a new bench-2 configuration. Its brief is returned by the final interview turn, without a separate rewrite process. The released skill and variant text are unchanged. The version-2 render/template hashes and changed worker commands require new experiments and baselines; historical logs remain scoreable. A persistent consumption ceiling is an exceptional guardrail, not a normal completion target. See [bench.md](bench.md) for the selection and reporting rules.
+
+### 2026-11-23: Codex is the requested bench host
+
+After a partial attempt used the frozen Claude Code recipe, the maintainer clarified that the intended host was Codex and authorized implementing its missing support. The default `bench-2-codex` recipe retains the bank and fixed screen design, with fresh controls on `gpt-6.1-sol` at medium effort. Existing Claude Code controls cannot stand in for them. Codex task workers and headless roles use named permission profiles with read isolation, replacing the older `workspace-write` preset's limitation described in historical sections above. The session interview uses the subscription CLI's stdio app server, with one ephemeral thread, no SDK or paid API client. Protocol state and token accounting are kept inside the vendor adapter; the core remains vendor-neutral and has no runtime dependency. [The bench workflow](bench.md) describes confinement and reuse. Results on advice sourced from Claude Code are labelled as transfer to Codex; they do not establish a result on the source's harness. No skill or variant wording changed, and fidelity, equal-information and adoption gates remain.
+
+### 2026-11-23: maintenance on next bench use
+
+The maintainer approved the [lifecycle proposal](research/trick-lifecycle/report.md)
+with elapsed-time checks on backend use, explicitly excluding scheduled jobs.
+[Maintenance](maintenance.md) specifies the implemented local checks and review
+workflow. The public registry preserves current and historical provenance; the
+private journal records opened/completed reviews. First use is due, completion
+requires the current input token and a note, and changed inputs invalidate a token.
+Model work pauses when review is due; reporting and cleanup remain available.
+Neither review completion nor a development screen establishes continued efficacy.
+The support is dependency-free and does not implement replay, semantic merging or
+a new statistical retirement rule.
+
+### 2026-11-23: two public entry points
+
+The maintainer requested one frontend skill and one backend bench. `brief` is the
+only installable skill, and `briefbench` the only installed executable. The backend
+now routes the shared bank (`bench`) and study helpers (`tasks`, `review`, `plan`,
+`audit`, `check-briefs`) alongside existing experiment and maintenance commands.
+These reuse the source checkout's script implementations, with the caller's
+streams, environment, working directory and exit codes; output remains redacted.
+Old script invocations remain compatible. No new skill, service or third product
+is added. Variants and A/B arms are inputs required for controlled comparisons,
+not public entry points. Packaging/material generators remain developer tools.
 
 ## Deferred
 

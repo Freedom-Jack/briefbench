@@ -1,4 +1,4 @@
-"""Command line: init, ab, score and clean. Vendor-neutral: agent CLIs come from presets.AGENTS by name."""
+"""One backend command for the bench and its study/maintenance operations. Vendor-neutral."""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import __version__, experiment, judge, runner, score, tasks, treatments
+from . import __version__, entrypoints, experiment, judge, maintenance, runner, score, tasks, treatments
 from .errors import AgentError, BriefbenchError, ConfigError, UsageError
 from .log import append, data_dir, display_path, header, prepare, read_entries, utc_now
 from .presets import AGENTS, PRIVATE_PLACES, agent_env, secret_values
@@ -52,6 +52,8 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
                                  "CLIs logged in with your subscriptions. See docs/design.md.")
     parser.add_argument("--version", action="version", version=f"briefbench {__version__}")
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    for name, (_, description) in entrypoints.COMMANDS.items():
+        commands.add_parser(name, add_help=False, help=description + " (source checkout)")
     i = commands.add_parser("init", allow_abbrev=False, help="freeze a new experiment")
     i.add_argument("name")
     i.add_argument("--a", default="original", metavar="TREATMENT",
@@ -65,6 +67,9 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     i.add_argument("--cap", type=_number, metavar="PERCENT",
                    help="the most extra time and tokens B may use, as a median percentage of A's")
     i.add_argument("--timeout", type=_number, default=30.0, metavar="MINUTES", help="per arm (default: 30)")
+    i.add_argument("--interview", choices=("fresh", "session"), default="fresh",
+                   help="session: reuse one confined CLI process through questions and the finished brief")
+    i.add_argument("--pin-versions", action="store_true", help="refuse runs after an agent CLI version changes")
     i.add_argument("--rule", type=_rule, default="two-step", metavar="RULE",
                    help="two-step (the default), or fixed:N for one test after exactly N trials")
     i.add_argument("--net-min", type=_fraction, metavar="X",
@@ -111,6 +116,14 @@ def build_parser(secrets=()) -> argparse.ArgumentParser:
     s.add_argument("name", nargs="?", help="default: the newest experiment")
     s.add_argument("--json", action="store_true", help="every number in the report, as JSON")
     commands.add_parser("clean", allow_abbrev=False, help="remove finished trials' worktrees; diffs and logs stay")
+    m = commands.add_parser("maintenance", allow_abbrev=False, help="check due reviews, find overlaps, or record review completion")
+    action = m.add_mutually_exclusive_group()
+    action.add_argument("--complete", choices=tuple(maintenance.INTERVALS))
+    action.add_argument("--flag", help="record an environment change or harm report requiring review")
+    action.add_argument("--search", help="find related public claims and backlog entries; advisory only")
+    m.add_argument("--token", help="the current review token printed by maintenance")
+    m.add_argument("--note-file", type=Path, help="private review note with decisions, blockers and next actions")
+    m.add_argument("--json", action="store_true", help="machine-readable results")
     for p in (parser, *commands.choices.values()):
         p.secrets = tuple(secrets)
     return parser
@@ -182,16 +195,24 @@ class Console:
 def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, cwd=None) -> int:
     environ = dict(os.environ) if environ is None else environ
     secrets = secret_values(environ)
-    try:                                         # argparse quotes what it rejects, so it scrubs the keys
-        args = build_parser(secrets).parse_args(argv)
-    except SystemExit as e:                      # --help, --version and usage errors (argparse prints them)
-        return e.code if isinstance(e.code, int) else 2
     con = Console(stdin or sys.stdin or io.StringIO(), stdout or sys.stdout or io.StringIO(),
                   stderr or sys.stderr or io.StringIO(), secrets)
     try:
+        if argv and argv[0] in entrypoints.COMMANDS:
+            return entrypoints.run(argv[0], argv[1:], con, environ, Path(cwd or os.getcwd()))
+        args = build_parser(secrets).parse_args(argv)
+        if args.command == "maintenance":
+            return cmd_maintenance(args, con, environ, Path(cwd or os.getcwd()), secrets)
+        if args.command in {"init", "ab"}:
+            maintenance.require_review(environ)
+        elif args.command == "score":
+            if message := maintenance.notice(maintenance.check(environ)):
+                con.say(message)
         return COMMANDS[args.command](args, con, environ, Path(cwd or os.getcwd()), secrets)
+    except SystemExit as e:                      # help and usage errors, including delegated workflows
+        return e.code if isinstance(e.code, int) else 2
     except KeyboardInterrupt:
-        con.say("\nbriefbench: cancelled. Nothing was logged; `briefbench clean` removes a trial's worktrees.")
+        con.say("\nbriefbench: cancelled. A started trial is logged as incomplete; `briefbench clean` removes its worktrees.")
         return 130
     except BriefbenchError as e:
         con.say(f"briefbench: {e}")
@@ -199,6 +220,29 @@ def run(argv, *, stdin=None, stdout=None, stderr=None, environ=None, cwd=None) -
 
 
 # ----------------------------------------------------------------------------- init
+
+def cmd_maintenance(args, con, environ, cwd, secrets):
+    if not (maintenance.ROOT / "claims/lifecycle.json").exists():
+        raise ConfigError("Maintenance needs a source checkout containing claims/lifecycle.json.")
+    if bool(args.complete) != bool(args.token and args.note_file) or (not args.complete and (args.token or args.note_file)):
+        raise UsageError("--complete requires --token and --note-file together.")
+    try:
+        note = (cwd / args.note_file).read_text() if args.note_file else None
+    except (OSError, UnicodeError):
+        raise UsageError("Cannot read the review note file.") from None
+    result = (maintenance.search(args.search) if args.search else
+              maintenance.check(environ, complete=args.complete, token=args.token, note=note, flag=args.flag))
+    if args.json:
+        con.stdout.write(scrub(json.dumps(result, indent=2), secrets) + "\n")
+    elif args.search:
+        for row in result:
+            con.say(f"{row['id']}: {row['text']}\n  {row['path']}")
+            for link in row["relations"]:
+                con.say(f"  {link['from']} {link['relation']} {link['to']}: {link['reason']}")
+        con.say("Matches are suggestions; compare conditions before linking or merging.")
+    else:
+        con.say(maintenance.notice(result) or "No maintenance review is due. This does not establish efficacy.")
+    return 0
 
 def cmd_init(args, con, environ, cwd, secrets) -> int:
     experiment.check_name(args.name)
@@ -245,6 +289,15 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
         roles["rewriter"] = _agent_settings(name, "rewriter", args.rewriter_model, con, environ,
                                             template_role=_role("rewriter", args.scoring))
     roles["asker"] = _asker(roles["rewriter"], args.scoring) if roles["rewriter"] else None
+    if args.interview == "session":
+        if not roles["asker"] or args.scoring != "check":
+            raise UsageError("a session interview requires a skill treatment and --scoring check.")
+        agent = AGENTS[roles["asker"]["agent"]]
+        if "task-interviewer" not in agent.roles or not agent.message or not agent.turn_done:
+            raise UsageError("this rewriter has no confined interview session preset.")
+        roles["asker"]["argv"] = _template(agent, roles["asker"]["argv"][0], "task-interviewer",
+                                           roles["asker"]["model"] or "")
+        roles["asker"]["session_version"] = agent.session_version
     # Task files have nobody to answer the skill's questions: the stand-in requester answers from each one's facts.
     roles["answerer"] = _answerer(roles["rewriter"]) if roles["rewriter"] and args.scoring == "check" else None
     review = None                     # how the briefs written for task files are reviewed, apart from the outcomes
@@ -269,6 +322,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
               "a": sides["a"], "b": sides["b"], **roles, "cap_percent": cap, "timeout_s": round(args.timeout * 60),
               "rule": rule, "scoring": args.scoring, "strata": strata, **stage, "bench": _bench_commit(),
               "fidelity_policy": review,
+              "interview": args.interview, "pin_versions": args.pin_versions,
               "render": (experiment.RENDER_STAND_IN if roles["answerer"] else experiment.RENDER)
               if roles["rewriter"] else None,
               "templates": {"render": treatments.templates_sha256() if roles["rewriter"] else None,
@@ -281,7 +335,7 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
             + (f" Kinds of task, tested apart: {strata['help']}, where B should help, is tested; {strata['harm']}, "
                f"where it could hurt, must show no loss over {strata['margin'] * 100:g} points." if strata else "")
             + (" The skill's questions are answered by a stand-in requester, from each task file's facts, and its "
-               "briefs wait for a fidelity review you make apart from the outcomes, with scripts/review_briefs.py: "
+               "briefs wait for a fidelity review you make apart from the outcomes, with briefbench review: "
                + ("all of them" if not review["sample"] else f"a random {review['sample']} of them")
                + f", of which at most {review['max_unfaithful']} may fail." if roles["answerer"] else "")
             + f" Stage: {experiment.stage_text(stage)}."
@@ -294,14 +348,14 @@ def cmd_init(args, con, environ, cwd, secrets) -> int:
     for role, settings in roles.items():
         if settings:
             con.say(f"{ROLE_LABELS[role]} command:\n  {shlex.join(settings['argv'])}")
-    con.say("Each agent CLI starts with stdin closed and without API key variables, so it runs on your plan.")
+    con.say("Each agent CLI runs without API key variables, on your plan. Only a session interview keeps stdin open.")
     if not args.yes and con.pick("Freeze this experiment?", ("y", "n"), "y") != "y":
         con.say("Nothing was saved.")
         return 0
     prepare(environ)                                         # the data folder, private, before anything goes in it
     path = experiment.save(frozen, environ)
     con.say(f"Frozen in {display_path(path, environ)}. "
-            + ("Run a task file with: briefbench ab --task <file>, or a list of them with scripts/run_tasks.py"
+            + ("Run a task file with: briefbench ab --task <file>, or a list of them with briefbench tasks"
                if args.scoring == "check" else
                "In the repo of a task you'd hand off whole, run: briefbench ab \"<prompt>\""))
     return 0
@@ -468,7 +522,7 @@ def _version(executable: str, environ) -> str:
 
 def _template(agent, executable: str, role: str, model: str) -> list[str]:
     return agent.argv(executable, role, prompt="{prompt}", model=model, check="{check}", schema="{schema}",
-                      schema_json="{schema_json}", deny="{deny}", deny_rules="{deny_rules}")
+                      schema_json="{schema_json}", deny="{deny}", deny_rules="{deny_rules}", temp="{temp}")
 
 
 def _ready(name: str, environ):
@@ -505,21 +559,25 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
         if frozen.get(name) and frozen[name] != now:
             raise ConfigError(f"the {labels[name]} differ from those frozen in experiment {exp['name']}, perhaps "
                               "after an update of briefbench. Start a new experiment.")
+    task_file = _task_file(args, exp)
     agents, versions = {}, {}
     scoring = exp.get("scoring", "pick")
     for role in ("worker", "rewriter", "asker", "answerer", "judge"):
         if exp.get(role):
             agent, executable = _ready(exp[role]["agent"], environ)
-            template = _role(role, scoring)
+            template = "task-interviewer" if role == "asker" and exp.get("interview") == "session" else _role(role, scoring)
             if _template(agent, executable, template, exp[role]["model"] or "")[1:] != exp[role]["argv"][1:]:
                 raise ConfigError(f"the {role} command differs from the one frozen in experiment {exp['name']}, "
                                   "perhaps after an update of briefbench. Start a new experiment.")
             agents[role] = (agent, executable)
+            if role == "asker" and exp.get("interview") == "session" and exp[role].get("session_version", "") != agent.session_version:
+                raise ConfigError("the interview protocol changed; start a new experiment before spending usage.")
             versions[role] = _version(executable, environ)
-    task_file = _task_file(args, exp)
+            if exp.get("pin_versions") and versions[role] != exp[role]["version"]:
+                raise ConfigError(f"the {role} CLI version changed; start a new experiment before spending usage.")
     if scoring == "check" and not task_file:
         raise UsageError(f"experiment {exp['name']} is scored by the check alone, which runs task files: "
-                         "briefbench ab --task <file>, or scripts/run_tasks.py for a list of them.")
+                         "briefbench ab --task <file>, or briefbench tasks for a list of them.")
     root = runner.repo_root(Path(task_file["repo"]) if task_file else cwd)
     commit = runner.commit(root, task_file["commit"]) if task_file and task_file["commit"] else runner.head(root)
     prompt = task_file["prompt"] if task_file else _read_prompt(args, con)
@@ -589,10 +647,11 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
     stage, keys, confine = "questions", Path(task_file["file"]).parent.parent if task_file else None, None
     if task_file and exp.get("rewriter"):    # the skill's headless calls run in the first arm's folder, confined as it
         found, rewriter = _confinement(worktrees, temps, keys, environ), AGENTS[exp["rewriter"]["agent"]]
-        confine = {"deny": found[first]["deny"] + [str(temps[first])],
+        confine = {"deny": [p for p in found[first]["deny"] if p != str(temps["h"])] + [str(temps[first])],
                    "tokens": found[first]["tokens"] + [temps[first].name],
                    "env": found["env"] | {"TMPDIR": str(temps["h"])}
                    | ({rewriter.temp_env: str(temps["h"])} if rewriter.temp_env else {})}
+    arms = {}
     try:
         try:
             _skill_questions(task, specs, exp, agents, worktrees[first], out, environ, con,
@@ -616,10 +675,11 @@ def cmd_ab(args, con, environ, cwd, secrets) -> int:
                          else "; ".join(f"arm {s.upper()} reported an error: {e}" for s, e in said.items()))
                 raise AgentError(f"{scrub(cause, secrets)}. With the check alone deciding, that measures the service, "
                                  "not the prompt, so the trial is logged as failed: rerun its task once.")
-        except (AgentError, ConfigError) as e:   # kept, so a step that keeps failing on some tasks shows in score
+        except (AgentError, ConfigError, KeyboardInterrupt) as e:
             append(log_path, header("failed") | base | {"aa": args.aa, "stage": stage, "task": task, "error": str(e),
                                                        "treatments": {s: specs[s]["spec"] for s in specs},
-                                                       "versions": versions, "output": str(out)}
+                                                       "versions": versions, "output": str(out), "arms": arms,
+                                                       "usage_incomplete": isinstance(e, KeyboardInterrupt)}
                    | ({"only": args.only} if args.only else {}), secrets)
             raise
         for side in specs:                       # written only now that the arms are done
@@ -664,6 +724,7 @@ def _task_file(args, exp) -> dict | None:
         raise UsageError(f"experiment {exp['name']} has a skill treatment but no stand-in requester to answer its "
                          "questions, so a task file can't run it. Freeze a new experiment with --scoring check.")
     task = tasks.load(args.task)
+    tasks.require_check([task])
     if (strata := exp.get("strata")) and task["stratum"] not in (strata["help"], strata["harm"]):
         raise UsageError(f"the task file {task['file']} is of kind {task['stratum']!r}, but experiment {exp['name']} "
                          f"tests only {strata['help']} and {strata['harm']}.")
@@ -727,7 +788,7 @@ def _protected(root: Path, text) -> list[str]:
 
 
 def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, name: str, environ, spent=None,
-          skill=None, confine=None, **slots):
+          skill=None, confine=None, sessions=None, **slots):
     """One run of an agent CLI as rewriter, asker, stand-in requester or judge. Raises AgentError if it fails. With
     `spent`, a list, appends the call's {step, skill, seconds, tokens}, so briefing time and tokens count in the arm's
     cost. With `confine`, {deny, tokens, env} in a task file's trial, it may not read the denied places, runs in that
@@ -738,19 +799,47 @@ def _call(pair, role: str, what: str, model, prompt: str, cwd: Path, out: Path, 
         slots |= {"deny": json.dumps(confine["deny"]),
                   "deny_rules": json.dumps([f"Read(/{p}/**)" for p in confine["deny"]])}
         env = confine["env"]
-    [done] = runner.wait([runner.start(agent.argv(executable, role, prompt=prompt, model=model or "", **slots), cwd,
-                                       env, out / f"{name}.out", out / f"{name}.err")],
-                         TIMEOUT_S[role.removeprefix("task-")])
+    command = agent.argv(executable, role, prompt=prompt, model=model or "",
+                         temp="" if role == "answerer" else env.get("TMPDIR", ""), **slots)
+    if sessions is None:
+        [done] = runner.wait([runner.start(command, cwd, env, out / f"{name}.out", out / f"{name}.err")],
+                             TIMEOUT_S[role.removeprefix("task-")])
+    else:
+        if skill not in sessions:
+            sessions[skill] = runner.Conversation(command, cwd, env, out / f"{name}.err", agent.turn_done,
+                                                  protocol=agent.session(cwd, slots) if agent.session else None)
+        try:
+            done = sessions[skill].exchange(agent.message(prompt), out / f"{name}.out", TIMEOUT_S["asker"])
+        except AgentError:
+            if spent is not None:
+                spent.append({"step": name, "skill": skill, "seconds": 0, "tokens": None,
+                              "usage": None, "cost_usd": None})
+            raise
     stdout = (out / f"{name}.out").read_text(errors="replace")
     reply = agent.parse(stdout)
-    entry = {"step": name, "skill": skill, "seconds": done.seconds, "tokens": reply.tokens}
+    usage, tokens, metering_error = reply.usage, reply.tokens, None
+    if sessions is not None and agent.session and usage is not None:
+        previous = sessions[skill].usage
+        sessions[skill].usage = usage
+        if any(value < previous.get(key, 0) for key, value in usage.items()):
+            usage, tokens = None, None
+            metering_error = "the session's cumulative usage decreased; review its metering before continuing"
+        else:
+            usage = {key: value - previous.get(key, 0) for key, value in usage.items()}
+            tokens = sum(usage.values())
+    cost = reply.cost_usd
+    if sessions is not None and cost is not None:
+        cost, sessions[skill].cost = max(0, cost - sessions[skill].cost), cost
+    entry = {"step": name, "skill": skill, "seconds": done.seconds, "tokens": tokens,
+             "usage": usage, "cost_usd": cost}
     if confine:
-        entry["looked_outside"] = _names(agent.actions(stdout) + (out / f"{name}.err").read_text(errors="replace"),
+        err = sessions[skill].err if sessions is not None else out / f"{name}.err"
+        entry["looked_outside"] = _names(agent.actions(stdout) + err.read_text(errors="replace"),
                                          confine["deny"], confine["tokens"], environ)
     if spent is not None:
         spent.append(entry)
-    if done.code != 0 or reply.error:
-        why = reply.error or ("stopped at the timeout" if done.code is None else f"exit {done.code}")
+    if done.code != 0 or reply.error or metering_error:
+        why = metering_error or reply.error or ("stopped at the timeout" if done.code is None else f"exit {done.code}")
         raise AgentError(f"the {what} failed ({why}); see {out / name}.err")
     return reply
 
@@ -771,23 +860,31 @@ def _skill_questions(task, specs, exp, agents, readonly_tree, out, environ, con,
     if not sources:
         return
     schema = out / "questions.schema.json"
-    schema.write_text(json.dumps(treatments.QUESTIONS_SCHEMA))
+    session = exp.get("interview") == "session"
+    schema.write_text(json.dumps(treatments.INTERVIEW_SCHEMA if session else treatments.QUESTIONS_SCHEMA))
     asked = {spec: [] for spec in sources}            # each skill's questions so far, {q, a, turn} and facts
     asking, done = list(sources), False               # the skills that may still ask
+    sessions = {} if session else None
     try:
-        _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine)
+        _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine,
+                   sessions)
         done = True
     finally:                                          # kept on a failed trial's line too, with the turns it reached
+        for process in (sessions or {}).values():
+            process.close()
         task["answered_by"] = "you" if facts is None else "stand-in"
         task["listed"] = {spec: len(asked[spec]) for spec in sources}
         task["interview"] = {spec: {"turns": max([x["turn"] for x in asked[spec]], default=0),
                                     "capped": done and spec in asking} for spec in sources}
         task["questions"].extend({"skill": spec} | x for spec in sources for x in asked[spec])
+    if session and asking:
+        raise AgentError("the interview reached its turn guardrail without a finished brief; comparison incomplete.")
     if not any(asked.values()):
         con.say("No question to ask.")
 
 
-def _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine):
+def _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree, out, environ, con, facts, confine,
+               sessions=None):
     """The turns of _skill_questions. `asked` gains each turn's questions and answers, and `asking` keeps the skills
     that asked something in the last turn, so after the safety stop it names the skills the stop ended. With two
     skills, each turn is announced once, without numbering the skills, so the questions of a skill still asking after
@@ -808,14 +905,23 @@ def _interview(task, sources, asked, asking, exp, agents, schema, readonly_tree,
             def ask(request, n=n, spec=spec, turn=turn):
                 name = f"questions-{n}" + (f".{turn}" if turn > 1 else "")
                 (out / f"{name}.request.md").write_text(request)
-                reply = _call(agents["asker"], _role("asker", exp.get("scoring", "pick")),
+                reply = _call(agents["asker"], "task-interviewer" if sessions is not None else
+                              _role("asker", exp.get("scoring", "pick")),
                               "headless list of the skill's questions", exp["rewriter"]["model"], request,
                               readonly_tree, out, name, environ, spent=task["headless"], skill=spec, confine=confine,
-                              schema=str(schema), schema_json=json.dumps(treatments.QUESTIONS_SCHEMA))
+                              sessions=sessions, schema=str(schema), schema_json=schema.read_text())
                 if runner.changed(readonly_tree):
                     raise AgentError("the rewriter changed files, which it must not do; the trial was stopped.")
                 return reply.text
-            if listed := treatments.questions(sources[spec], task["prompt"], ask, asked[spec]):
+            if sessions is not None:
+                recent = [x for x in asked[spec] if x["turn"] == turn - 1]
+                listed, brief = treatments.interview(sources[spec], task["prompt"], recent, ask)
+                task["headless"][-1]["phase"] = "brief" if brief else "questions"
+                if brief:
+                    task.setdefault("prepared", {})[spec] = brief
+            else:
+                listed = treatments.questions(sources[spec], task["prompt"], ask, asked[spec])
+            if listed:
                 found[spec] = listed
         asking[:] = list(found)
         if not found:
@@ -862,7 +968,7 @@ def _stand_in(task, exp, agents, asked, facts, out, environ, con, turn=1) -> dic
 
 def _render(specs, task, agents, exp, readonly_tree, out, environ, con, confine=None) -> dict[str, str]:
     """Each arm's prompt. A skill treatment is run headless once, by the rewriter, in a worktree it may only read."""
-    rendered, prompts, prompt, asked = {}, {}, task["prompt"], task["questions"]
+    rendered, prompts, prompt, asked = dict(task.get("prepared", {})), {}, task["prompt"], task["questions"]
     source = next((t["spec"] for t in (exp["a"], exp["b"]) if t["kind"] == "skill"), None)
     for side, t in specs.items():
         if t["spec"] not in rendered:
@@ -886,7 +992,8 @@ def _calls_for(t, exp, headless) -> list[dict]:
     of the experiment's skill; none for original and snippet, and never the stand-in requester's."""
     if t["kind"] == "clarified":
         source = next(x["spec"] for x in (exp["a"], exp["b"]) if x["kind"] == "skill")
-        return [c for c in headless if c["skill"] == source and c["step"].startswith("questions-")]
+        return [c for c in headless if c["skill"] == source and c["step"].startswith("questions-")
+                and c.get("phase") != "brief"]
     return [c for c in headless if c["skill"] == t["spec"]] if t["kind"] == "skill" else []
 
 
@@ -931,6 +1038,7 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
                                                                   if agent.temp_env else {})
     procs = [runner.start(agent.argv(executable, role, prompt=prompts[s], model=exp["worker"]["model"] or "",
                                      check=check, deny=json.dumps(private[s]),
+                                     temp=str(temps[s]) if temps else "",
                                      deny_rules=json.dumps([f"Read(/{p}/**)" for p in private[s]])),
                           worktrees[s], envs[s], out / f"{s}.out", out / f"{s}.err")
              for s in sides]
@@ -939,6 +1047,7 @@ def _run_arms(prompts, worker, exp, settings, check, worktrees, commit, out, env
         reply = agent.parse((out / f"{s}.out").read_text(errors="replace"))
         arms[s] = {"exit_code": done.code, "timed_out": done.code is None, "seconds": done.seconds,
                    "tokens": reply.tokens, "model": reply.model, "error": reply.error,
+                   "usage": reply.usage, "cost_usd": reply.cost_usd,
                    "protected_changed": runner.restore_protected(worktrees[s], commit, settings["protected"]),
                    "diff": runner.save_diff(worktrees[s], commit, out / f"{s}.diff"), "check": None}
         if audit:
@@ -1032,7 +1141,7 @@ def _fidelity(specs, prompts, out, con, ask=True) -> dict | None:
             continue                                 # in a noise check, both arms got the same brief
         if not ask:
             con.say(f"Arm {s.upper()}'s brief ({specs[s]['spec']}) waits for your fidelity review, made apart from the "
-                    "outcomes with scripts/review_briefs.py.")
+                    "outcomes with briefbench review.")
             review[s] = {key: None for key, _question in FIDELITY}
             continue
         con.say(f"\nNow check the brief that arm {s.upper()} got ({specs[s]['spec']}) against what you asked. It is "

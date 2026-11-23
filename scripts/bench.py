@@ -1,37 +1,18 @@
-"""The bench: one fixed set of tasks that every trick runs on, the plain prompt's runs shared by all of them, and one
-table of every trick (docs/bench.md). Standard library and briefbench only.
+"""Completed development screens of posted prompting advice, with shared baselines (docs/bench.md).
 
-    uv run python scripts/bench.py make                           make the bench's tasks, once; no model is called
-    uv run python scripts/bench.py plain [--limit N] [--yes]      the plain prompt, twice on each task, once per bench
-    uv run python scripts/bench.py run TRICK [--limit N] [--yes] [--anyway]
-                                                                  a trick, once on each task it can change
-    uv run python scripts/bench.py board [--write]                the table of every trick, by kind of task
+    uv run briefbench bench make
+    uv run briefbench bench run TRICK [--yes] [--limit N]
+    uv run briefbench bench board [--write]
 
---bench FILE picks the bench's recipe (default bench/bench-1.json); the tricks come from bench/tricks.json.
-
-`make` runs each set's generator with the recipe's seed and counts, into bench/<name>/ in the data folder, and lists
-every task file in bench/<name>/tasks.txt there. A set whose generator isn't in this checkout yet waits; a later
-`make` adds it without touching the sets already made, and a set once made is never changed.
-
-`plain` freezes the experiment <name>.plain, the plain prompt against itself, and runs each task as a noise check
-(`ab --task --aa`): two runs of the plain prompt at once. `run TRICK` freezes <name>.<trick>-<hash>, the plain prompt
-against the trick's treatment, named by the first 8 characters of the treatment's hash so that an edited treatment
-starts afresh, and runs only the trick's arm on each task (`ab --task --only b`), once. A trick that adds text to the
-prompt skips the kinds whose check needs the requester's answers, which it can't get. A trick whose kinds of task the
-plain prompt passed every time has no room on the bench, and runs only with --anyway. Both say how many runs and
-roughly how many tokens they will use, and run only after a yes (or --yes).
-
-Like scripts/run_tasks.py, they skip what is done, so a stopped run picks up where it left off, and they stop so that
-you can look before more plan usage is spent: after --limit tasks; when a step fails (the next run retries that task
-once, and a task that failed twice is left out); when a run's output names a folder it must not read; at any other
-error. After each task, `briefbench clean`.
-
-`board` compares each trick's run on a task with the plain prompt's two runs on it, and prints one table for every
-trick in bench/tricks.json; --write also writes it to bench/board.md. docs/bench.md gives the rules it reads by.
+The default bench-2 screen covers a trick's source family and two fixed regression sentinels. Missing controls run
+on demand, twice per task, and are reused across tricks. A screen ends there; --full explicitly extends it to the
+whole eligible bank. --max-tokens is a persistent guardrail checked between tasks, never the normal stopping rule.
+Historical bench-1 is available with --bench bench/bench-1.json; its board and records remain separate.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -42,13 +23,13 @@ from collections import Counter
 from pathlib import Path
 from statistics import median
 
-from briefbench import cli, experiment, treatments
+from briefbench import cli, experiment, maintenance, treatments
 from briefbench.errors import BriefbenchError
 from briefbench.log import data_dir, prepare, read_entries
-from briefbench.tasks import load
+from briefbench.tasks import load, require_check
 
 ROOT = Path(__file__).resolve().parents[1]
-RECIPE, TRICKS, BOARD = ROOT / "bench" / "bench-1.json", ROOT / "bench" / "tricks.json", ROOT / "bench" / "board.md"
+RECIPE, TRICKS, BOARD = ROOT / "bench" / "bench-2-codex.json", ROOT / "bench" / "tricks.json", ROOT / "bench" / "board.md"
 WORTH = 3        # tasks gained, net, on a trick's own kinds that make it worth a full test
 HURT = 2         # tasks lost on any kind that count as hurting
 GUESS = {"tokens": 150_000, "seconds": 60}      # one run, until the bench's own plain runs say better
@@ -63,7 +44,8 @@ def read(path: Path) -> dict:
 
 def kinds(recipe: dict) -> list[dict]:
     """Every kind of task in the recipe, in its order, each with its id, `<set>:<name>`, and its set's details."""
-    return [k | {"id": f"{s['set']}:{k['name']}", "set": s["set"], "work": s["work"], "generator": s["generator"]}
+    return [k | {"id": f"{s['set']}:{k['name']}", "set": s["set"], "work": s["work"], "generator": s["generator"],
+                 "evaluation": s.get("evaluation", "check")}
             for s in recipe["sets"] for k in s["kinds"]]
 
 
@@ -80,7 +62,25 @@ def bench_tasks(recipe: dict) -> list[dict]:
     listed = home(recipe) / "tasks.txt"
     if not listed.exists():
         return []
+    if recipe.get("screen"):
+        for s in recipe["sets"]:
+            target, generator = home(recipe) / slug(s["set"]), ROOT / s["generator"]
+            if (target / "keys" / "tasks.txt").exists():
+                if (not generator.is_file() or not (target / "recipe.json").is_file()
+                        or read(target / "recipe.json") != material_identity(s, target, generator)):
+                    raise BriefbenchError("The frozen task materials or recipe changed. Use a new bench name.")
     return [load(listed.parent / line.strip()) for line in listed.read_text().splitlines() if line.strip()]
+
+
+def material_identity(spec, target, generator):
+    keys = target / "keys"
+    names = [n.strip() for n in (keys / "tasks.txt").read_text().splitlines() if n.strip()]
+    tasks = [load(keys / n) for n in names]
+    digest = hashlib.sha256()
+    for path in sorted(p for p in keys.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+        digest.update(str(path.relative_to(keys)).encode() + b"\0" + path.read_bytes() + b"\0")
+    return {"set": spec, "generator_sha256": hashlib.sha256(generator.read_bytes()).hexdigest(),
+            "keys_sha256": digest.hexdigest(), "commits": [cli.runner.head(Path(t["repo"])) for t in tasks]}
 
 
 def kind_of(task: dict) -> str:
@@ -134,6 +134,68 @@ def can_ask(treatment: dict) -> bool:
     return treatment["kind"] in ("skill", "clarified")
 
 
+def selected(recipe, trick, treatment, tasks, full=False):
+    """A completed screen: the source's whole task family, plus fixed complete-task regression sentinels.
+    Selection depends only on the recipe and task identity, never on results. A wider sweep is explicit."""
+    on = {k["id"]: k for k in kinds(recipe)}
+    eligible = [t for t in tasks if can_ask(treatment) or not on[kind_of(t)]["needs_answers"]]
+    if full or not recipe.get("screen"):
+        return eligible
+    families = {k.split(":")[0] for k in trick["kinds"]}
+    own = [t for t in eligible if t["set"] in families]
+    other = recipe["screen"].get("sentinel_families", sorted({t["set"] for t in eligible}))
+    other = [family for family in other if family not in families]
+    sentinels = [next((t for t in sorted(eligible, key=lambda x: x["id"])
+                       if t["set"] == family and not on[kind_of(t)]["needs_answers"]), None) for family in other]
+    return own + [t for t in sentinels if t][:recipe["screen"]["sentinels"]]
+
+
+def current_worker(exp):
+    """Check all execution settings before creating missing controls or spending any model usage."""
+    if not exp:
+        return True
+    templates = exp.get("templates") or {}
+    if ((templates.get("render") and templates["render"] != treatments.templates_sha256())
+            or (templates.get("answerer") and templates["answerer"] != treatments.answers_sha256())):
+        return False
+    for role in ("worker", "rewriter", "asker", "answerer"):
+        if settings := exp.get(role):
+            agent, executable = cli._ready(settings["agent"], os.environ)
+            if role == "asker" and exp.get("interview") == "session" and settings.get("session_version", "") != agent.session_version:
+                return False
+            template = "task-interviewer" if role == "asker" and exp.get("interview") == "session" else cli._role(role, "check")
+            if (cli._version(executable, os.environ) != settings["version"]
+                    or cli._template(agent, executable, template, settings["model"] or "")[1:] != settings["argv"][1:]):
+                return False
+    return True
+
+
+def usage(found):
+    """All work, including stand-in answers and failed attempts. Unknown is explicitly counted, never priced as zero."""
+    calls = [c for e in found for c in [*(e.get("arms") or {}).values(),
+                                      *((e.get("task") or {}).get("headless") or [])]]
+    calls += [{} for e in found if e.get("usage_incomplete") or
+              (e.get("kind") == "failed" and e.get("stage") == "run" and not e.get("arms"))]
+    detail = {key: sum((c.get("usage") or {}).get(key, 0) for c in calls)
+              for key in ("input", "cache_write", "cache_read", "output")}
+    return {"tokens": sum(c.get("tokens") or 0 for c in calls), "usage": detail,
+            "undetailed": sum(c.get("usage") is None for c in calls),
+            "unknown": sum(c.get("tokens") is None for c in calls),
+            "cost_usd": sum(c.get("cost_usd") or 0 for c in calls),
+            "unpriced": sum(c.get("cost_usd") is None for c in calls), "calls": len(calls)}
+
+
+def guardrail(recipe, names, tasks, limit, allow_unknown=False):
+    hashes = {t["sha256"] for t in tasks}
+    spent = usage([e for e in entries() if e.get("experiment") in names and sha(e) in hashes])
+    if (spent["unknown"] and not allow_unknown) or spent["tokens"] >= limit:
+        print(f"Comparison incomplete: usage guardrail stopped further work ({spent['tokens']:,} known tokens, "
+              f"{spent['unknown']} calls without usage; ceiling {limit:,}). Review the saved work before overriding "
+              "--max-tokens or acknowledging --allow-unknown-usage. Resuming does not reset consumption.", file=sys.stderr)
+        return False
+    return True
+
+
 # ----------------------------------------------------------------------------- make
 
 def make(recipe: dict) -> int:
@@ -143,6 +205,10 @@ def make(recipe: dict) -> int:
     listed, waiting = [], []
     for s in recipe["sets"]:
         target, generator = folder / slug(s["set"]), ROOT / s["generator"]
+        manifest = target / "recipe.json"
+        if recipe.get("screen") and (target / "keys" / "tasks.txt").exists():
+            if not generator.is_file() or not manifest.exists() or read(manifest) != material_identity(s, target, generator):
+                raise BriefbenchError("The task recipe or generator changed. Use a new bench name; existing tasks stay frozen.")
         # A generator writes its list of tasks last, so a set without one was stopped partway: it is made again. The
         # task files name their repos and keys by absolute path, so a set is made where it stays.
         if not (target / "keys" / "tasks.txt").is_file():
@@ -161,6 +227,8 @@ def make(recipe: dict) -> int:
                 shutil.rmtree(target, ignore_errors=True)         # so that the next make tries again
                 print(f"{s['set']}: the generator failed:\n{done.stderr or done.stdout}", file=sys.stderr)
                 return 1
+            if recipe.get("screen"):
+                manifest.write_text(json.dumps(material_identity(s, target, generator), sort_keys=True))
         names = [line.strip() for line in (target / "keys" / "tasks.txt").read_text().splitlines() if line.strip()]
         made = [load(target / "keys" / name) for name in names]
         wanted = {k["name"]: k["tasks"] for k in s["kinds"]}
@@ -187,6 +255,10 @@ def freeze(name: str, recipe: dict, spec: str, tasks: int, skill: bool) -> dict:
             "-y"]
     if skill:
         argv += ["--rewriter", worker["agent"], "--rewriter-model", worker["model"]]
+        if recipe.get("interview"):
+            argv += ["--interview", recipe["interview"]]
+    if recipe.get("screen"):
+        argv += ["--pin-versions"]
     code = cli.run(argv, stdin=io.StringIO(""), cwd=ROOT)
     if code:
         raise SystemExit(code)
@@ -205,7 +277,7 @@ def comparable(exp: dict | None, plain_exp: dict | None) -> bool:
     executable's path aside) and time limit."""
     def settings(e):
         worker = e.get("worker") or {}
-        return worker.get("agent"), worker.get("model"), (worker.get("argv") or [])[1:], e.get("timeout_s")
+        return worker.get("agent"), worker.get("model"), worker.get("version"), (worker.get("argv") or [])[1:], e.get("timeout_s")
     return bool(exp and plain_exp) and settings(exp) == settings(plain_exp)
 
 
@@ -264,11 +336,13 @@ def done(exp: dict | None, task: dict, kind: str, found: list[dict]) -> bool:
     return any(e.get("kind") == kind for e in mine) or sum(e.get("kind") == "failed" for e in mine) >= 2
 
 
-def go(exp: dict, todo: list[dict], extra: list[str], kind: str, limit: int) -> int:
+def go(exp: dict, todo: list[dict], extra: list[str], kind: str, limit: int, before=None) -> int:
     ran = 0
     for task in todo:
         if done(exp, task, kind, entries()):
             continue
+        if before and not before():
+            return 3
         print(f"Task {task['id']} ({kind_of(task)}), {ran + 1}{f' of {limit}' if limit else ''}...", flush=True)
         code = cli.run(["ab", "--task", task["file"], "--experiment", exp["name"], *extra], stdin=io.StringIO(""))
         cli.run(["clean"], stdin=io.StringIO(""), stderr=io.StringIO())
@@ -287,19 +361,26 @@ def go(exp: dict, todo: list[dict], extra: list[str], kind: str, limit: int) -> 
             return 1
         if limit and ran >= limit:
             break
-    print(f"Ran {ran} task{'s' if ran != 1 else ''}. `uv run python scripts/bench.py board` shows the table.")
+    print(f"Ran {ran} task{'s' if ran != 1 else ''}. `uv run briefbench bench board` shows the table.")
     return 0
 
 
 def plain(recipe: dict, args) -> int:
+    if recipe.get("screen") and not args.full:
+        print("Use `run TRICK` to create only its missing baselines. `plain --full` explicitly warms the whole bank.")
+        return 0
     todo = bench_tasks(recipe)
     if not todo:
-        print("The bench has no tasks yet: `uv run python scripts/bench.py make` makes them.", file=sys.stderr)
+        print("The bench has no tasks yet: `uv run briefbench bench make` makes them.", file=sys.stderr)
         return 2
+    require_check(todo)
     exp = frozen(plain_name(recipe))
     if not same_worker(exp, recipe):
         print(f"{exp['name']} ran with another worker or model than the recipe names. A new model needs a new bench "
               "(a new recipe, with its own name).", file=sys.stderr)
+        return 2
+    if recipe.get("screen") and not current_worker(exp):
+        print("The installed worker changed. Use a new bench name before creating more baselines.", file=sys.stderr)
         return 2
     left = [t for t in todo if not done(exp, t, "aa", entries())]
     if not left:
@@ -308,10 +389,13 @@ def plain(recipe: dict, args) -> int:
     if not agreed(args, f"The plain prompt, twice on each of {len(left)} tasks: {estimate(recipe, left, 2, False)}."):
         return 0
     exp = exp or freeze(plain_name(recipe), recipe, "original", len(todo), False)
-    return go(exp, left, ["--aa"], "aa", args.limit)
+    check = (lambda: guardrail(recipe, [exp["name"]], todo, args.max_tokens or recipe["max_tokens"],
+                               args.allow_unknown_usage)) if recipe.get("screen") else None
+    return go(exp, left, ["--aa"], "aa", args.limit, check)
 
 
 def run(recipe: dict, tricks: dict, args) -> int:
+    maintenance.runnable(args.trick)
     trick = next((t for t in tricks["tricks"] if t["id"] == args.trick), None)
     if not trick:
         print(f"No trick {args.trick!r} in the trick list ({TRICKS.name}). It lists: "
@@ -328,9 +412,11 @@ def run(recipe: dict, tricks: dict, args) -> int:
               + (", ".join(trick["kinds"]) or "none named") + f"). It waits for {trick.get('waits') or 'them'}.",
               file=sys.stderr)
         return 2
+    scope_tasks = selected(recipe, trick, treatment, todo, args.full)
+    require_check(scope_tasks)
     plains, plain_exp = baseline(recipe, entries()), frozen(plain_name(recipe))
-    if not plain_exp or any(not done(plain_exp, t, "aa", entries()) for t in todo):
-        print("Run the plain prompt on every task first (`uv run python scripts/bench.py plain`): every trick is "
+    if not recipe.get("screen") and (not plain_exp or any(not done(plain_exp, t, "aa", entries()) for t in todo)):
+        print("Run the plain prompt on every task first (`uv run briefbench bench plain`): every trick is "
               "compared with those runs.", file=sys.stderr)
         return 2
     if not same_worker(plain_exp, recipe):
@@ -338,21 +424,65 @@ def run(recipe: dict, tricks: dict, args) -> int:
               f"{plain_exp['name']} used. A new model needs a new bench (a new recipe, with its own name).",
               file=sys.stderr)
         return 2
-    # Not where passing needs the requester's answers and the trick can't ask, nor where the plain prompt failed twice
-    # and has no runs to compare with.
-    todo = [t for t in todo if (can_ask(treatment) or not on[kind_of(t)]["needs_answers"]) and t["sha256"] in plains]
-    room = [t for t in todo if kind_of(t) in trick["kinds"] and not all(passed(a) for a in plains[t["sha256"]])]
-    if not room and not args.anyway:
+    todo = scope_tasks
+    name = trick_name(recipe, trick, treatment)
+    exp = frozen(name)
+    check = None
+    if recipe.get("screen"):
+        if not current_worker(plain_exp) or not current_worker(exp):
+            print("The installed worker changed. Use a new bench name; old baselines are not reusable.", file=sys.stderr)
+            return 2
+        plan = home(recipe) / f"{name}.{'full' if args.full else 'screen'}.json"
+        identity = {"recipe": recipe, "tasks": [t["sha256"] for t in todo], "treatment": treatment["sha256"]}
+        if plan.exists() and read(plan) != identity:
+            print("The frozen comparison scope changed. Use a new bench name.", file=sys.stderr)
+            return 2
+        missing = [t for t in todo if not done(plain_exp, t, "aa", entries())]
+        left = [t for t in todo if not done(exp, t, "run", entries())]
+        scope = "full sweep" if args.full else "complete screen"
+        if not missing and not left:
+            completed = sum(t["sha256"] in plains and any(e.get("kind") == "run" and sha(e) == t["sha256"]
+                                                         for e in lines(exp, entries())) for t in todo)
+            if completed < len(todo):
+                print(f"{trick['id']}: comparison incomplete, {completed}/{len(todo)} completed; remaining tasks "
+                      "were excluded after two failures. No automatic retries.")
+                return 4
+            print(f"{trick['id']}: {scope} already complete; no model calls.")
+            return 0
+        if not agreed(args, f"{trick['id']}: {scope}, {len(todo)} tasks. Missing shared baselines: "
+                           f"{estimate(recipe, missing, 2, False)}. Treatment: "
+                           f"{estimate(recipe, left, 1, can_ask(treatment))}. No automatic wider run."):
+            return 0
+        plain_exp = plain_exp or freeze(plain_name(recipe), recipe, "original", len(todo), False)
+        exp = exp or freeze(name, recipe, stored(recipe, treatment), len(todo), treatment["kind"] == "skill")
+        if not comparable(exp, plain_exp):
+            print("Worker settings differ from the baselines. Use a new bench name.", file=sys.stderr)
+            return 2
+        plan.write_text(json.dumps(identity, sort_keys=True))
+        check = lambda: guardrail(recipe, [plain_exp["name"], name], todo, args.max_tokens or recipe["max_tokens"],
+                                  args.allow_unknown_usage)
+        if missing:
+            result = go(plain_exp, missing, ["--aa"], "aa", args.limit, check)
+            if result:
+                return result
+            if args.limit and len(missing) >= args.limit:
+                return 0
+            if args.limit:
+                args.limit -= len(missing)
+        plains = baseline(recipe, entries())
+    own = [t for t in todo if kind_of(t) in trick["kinds"]]
+    no_room = own and all(len(plains.get(t["sha256"], [])) >= 2 and all(map(passed, plains[t["sha256"]])) for t in own)
+    if no_room and not args.anyway:
         print(f"No room: the plain prompt passed every task of the kinds {trick['id']} is about, both times, so it "
               "can't do better on this bench. --anyway runs it to look for harm only.")
         return 0
-    name = trick_name(recipe, trick, treatment)
-    exp = frozen(name)
+    # A task whose plain runs failed twice has no usable baseline; report its exclusion, never a ceiling effect.
+    todo = [t for t in todo if (can_ask(treatment) or not on[kind_of(t)]["needs_answers"]) and t["sha256"] in plains]
     left = [t for t in todo if not done(exp, t, "run", entries())]
     if not left:
         print(f"{trick['id']} has run on every task it can change.")
         return 0
-    if not agreed(args, f"{trick['id']} ({trick['treatment']}), once on each of {len(left)} tasks: "
+    if not recipe.get("screen") and not agreed(args, f"{trick['id']} ({trick['treatment']}), once on each of {len(left)} tasks: "
                         f"{estimate(recipe, left, 1, can_ask(treatment))}."):
         return 0
     exp = exp or freeze(name, recipe, stored(recipe, treatment), len(todo), treatment["kind"] == "skill")
@@ -361,7 +491,7 @@ def run(recipe: dict, tricks: dict, args) -> int:
               "(the model, the worker's command, perhaps after an update of briefbench, or the time limit), so the "
               "two can't be compared. A new model or worker command needs a new bench.", file=sys.stderr)
         return 2
-    return go(exp, left, ["--only", "b"], "run", args.limit)
+    return go(exp, left, ["--only", "b"], "run", args.limit, check)
 
 
 # ----------------------------------------------------------------------------- board
@@ -427,7 +557,8 @@ def asked(tasks: list[dict], runs: dict) -> tuple[int, int]:
     return started, len(have)
 
 
-def reading(trick: dict, treatment: dict, tasks: list[dict], plains: dict, runs: dict, failed: dict, on: dict) -> str:
+def reading(trick: dict, treatment: dict, tasks: list[dict], plains: dict, runs: dict, failed: dict, on: dict,
+            complete=True) -> str:
     """One plain line on the trick, by the rules fixed in docs/bench.md, with its failed runs."""
     own = [t for t in tasks if kind_of(t) in trick["kinds"]]
     lost_twice = [t for t in tasks if t["sha256"] not in runs and len(failed.get(t["sha256"], [])) >= 2]
@@ -445,9 +576,10 @@ def reading(trick: dict, treatment: dict, tasks: list[dict], plains: dict, runs:
         if len([t for t in can if t["sha256"] in runs]) < len(can):
             words.append(f"{len(runs)} of {len(can)} runs so far.")
         mine = compare(own, plains, runs)
-        words.append(f"Worth a full test: on its kind of task it passed {mine['gained']} that the plain prompt failed "
+        words.append("Incomplete comparison; no conclusion yet." if not complete else (
+                     f"Worth a full test: on its kind of task it passed {mine['gained']} that the plain prompt failed "
                      "both times." if mine["gained"] - mine["lost"] >= WORTH
-                     else "No clear difference on its kind of task.")
+                     else "No clear difference on its kind of task."))
     if (lost := compare(tasks, plains, runs)["lost"]) >= HURT:
         words.append(f"It hurt: it failed {lost} tasks that the plain prompt passed both times.")
     if lost_twice:
@@ -467,18 +599,20 @@ def board(recipe: dict, tricks: dict) -> str:
     plains = baseline(recipe, found)
     exp = frozen(plain_name(recipe))
     current = {t["id"]: trick_lines(recipe, t, found) for t in tricks["tricks"]}     # each trick's current treatment
-    mine = lines(exp, found) + [e for x, _r, _f in current.values() for e in lines(x, found)]
-    versions = sorted({v for e in mine for v in [(e.get("versions") or {}).get("worker")] if v})
+    log_rows = lines(exp, found) + [e for x, _r, _f in current.values() for e in lines(x, found)]
+    versions = sorted({v for e in log_rows for v in [(e.get("versions") or {}).get("worker")] if v})
     out = ["# The bench's table", "",
-           "<!-- Written by `uv run python scripts/bench.py board --write`; don't edit it by hand. docs/bench.md "
+           "<!-- Written by `uv run briefbench bench board --write`; don't edit it by hand. docs/bench.md "
            "explains it. -->", "",
            f"**{recipe['name']}**: {len(tasks)} tasks, run by {recipe['worker']['agent']} with "
-           f"`{recipe['worker']['model']}`" + (f" (CLI {', '.join(versions)})" if versions else "") + ". The plain "
-           "prompt ran twice on each task, every trick once. A quick check: development data, not evidence. Only "
+           f"`{recipe['worker']['model']}`" + (f" (CLI {', '.join(versions)})" if versions else "")
+           + (". Each trick has a source-family screen with fixed regression sentinels; shared controls run only "
+              "when needed. " if recipe.get("screen") else ". The plain prompt ran twice on each task, every trick once. ")
+           + "A quick check: development data, not evidence. Only "
            "large effects show; one or two tasks either way is noise.", ""]
     if not tasks:
         return "\n".join(out + ["The bench's tasks haven't been made on this machine yet "
-                                "(`uv run python scripts/bench.py make`).", ""])
+                                "(`uv run briefbench bench make`).", ""])
     out += ["## Results", "",
             "| Trick | Its kinds of task | " + " | ".join(k["label"] for k in shown)
             + " | Extra tokens | Extra time | Reading |",
@@ -502,6 +636,9 @@ def board(recipe: dict, tricks: dict) -> str:
             continue
         row = []
         for k in shown:
+            if k["evaluation"] == "human":
+                row.append("human review")
+                continue
             if k["needs_answers"] and not can_ask(treatment):
                 row.append("can't")
                 continue
@@ -509,7 +646,13 @@ def board(recipe: dict, tricks: dict) -> str:
             row.append(f"{c['passed']}/{c['runs']}" + (f" (+{c['gained']})" if c["gained"] else "")
                        + (f" (−{c['lost']})" if c["lost"] else "") if c["runs"] else "—")
         cost = [extra_cost(tasks, plains, runs, key) for key in ("tokens", "seconds")]
-        line = reading(trick, treatment, tasks, plains, runs, failed, on)
+        full = bool(trick_exp and (home(recipe) / f"{trick_exp['name']}.full.json").exists())
+        scope = selected(recipe, trick, treatment, tasks, full=full)
+        completed = sum(t["sha256"] in runs for t in scope)
+        line = reading(trick, treatment, scope, plains, runs, failed, on,
+                       complete=not recipe.get("screen") or completed == len(scope))
+        if recipe.get("screen"):
+            line = f"{'Full sweep' if full else 'Screen'} {completed}/{len(scope)} completed. " + line
         if runs and can_ask(treatment):
             own = [t for t in tasks if kind_of(t) in trick["kinds"]]
             rest = [t for t in tasks if kind_of(t) not in trick["kinds"]]
@@ -531,9 +674,10 @@ def board(recipe: dict, tricks: dict) -> str:
         runs = [a for t in mine for a in plains.get(t["sha256"], [])]
         out.append(f"| {k['label']} (`{k['id']}`) | {k['work']} | "
                    + (f"{len(mine)} | " + (f"{sum(map(passed, runs))} of {len(runs)} runs passed" if runs
+                                          else "human review required" if k["evaluation"] == "human"
                                           else "not run yet") if mine else "— | not made yet")
                    + f" | {k['about']} |")
-    flagged = [e for e in mine if e.get("kind") in ("aa", "run") and any(a.get("looked_outside")
+    flagged = [e for e in log_rows if e.get("kind") in ("aa", "run") and any(a.get("looked_outside")
                                                                          for a in e["arms"].values())]
     left_out = [t["id"] for t in tasks if exp and not any(e.get("kind") == "aa" and sha(e) == t["sha256"]
                                                           for e in lines(exp, found))
@@ -544,6 +688,24 @@ def board(recipe: dict, tricks: dict) -> str:
         + ([f"The plain prompt failed twice on {', '.join(left_out)}, which are left out."] if left_out else [])
     if notes:
         out += ["", "## Notes", "", *[f"- {n}" for n in notes]]
+    spending = [e for e in found if e.get("experiment", "").startswith(recipe["name"] + ".")]
+    totals = [("Total", usage(spending))] + [(name, usage([e for e in spending if e["experiment"] == name]))
+                                            for name in sorted({e["experiment"] for e in spending})]
+    out += ["", "## Execution usage", "", "Includes workers, interviews, stand-in answers and logged failed attempts. "
+            "Retired treatment versions remain in these cumulative totals. Cached tokens are included; CLI dollar "
+            "estimates are not subscription bills.", "",
+            "| Experiment | Calls | Tokens | Calls without tokens | CLI USD estimate | Calls without price |",
+            "|---|---:|---:|---:|---:|---:|"]
+    for name, spent in totals:
+        price = "—" if spent["unpriced"] == spent["calls"] else f"{spent['cost_usd']:.4f}"
+        out.append(f"| {name} | {spent['calls']} | {spent['tokens']:,} | {spent['unknown']} | "
+                   f"{price} | {spent['unpriced']} |")
+    out += ["", "Token components below cover only calls with a reported breakdown; older or interrupted calls can "
+            "have a total without components.", "", "| Experiment | Fresh input | Cache write | Cache read | Output | "
+            "Calls without breakdown |", "|---|---:|---:|---:|---:|---:|"]
+    for name, spent in totals:
+        out.append(f"| {name} | " + " | ".join(f"{v:,}" for v in spent["usage"].values())
+                   + f" | {spent['undetailed']} |")
     out.append("")
     return "\n".join(out)
 
@@ -561,7 +723,7 @@ def read_card(card_id: str) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--bench", type=Path, default=RECIPE, help="the bench's recipe (default bench/bench-1.json)")
+    parser.add_argument("--bench", type=Path, default=RECIPE, help="the bench's recipe (default bench/bench-2-codex.json)")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("make", help="make the bench's tasks, once; no model is called")
     p = commands.add_parser("plain", help="the plain prompt, twice on each task")
@@ -569,13 +731,27 @@ def main(argv=None) -> int:
     r.add_argument("trick", help="its id in bench/tricks.json, the same as its claim card's")
     r.add_argument("--anyway", action="store_true", help="run a trick that has no room, to look for harm only")
     for c in (p, r):
+        c.add_argument("--full", action="store_true", help="explicitly use the whole bank instead of a completed screen")
+        c.add_argument("--max-tokens", type=int, help="persistent comparison guardrail, checked between tasks")
+        c.add_argument("--allow-unknown-usage", action="store_true",
+                       help="acknowledge reviewed unmetered work; the ceiling then bounds known consumption only")
         c.add_argument("--limit", type=int, default=0, help="stop after this many tasks (default: no limit)")
         c.add_argument("--yes", action="store_true", help="go ahead without asking")
     b = commands.add_parser("board", help="the table of every trick")
     b.add_argument("--write", action="store_true", help="also write it to bench/board.md")
     args = parser.parse_args(argv)
+    if getattr(args, "max_tokens", None) is not None and args.max_tokens <= 0:
+        parser.error("--max-tokens must be positive")
+    if getattr(args, "limit", 0) < 0:
+        parser.error("--limit must be nonnegative")
     recipe, tricks = read(args.bench), read(TRICKS)
     try:
+        if args.command in {"plain", "run"}:
+            maintenance.require_review(os.environ)
+        else:
+            message = maintenance.notice(maintenance.check(os.environ))
+            if message:
+                print(message, file=sys.stderr)
         if args.command == "make":
             return make(recipe)
         if args.command == "plain":
@@ -585,7 +761,9 @@ def main(argv=None) -> int:
         text = board(recipe, tricks)
         print(text)
         if args.write:
-            BOARD.write_text(text)
+            target = (ROOT / "bench" / f"board-{recipe['name'].removeprefix('bench-')}.md"
+                      if recipe["name"].startswith(("bench-2", "bench-3")) else BOARD)
+            target.write_text(text)
         return 0
     except BriefbenchError as e:
         print(f"bench: {e}", file=sys.stderr)

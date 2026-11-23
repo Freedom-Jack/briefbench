@@ -111,3 +111,40 @@ def test_live_confined_headless_calls(name, tmp_path):
                               caller(name, "task-rewriter", repo, deny_rules=rules))
     print(brief)
     assert "PELICAN-4471" not in brief and "notes.md" in brief
+
+
+@pytest.mark.parametrize("name", ["claude-code", "codex"])
+def test_live_session_comparison(tmp_path, name):
+    """A complete tiny comparison: streamed interview, separate stand-in, fresh confined workers, hidden check.
+    Compatibility and usage only; this artificial task is not evidence that a prompting trick helps."""
+    from briefbench import cli
+    from briefbench.log import read_entries
+    caller(name, "task-worker", tmp_path)  # installed and authenticated; no model call
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "value.py").write_text('LABEL = "unset"\n')
+    for args in (["init", "-q"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"]):
+        subprocess.run(["git", *args], cwd=repo, check=True)
+    task = tmp_path / "keys" / "one" / "task.json"
+    task.parent.mkdir(parents=True)
+    task.write_text(json.dumps({"format": 1, "id": "smoke", "set": "smoke/1", "stratum": "gap",
+                               "repo": str(repo), "type": "code", "prompt": "Set LABEL in value.py to my chosen label. The label is private and unavailable in the repo.",
+                               "goal": "The chosen label is used.", "facts": ["My chosen label is ORCHID-719."],
+                               "check": "python3 -c 'from value import LABEL; assert LABEL == \"ORCHID-719\"'"}))
+    model = AGENTS[name].default_model or "gpt-6.1-sol"
+    assert cli.run(["init", "session-smoke", "--a", "original", "--b", f"skill:{SKILL}", "--worker", name,
+                    "--worker-model", model, "--rewriter", name, "--rewriter-model", model, "--judge", "none",
+                    "--cap", "100", "--timeout", "3", "--scoring", "check", "--rule", "fixed:10", "--net-min", "0",
+                    "--interview", "session", "--pin-versions", "-y"]) == 0
+    try:
+        assert cli.run(["ab", "--experiment", "session-smoke", "--task", str(task)]) == 0
+        [row] = read_entries(Path(os.environ["BRIEFBENCH_HOME"]) / "log.jsonl")
+        assert row["arms"]["b"]["check"]["passed"]
+        assert not any(a["looked_outside"] for a in row["arms"].values())
+        assert row["task"]["questions"] and not any(c["step"].startswith("rewrite") for c in row["task"]["headless"])
+        calls = [*row["arms"].values(), *row["task"]["headless"]]
+        print("Complete smoke comparison:", len(calls), "turns,", sum(c["tokens"] for c in calls), "tokens,",
+              sum(c["cost_usd"] or 0 for c in calls), "known CLI USD estimate; unpriced calls:",
+              sum(c["cost_usd"] is None for c in calls))
+    finally:
+        cli.run(["clean"])

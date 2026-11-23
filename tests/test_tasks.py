@@ -80,6 +80,69 @@ def test_a_threshold_belongs_to_a_fixed_rule(agents, repo, tip):
 CHECK = ("--rule", "fixed:10", "--net-min", "0", "--scoring", "check")
 
 
+@pytest.mark.parametrize("mode,turns", [("none", 1), ("one", 2), ("two", 3)])
+def test_session_interview_reuses_context_and_returns_the_brief(agents, repo, tmp_path, monkeypatch, mode, turns):
+    monkeypatch.setenv("FAKE_ASKER", mode)
+    code, err = init(repo, f"skill:{SKILL}", *CHECK, "--rewriter", "claude-code", "--rewriter-model", "",
+                     "--interview", "session", "--pin-versions")
+    assert code == 0, err
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=["For the team."]))])
+    assert code == 0, err
+    [row] = entries()
+    calls = [c for c in agents() if c["role"] == "asker"]
+    assert len(calls) == turns and len({c["pid"] for c in calls}) == 1
+    assert "<skill>" in calls[0]["prompt"] and all("<skill>" not in c["prompt"] for c in calls[1:])
+    assert all("Say what it is" not in c["prompt"] and "grep" not in c["prompt"] for c in calls)
+    assert not any(c["role"] == "rewriter" for c in agents())
+    headless = [c for c in row["task"]["headless"] if c["skill"]]
+    assert sum(c["cost_usd"] for c in headless) == pytest.approx(turns * .01)
+    assert sum(c["tokens"] for c in headless) == sum(15 + n * 10 for n in range(turns))
+    assert row["prompts"]["b"] == "BRIEF: do it.\n"
+    assert row["arms"]["b"]["check"]["passed"] and row["arms"]["a"]["brief"] is None
+
+
+def test_session_turn_guardrail_is_an_incomplete_comparison(agents, repo, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_ASKER", "endless")
+    init(repo, f"skill:{SKILL}", *CHECK, "--rewriter", "claude-code", "--rewriter-model", "",
+         "--interview", "session")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))])
+    assert code == 4 and "without a finished brief" in err
+    [row] = entries()
+    assert row["kind"] == "failed" and row["task"]["interview"][f"skill:{SKILL}"]["capped"]
+    assert not any(c["role"] in ("worker", "rewriter") for c in agents())
+
+
+def test_pinned_versions_refuse_drift_before_model_calls(agents, repo, tmp_path, tip, monkeypatch):
+    init(repo, f"snippet:{tip}", *CHECK, "--pin-versions")
+    monkeypatch.setenv("FAKE_VERSION", "2.0")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))])
+    assert code == 3 and "CLI version changed" in err and not agents() and not entries()
+
+
+def test_interrupted_work_records_unknown_usage_for_the_guardrail(agents, repo, tmp_path, tip, monkeypatch):
+    init(repo, f"snippet:{tip}", *CHECK)
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt()
+    monkeypatch.setattr(cli, "_run_arms", interrupted)
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo))])
+    assert code == 130 and "cancelled" in err
+    [row] = entries()
+    assert row["kind"] == "failed" and row["usage_incomplete"]
+
+
+def test_session_clarified_uses_the_answers_without_charging_it_for_the_final_brief(agents, repo, tmp_path):
+    init(repo, f"skill:{SKILL}", *CHECK, "--a", "clarified", "--rewriter", "claude-code", "--rewriter-model", "",
+         "--interview", "session")
+    code, err = bench(["ab", "--task", str(task_file(tmp_path, repo, facts=["For the team."]))])
+    assert code == 0, err
+    [row] = entries()
+    assert "For the team." in row["prompts"]["a"] and "BRIEF" not in row["prompts"]["a"]
+    calls = [c for c in row["task"]["headless"] if c["skill"]]
+    assert [c["phase"] for c in calls] == ["questions", "brief"]
+    assert row["arms"]["a"]["brief"]["tokens"] == calls[0]["tokens"]
+    assert row["arms"]["b"]["brief"]["tokens"] == sum(c["tokens"] for c in calls)
+
+
 @pytest.mark.parametrize("extra,words", [
     (("--strata", "belief-wrong,belief-right"), "with --scoring check"),          # pick scoring
     (CHECK + ("--strata", "belief-wrong"), "two kinds of task"),
@@ -272,7 +335,7 @@ def test_a_skill_scored_by_the_check_freezes_the_stand_in_and_confined_headless_
     code, err = bench(["init", "exp2", "--a", "original", "--b", f"skill:{SKILL}", "--worker", "claude-code",
                        "--worker-model", "", "--rewriter", "codex", "--rewriter-model", "", "--judge", "none", "--cap",
                        "50", "-y", *CHECK], cwd=repo)
-    assert code == 2 and "can't yet be kept from reading other folders" in err
+    assert code == 0, err
 
 
 def test_the_stand_in_answers_from_the_facts_and_the_brief_gets_them_word_for_word(agents, repo, tmp_path):
@@ -303,7 +366,8 @@ def test_the_stand_in_answers_from_the_facts_and_the_brief_gets_them_word_for_wo
     arm_a = next(c for c in calls if c["role"] == "worker" and c["cwd"] == meta["clones"]["a"])
     for role in ("asker", "rewriter"):           # confined as arm A, in its clone, and kept out of arm A's temp folder
         call = next(c for c in calls if c["role"] == role)
-        assert rules(call) == rules(arm_a) | {f"Read(/{meta['temps']['a']}/**)"} and not call["data_home"]
+        assert rules(call) == (rules(arm_a) - {f"Read(/{meta['temps']['h']}/**)"}) | {
+            f"Read(/{meta['temps']['a']}/**)"} and not call["data_home"]
         assert call["cwd"] == meta["clones"]["a"] and call["env"]["TMPDIR"] == meta["temps"]["h"]
     assert f"Read(/{meta['temps']['h']}/**)" in rules(arm_a)          # arms can't read the headless calls' temp
     assert next(c for c in calls if c["role"] == "answerer")["cwd"] not in meta["clones"].values()
@@ -646,7 +710,10 @@ def test_task_file_protected_paths_are_a_list(agents, repo, tip, tmp_path, monke
     assert t["arms"]["a"]["protected_changed"] and t["decision"]["check_tie"] == "both_failed"
 
 
-def test_a_worker_that_cant_be_confined_doesnt_run_check_scored_experiments(agents, repo, tip):
+def test_a_worker_that_cant_be_confined_doesnt_run_check_scored_experiments(agents, repo, tip, monkeypatch):
+    import dataclasses
+    from briefbench.presets import AGENTS
+    monkeypatch.setitem(AGENTS, "codex", dataclasses.replace(AGENTS["codex"], confines_reads=False))
     code, err = bench(["init", "exp", "--a", "original", "--b", f"snippet:{tip}", "--worker", "codex", "--worker-model",
                        "", "--judge", "none", "--cap", "50", "--rule", "fixed:10", "--net-min", "0.05", "--scoring",
                        "check", "-y"], cwd=repo)

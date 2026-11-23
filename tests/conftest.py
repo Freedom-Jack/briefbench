@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from briefbench import presets, runner
+from briefbench import maintenance, presets, runner
 from briefbench.log import data_dir
 from briefbench.presets import KEY_ENVS
 
@@ -45,6 +45,8 @@ def hermetic(request, monkeypatch, tmp_path):
     monkeypatch.setenv("BRIEFBENCH_HOME", str(tmp_path / "bbhome"))
     (tmp_path / "tmp").mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))   # trial worktrees and judge folders go here
+    # Runner tests use an installed-runner layout; maintenance tests supply an isolated registry.
+    monkeypatch.setattr(maintenance, "ROOT", tmp_path / "public-registry")
     if request.node.get_closest_marker("live") is None:       # live tests keep HOME: the agent CLIs' logins live there
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
         monkeypatch.setattr(runner, "SHORT_TEMP", str(tmp_path / "tmp"))   # each arm's temporary folder, not /tmp

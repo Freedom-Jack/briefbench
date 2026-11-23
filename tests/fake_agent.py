@@ -34,13 +34,66 @@ if args[:2] in (["auth", "status"], ["login", "status"]):
                "none": "Not logged in"}[login], file=sys.stderr)
     sys.exit(0)
 if args == ["--version"]:
-    print(f"fake-{name} 1.0")
+    print(f"fake-{name} {env.get('FAKE_VERSION', '1.0')}")
+    sys.exit(0)
+
+if name == "codex" and args[0] == "app-server":
+    turn, total = 0, 0
+    for line in sys.stdin:
+        event = json.loads(line)
+        method, params = event.get("method"), event.get("params", {})
+        if method == "initialize":
+            print(json.dumps({"id": event["id"], "result": {}}), flush=True)
+        elif method == "thread/start":
+            print(json.dumps({"id": event["id"], "result": {"thread": {"id": "ephemeral-1"},
+                "approvalPolicy": "never", "activePermissionProfile": {"id": "briefbench"}}}), flush=True)
+        elif method == "turn/start":
+            prompt = params["input"][0]["text"]
+            with open(env["FAKE_CALLS"], "a") as calls:
+                calls.write(json.dumps({"name": name, "role": "asker", "pid": os.getpid(), "prompt": prompt,
+                    "argv": args, "cwd": os.getcwd(), "params": params, "keys": []}) + "\n")
+            mode = env.get("FAKE_ASKER", "one")
+            if mode == "fail": sys.exit(1)
+            if mode == "sleep": time.sleep(30)
+            questions = [f"Question {turn + 1}?"] if mode == "endless" or turn < (2 if mode == "two" else 1) else []
+            if mode == "none": questions = []
+            item = {"type": "agentMessage", "text": json.dumps({"questions": questions,
+                    "brief": "" if questions else "BRIEF: do it."})}
+            print(json.dumps({"method": "item/completed", "params": {"item": item}}))
+            total += 30
+            print(json.dumps({"method": "thread/tokenUsage/updated", "params": {"tokenUsage": {"total": {
+                "inputTokens": total, "cachedInputTokens": (turn + 1) * 10, "outputTokens": (turn + 1) * 5}}}}))
+            print(json.dumps({"method": "turn/completed", "params": {"turn": {"status": "completed"}}}), flush=True)
+            turn += 1
+    sys.exit(0)
+
+if "--input-format" in args:
+    for turn, line in enumerate(sys.stdin):
+        prompt = json.loads(line)["message"]["content"]
+        with open(env["FAKE_CALLS"], "a") as calls:
+            calls.write(json.dumps({"role": "asker", "pid": os.getpid(), "prompt": prompt, "argv": args,
+                                    "keys": sorted(k for k in env if k.endswith("_API_KEY"))}) + "\n")
+        mode = env.get("FAKE_ASKER", "one")
+        if mode == "fail":
+            sys.exit(1)
+        if mode == "sleep":
+            time.sleep(30)
+        if mode == "peek":
+            print(Path(env["FAKE_PEEK_FILE"]).read_text(), file=sys.stderr, flush=True)
+        questions = [f"Question {turn + 1}?"] if (mode == "endless" or turn < (2 if mode == "two" else 1)) else []
+        if mode == "none":
+            questions = []
+        print(json.dumps({"type": "result", "is_error": False,
+                          "structured_output": {"questions": questions, "brief": "" if questions else "BRIEF: do it."},
+                          "usage": {"input_tokens": 10, "cache_read_input_tokens": turn * 10, "output_tokens": 5},
+                          "total_cost_usd": (turn + 1) * .01}), flush=True)
     sys.exit(0)
 
 prompt = args[args.index("--") + 1]
 schema = "--json-schema" in args or "--output-schema" in args
 role = ("asker" if schema and "<skill>" in prompt else "answerer" if schema and "<facts>" in prompt
-        else "judge" if schema else "worker" if "acceptEdits" in args or "workspace-write" in args else "rewriter")
+        else "judge" if schema else "worker" if "acceptEdits" in args or "workspace-write" in args
+        or any('\":workspace_roots\"={\".\"=\"write\"' in a for a in args) else "rewriter")
 with open(env["FAKE_CALLS"], "a") as calls:
     calls.write(json.dumps({"name": name, "role": role, "argv": args, "cwd": os.getcwd(),
                             "keys": sorted(k for k in env if k.endswith(("_API_KEY", "_BASE_URL"))),

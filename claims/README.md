@@ -2,6 +2,8 @@
 
 A claim card records one prompting claim: a single recommendation that can be traced to its source and tested. It is not a summary of an article. An essay with ten pieces of advice can give ten cards.
 
+The [central backlog](../BACKLOG.md) is the broader intake, including maintainer ideas, command/workflow proposals, untriaged article themes and retired cards. This registry's 18 cards are a subset; absence here does not mean a source or idea was forgotten or experimentally rejected. Scope rules below still determine what may become a claim card or enter the skill.
+
 **Only advice that people have posted gets a card** ([design](../docs/design.md), "Only advice people have posted"): advice someone gave in public, in a post, a guide, a talk, a paper or a comment, about what a prompt says or how it says it, or, since 20 Nov 2026, about which model, effort level or multi-agent mode to run a task with. Other advice about the agent's setup, such as its tools, project files like CLAUDE.md, checks outside the model or how several agents are arranged, gets no card and no test. Neither do the project's own ideas, such as the instructions in version 0.2.0 of the skill or the suggestions in its research reports.
 
 Each card says who made the claim, what outside evidence exists, whether the claim could ever belong in the `brief` skill, and how briefbench could test it, on the kind of work its source is about.
@@ -47,14 +49,16 @@ The first cards come from the project's research, read on 4 Nov 2026: the [value
 
 ### By article
 
-Each article or guide, broken into its tricks, with one line on how helpful it has been so far (added 20 Nov 2026). Since 20 Nov 2026 every trick runs first on the bench, one fixed set of tasks shared by every trick, whose table, [bench/board.md](../bench/board.md), compares them all ([docs/bench.md](../docs/bench.md)); its results are development data, never evidence, and a line here says so when it quotes one. The line sums up its tricks' results; each trick keeps its own result on its card. Only a trick that changes what a request says, or, for settings advice, the note after the brief, in a form its card names, can enter the skill; the others still get a result from the bench. Settings tricks wait for settings arms in the bench ([build plan](../docs/build-plan.md), P2, "Settings tricks").
+Each article or guide, broken into its tricks, with one line on how helpful it has been so far (added 20 Nov 2026). Since 20 Nov 2026 every trick runs first on the bench, one fixed set of tasks shared by every trick. The current [Codex table](../bench/board-2-codex.md) and historical [bench-1 table](../bench/board.md) keep their execution configurations separate ([docs/bench.md](../docs/bench.md)); results are development data, never adoption evidence. The line sums up its tricks' results; each trick keeps its own result on its card. Only a trick that changes what a request says, or, for settings advice, the note after the brief, in a form its card names, can enter the skill; the others still get a result from the bench. Settings tricks wait for settings arms in the bench ([build plan](../docs/build-plan.md), P2, "Settings tricks").
+
+The [23 Nov queue record](../docs/status/2026-11-23-article-queue.md) accounts for all 18 cards, separating prior screens, untested claims, skill fit and specific prerequisites. Six tricks cannot enter `brief` in their stated form. No trick has been adopted. The maintainer's subsequent quality-first preference for coding informs [future settings-study design](../docs/status/2026-11-23-settings-proposal.md), not the rules of existing experiments.
 
 | Article | Its tricks | Could enter the skill | So far |
 | --- | --- | --- | --- |
-| Felix Rieseberg, "How to be more ambitious" (13 Oct 2026) | [test your belief](test-your-belief.md), [ask for the outcome](outcome-over-task.md), [unreasonable goals](unreasonable-goals.md), [a deeper prompt](depth-rewrite.md), [other fields](range-other-fields.md) | 2 of 5, each in a narrower form | 1 of 5 checked: "test your belief" had no room on Claude Code with Opus 5.5, because the plain prompt already did it. 4 not tested |
-| Claude Code's best practices: "Brainstorm with Claude first", and "Change the model and effort" | [interview until it could write the spec](ask-questions-first.md); settings: [max effort for hard solo work](max-effort-for-hard-solo-work.md), [more effort for easily missed cases](raise-effort-for-easy-to-miss-cases.md), [a smaller model for routine work](smaller-model-for-routine-work.md) | The interview: yes. The 3 settings tricks: as a note after the brief | The interview: pilot on 20 Nov 2026, development, not evidence: with it, 5 of 5 incomplete requests passed against 0 of 5 for the plain prompt, and 5 of 5 complete ones passed either way. Not tested yet. The settings tricks: not tested |
+| Felix Rieseberg, "How to be more ambitious" (13 Oct 2026) | [test your belief](test-your-belief.md), [ask for the outcome](outcome-over-task.md), [unreasonable goals](unreasonable-goals.md), [a deeper prompt](depth-rewrite.md), [other fields](range-other-fields.md) | 2 of 5, each in a narrower form | 2 of 5 examined in development, not evidence. Outcome also completed its Codex screen on 23 Nov: 10/10 passes, four gains, zero losses, worth a full test; the tested form replaces the deliverable and cannot enter the skill, and time overhead exceeds its frozen adoption limit. Belief testing also had no room on Codex: 16/16 analysis controls passed, so the treatment did not run. The other 3 are untested |
+| Claude Code's best practices: "Brainstorm with Claude first", and "Change the model and effort" | [interview until it could write the spec](ask-questions-first.md); settings: [max effort for hard solo work](max-effort-for-hard-solo-work.md), [more effort for easily missed cases](raise-effort-for-easy-to-miss-cases.md), [a smaller model for routine work](smaller-model-for-routine-work.md) | The interview: yes. The 3 settings tricks: as a note after the brief | Interview: pilot and bench-1 screen already ran; bench-1 read both worth a full test and it hurt, with fidelity concerns. On 23 Nov the requested Codex transfer screen completed 10/10: two gains, zero losses, no clear difference under the frozen screen rule; all ten briefs await fidelity review ([record](../docs/status/2026-11-23-cheap-comparisons.md#codex-support-and-completed-screen-2026-11-23)). The earlier Claude attempt remains incomplete and separate. All development, not adoption evidence. The 3 settings claims are genuinely untested; max effort remains a Claude-specific proposal |
 | Anthropic, Claude Platform docs, "Choosing a model" | [raise effort before a bigger model](effort-before-model.md) | As a note after the brief | Not tested |
-| OpenAI, Codex docs, "Models" | [start with the default effort](default-effort-first.md), [multi-agent mode only for divisible work](multi-agent-for-divisible-work.md) | As a note after the brief | Not tested |
+| OpenAI, Codex docs, "Models" | [start with the default effort](default-effort-first.md), [multi-agent mode only for divisible work](multi-agent-for-divisible-work.md) | As a note after the brief | Both genuinely untested. Default effort is the next candidate for the selected Codex host; read isolation is now supported, but frozen settings arms, an explicit default, a quality/cost rule and suitable harder tasks remain prerequisites. No settings run was launched |
 | Gabriel Anhaia, "One Command per Kind of Task" (DEV Community, 19 Oct 2026) | [model and effort by the kind of task](presets-by-task-kind.md) | As a note after the brief | Not tested |
 | Anthropic, "Prompting Claude Opus 5.5" | [explore broadly before settling](explore-broadly.md) | No | Not tested |
 | Charlie Hills, LinkedIn post on ASD-STE100 (about 23 Oct 2026) | [controlled language](controlled-language.md) | In a narrower form | Not tested; needs the maintainer's blind picks |
@@ -175,8 +179,16 @@ With an exact two-sided sign test at the 5% level and 80% power, true win rates 
 
 ## Adding a card
 
+First follow [deduplication and maintenance](../docs/maintenance.md). Search existing
+current and historical advice with `uv run briefbench maintenance --search "advice"`.
+Compare behavior, condition, environment and treatment form before creating a card;
+keep a repeated source on the canonical card and record typed links in
+[lifecycle.json](lifecycle.json). Similar wording alone does not transfer evidence.
+Adoption adds a scoped instruction record there; retirement preserves the card and
+its dated Decision, evidence and rollback target. No instruction is currently adopted.
+
 1. Copy a card and rename it to the new `id`.
 2. Write one claim, paraphrased, with a link to where it was posted. It must be advice that someone gave in public, about prompts or about which model, effort level or multi-agent mode to run a task with; other advice about the agent's setup, or an idea of your own, gets no card. A claim you can't trace to a source is `needs-source`.
 3. Add only outside evidence you have read, with its link.
 4. Add a row to the table above.
-5. Run `uv run pytest tests/test_claims.py -q`. It checks the format and the boundary rule, not whether the claim is true. A passing check is not evidence for the claim.
+5. Run `uv run pytest tests/test_claims.py tests/test_maintenance.py -q`. It checks the format and the boundary rule, not whether the claim is true. A passing check is not evidence for the claim.
