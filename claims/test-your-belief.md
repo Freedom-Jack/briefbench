@@ -60,4 +60,6 @@ Calibrations under the method for public results, 9 Nov 2026: development data, 
 
 So after the two revisions a calibration allows, the label is "no room on this model": on these materials, Claude Code with Opus 5.5 already tests a stated belief against the other data without being asked, so the plain prompt leaves the trick almost nothing to fix. It is a finding about the materials and this worker, not about the trick, which was never run. The three calibrations used 60 runs, 1 failed run in all, at a median of 51 seconds and 0.17 million tokens a run, 11 million tokens in all. A test would need a worker or materials where the plain prompt misses at least 30% of the time.
 
+Bench, 21 Nov 2026: development, not evidence ([board](../bench/board.md); bench-1, Claude Code 2.1.330 with `claude-opus-5-5`). The table reads **no room**: the plain prompt named the real cause in 8 of 8 runs on the wrong-belief tasks (and 8 of 8 where the belief was right), so the add-on did not run (`run` without `--anyway`) and used no tokens.
+
 briefbench evidence: none yet.
